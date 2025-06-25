@@ -29,6 +29,11 @@ export const navigationStructure: NavigationStructure = {
       icon: Home,
     },
     {
+      title: '문서',
+      href: '/docs',
+      icon: FileText,
+    },
+    {
       title: '프로젝트',
       href: '/projects',
       icon: FolderOpen,
@@ -89,23 +94,26 @@ export async function getSidebarItems(pathname: string): Promise<NavigationItem[
     });
   }
 
-  // MDX 파일들에서 생성된 네비게이션 아이템 추가
-  try {
-    // 서버 액션 호출
-    const { generateMDXNavigation } = await import('./mdx-utils');
-    const mdxItems = await generateMDXNavigation(pathname);
-    
-    // MDX 아이템들을 "문서" 그룹으로 묶기
-    if (mdxItems.length > 0) {
-      staticItems.push({
-        title: '문서',
-        href: '#', // 실제 페이지가 아닌 그룹 헤더
-        icon: FileText,
-        children: mdxItems,
-      });
+  // docs 경로에 대한 MDX 네비게이션 생성
+  if (pathname.startsWith('/docs')) {
+    try {
+      const { getAllMDXSections } = await import('./mdx-utils');
+      const sections = await getAllMDXSections();
+      
+      for (const section of sections) {
+        staticItems.push({
+          title: section.section.charAt(0).toUpperCase() + section.section.slice(1),
+          href: `/docs/${section.section}`,
+          icon: FileText,
+          children: section.files.map(file => ({
+            title: file.title,
+            href: `/docs/${section.section}/${file.slug}`,
+          })),
+        });
+      }
+    } catch (error) {
+      console.error('Error loading MDX navigation:', error);
     }
-  } catch (error) {
-    console.error('Error loading MDX navigation:', error);
   }
 
   return staticItems;
