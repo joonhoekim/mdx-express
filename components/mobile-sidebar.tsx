@@ -5,8 +5,13 @@ import { Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { SidebarNavigationContent } from "./sidebar-navigation";
+import { NavigationItem } from "@/lib/navigation";
 
-export function MobileSidebar() {
+interface MobileSidebarProps {
+  sidebarItems: NavigationItem[];
+}
+
+export function MobileSidebar({ sidebarItems }: MobileSidebarProps) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -19,7 +24,7 @@ export function MobileSidebar() {
       </SheetTrigger>
       <SheetContent side="left" className="p-0 w-64">
         <div onClick={() => setOpen(false)}>
-          <SidebarNavigationContent />
+          <SidebarNavigationContent sidebarItems={sidebarItems} />
         </div>
       </SheetContent>
     </Sheet>

@@ -4,11 +4,12 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { isNavigationItemActive, NavigationItem } from "@/lib/navigation";
+import { NavigationItem } from "@/lib/navigation";
+import { isNavigationItemActiveSync, getIconComponent } from "@/lib/navigation-utils";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 
 interface SidebarNavigationItemProps {
   item: NavigationItem;
@@ -17,10 +18,10 @@ interface SidebarNavigationItemProps {
 }
 
 function SidebarNavigationItem({ item, pathname, level = 0 }: SidebarNavigationItemProps) {
-  const [isOpen, setIsOpen] = useState(isNavigationItemActive(item, pathname));
+  const [isOpen, setIsOpen] = useState(isNavigationItemActiveSync(item, pathname));
   const isActive = item.href === pathname;
   const hasChildren = item.children && item.children.length > 0;
-  const Icon = item.icon;
+  const Icon = getIconComponent(item.icon);
 
   if (hasChildren) {
     return (
@@ -32,7 +33,7 @@ function SidebarNavigationItem({ item, pathname, level = 0 }: SidebarNavigationI
               className={cn(
                 "w-full justify-start gap-2 hover:bg-accent",
                 level > 0 && "ml-4",
-                isNavigationItemActive(item, pathname) && "bg-accent"
+                isNavigationItemActiveSync(item, pathname) && "bg-accent"
               )}
             >
               <div className="flex items-center gap-2 flex-1">
@@ -79,42 +80,12 @@ function SidebarNavigationItem({ item, pathname, level = 0 }: SidebarNavigationI
   );
 }
 
-export function SidebarNavigation() {
+interface SidebarNavigationProps {
+  sidebarItems: NavigationItem[];
+}
+
+export function SidebarNavigation({ sidebarItems }: SidebarNavigationProps) {
   const pathname = usePathname();
-  const [sidebarItems, setSidebarItems] = useState<NavigationItem[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    async function loadSidebarItems() {
-      try {
-        // 동적 import를 사용하여 클라이언트에서 서버 함수 호출
-        const { getSidebarItems } = await import('@/lib/navigation');
-        const items = await getSidebarItems(pathname);
-        setSidebarItems(items);
-      } catch (error) {
-        console.error('Error loading sidebar items:', error);
-        setSidebarItems([]);
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    loadSidebarItems();
-  }, [pathname]);
-
-  if (loading) {
-    return (
-      <div className="hidden md:block w-64 border-r bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="p-4">
-          <div className="animate-pulse space-y-2">
-            <div className="h-4 bg-muted rounded w-3/4"></div>
-            <div className="h-4 bg-muted rounded w-1/2"></div>
-            <div className="h-4 bg-muted rounded w-2/3"></div>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   if (sidebarItems.length === 0) {
     return null;
@@ -138,39 +109,12 @@ export function SidebarNavigation() {
 }
 
 // 모바일용 사이드바 (Sheet에서 사용)
-export function SidebarNavigationContent() {
+interface SidebarNavigationContentProps {
+  sidebarItems: NavigationItem[];
+}
+
+export function SidebarNavigationContent({ sidebarItems }: SidebarNavigationContentProps) {
   const pathname = usePathname();
-  const [sidebarItems, setSidebarItems] = useState<NavigationItem[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    async function loadSidebarItems() {
-      try {
-        const { getSidebarItems } = await import('@/lib/navigation');
-        const items = await getSidebarItems(pathname);
-        setSidebarItems(items);
-      } catch (error) {
-        console.error('Error loading sidebar items:', error);
-        setSidebarItems([]);
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    loadSidebarItems();
-  }, [pathname]);
-
-  if (loading) {
-    return (
-      <div className="p-4">
-        <div className="animate-pulse space-y-2">
-          <div className="h-4 bg-muted rounded w-3/4"></div>
-          <div className="h-4 bg-muted rounded w-1/2"></div>
-          <div className="h-4 bg-muted rounded w-2/3"></div>
-        </div>
-      </div>
-    );
-  }
 
   if (sidebarItems.length === 0) {
     return null;
