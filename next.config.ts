@@ -1,15 +1,10 @@
-import type { NextConfig } from "next";
-import createMDX from '@next/mdx';
+import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
-  // Configure `pageExtensions` to include MDX files
-  pageExtensions: ['js', 'jsx', 'mdx', 'ts', 'tsx'],
-  // Optionally, add any other Next.js config below
+  // next-mdx-remote를 사용하므로 기본 Next.js 설정만 유지
+  experimental: {
+    mdxRs: false, // MDX RS 비활성화
+  },
 };
 
-const withMDX = createMDX({
-  // Add markdown plugins here, as desired
-});
-
-// Wrap MDX and Next.js config with each other
-export default withMDX(nextConfig);
+export default nextConfig;
