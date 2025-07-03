@@ -23,21 +23,19 @@ function generateBreadcrumbs(pathname: string): BreadcrumbItem[] {
     { title: "홈", href: "/" }
   ];
 
-  // 경로에 따른 한국어 제목 매핑
-  const titleMap: Record<string, string> = {
-    dashboard: "대시보드",
-    analytics: "분석",
-    reports: "리포트",
-    settings: "설정",
-    profile: "프로필",
-    projects: "프로젝트",
+  // 파일명을 기반으로 제목 생성 함수
+  const formatTitle = (segment: string): string => {
+    return segment
+      .split('-')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
   };
 
   let currentPath = "";
   segments.forEach((segment, index) => {
     currentPath += `/${segment}`;
-    const title = titleMap[segment] || segment.charAt(0).toUpperCase() + segment.slice(1);
-    
+    const title = formatTitle(segment);
+
     if (index === segments.length - 1) {
       // 마지막 항목은 링크 없이
       breadcrumbs.push({ title });
@@ -54,42 +52,44 @@ export function BreadcrumbNavigation() {
   const breadcrumbs = generateBreadcrumbs(pathname);
 
   // 홈 페이지에서는 브레드크럼을 표시하지 않음
-  if (pathname === "/" || breadcrumbs.length <= 2) {
+  // docs 경로에서는 더 자주 브레드크럼 표시
+  if (pathname === "/") {
+    return null;
+  }
+
+  // docs 경로가 아닌 경우에만 길이 제한 적용
+  if (!pathname.startsWith("/docs") && breadcrumbs.length <= 2) {
     return null;
   }
 
   return (
-    <div className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="flex h-12 items-center px-6">
-        <Breadcrumb>
-          <BreadcrumbList>
-            {breadcrumbs.map((crumb, index) => (
-              <div key={crumb.href || crumb.title} className="flex items-center">
-                <BreadcrumbItem>
-                  {crumb.href ? (
-                    <BreadcrumbLink asChild>
-                      <Link href={crumb.href} className="flex items-center gap-1">
-                        {index === 0 && <Home className="h-4 w-4" />}
-                        {crumb.title}
-                      </Link>
-                    </BreadcrumbLink>
-                  ) : (
-                    <BreadcrumbPage className="flex items-center gap-1">
-                      {index === 0 && <Home className="h-4 w-4" />}
-                      {crumb.title}
-                    </BreadcrumbPage>
-                  )}
-                </BreadcrumbItem>
-                {index < breadcrumbs.length - 1 && (
-                  <BreadcrumbSeparator>
-                    <ChevronRight className="h-4 w-4" />
-                  </BreadcrumbSeparator>
-                )}
-              </div>
-            ))}
-          </BreadcrumbList>
-        </Breadcrumb>
-      </div>
-    </div>
+    <Breadcrumb>
+      <BreadcrumbList>
+        {breadcrumbs.map((crumb, index) => (
+          <div key={crumb.href || crumb.title} className="flex items-center">
+            <BreadcrumbItem>
+              {crumb.href ? (
+                <BreadcrumbLink asChild>
+                  <Link href={crumb.href} className="flex items-center gap-1">
+                    {index === 0 && <Home className="h-4 w-4" />}
+                    {crumb.title}
+                  </Link>
+                </BreadcrumbLink>
+              ) : (
+                <BreadcrumbPage className="flex items-center gap-1">
+                  {index === 0 && <Home className="h-4 w-4" />}
+                  {crumb.title}
+                </BreadcrumbPage>
+              )}
+            </BreadcrumbItem>
+            {index < breadcrumbs.length - 1 && (
+              <BreadcrumbSeparator>
+                <ChevronRight className="h-4 w-4" />
+              </BreadcrumbSeparator>
+            )}
+          </div>
+        ))}
+      </BreadcrumbList>
+    </Breadcrumb>
   );
 } 

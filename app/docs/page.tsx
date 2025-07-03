@@ -9,7 +9,7 @@ export default async function DocsIndexPage() {
   return (
     <div className="space-y-8">
       <div className="space-y-2">
-        <h1 className="text-4xl font-bold">문서</h1>
+        <h1 className="text-4xl font-bold">블로그</h1>
         <p className="text-xl text-muted-foreground">
           프로젝트 문서를 탐색하고 필요한 정보를 찾아보세요.
         </p>

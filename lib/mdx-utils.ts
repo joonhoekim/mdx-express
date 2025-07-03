@@ -45,19 +45,19 @@ export async function ensureContentDirectory(): Promise<void> {
 export async function getMDXFile(filePath: string): Promise<MDXFile | null> {
   try {
     const fullPath = path.join(CONTENT_DIR, filePath);
-    
+
     // 파일 존재 여부 확인
     try {
       await fs.access(fullPath);
     } catch {
       return null;
     }
-    
+
     const fileContents = await fs.readFile(fullPath, 'utf8');
     const { data, content } = matter(fileContents);
-    
+
     const frontmatter = data as MDXFrontmatter;
-    
+
     return {
       slug: path.basename(filePath, '.mdx'),
       title: frontmatter.title || path.basename(filePath, '.mdx'),
@@ -76,17 +76,17 @@ export async function getMDXFile(filePath: string): Promise<MDXFile | null> {
 export async function getMDXFiles(sectionPath: string): Promise<MDXFile[]> {
   try {
     const fullPath = path.join(CONTENT_DIR, sectionPath);
-    
+
     // 디렉토리 존재 여부 확인
     try {
       await fs.access(fullPath);
     } catch {
       return [];
     }
-    
+
     const files = await fs.readdir(fullPath);
     const mdxFiles: MDXFile[] = [];
-    
+
     for (const file of files) {
       if (file.endsWith('.mdx')) {
         const filePath = path.join(sectionPath, file);
@@ -96,7 +96,7 @@ export async function getMDXFiles(sectionPath: string): Promise<MDXFile[]> {
         }
       }
     }
-    
+
     // order 필드에 따라 정렬
     return mdxFiles.sort((a, b) => (a.order || 0) - (b.order || 0));
   } catch (error) {
@@ -109,25 +109,25 @@ export async function getMDXFiles(sectionPath: string): Promise<MDXFile[]> {
 export async function getAllMDXSections(): Promise<MDXSection[]> {
   try {
     await ensureContentDirectory();
-    
+
     // 디렉토리 존재 여부 확인
     try {
       await fs.access(CONTENT_DIR);
     } catch {
       return [];
     }
-    
+
     const dirents = await fs.readdir(CONTENT_DIR, { withFileTypes: true });
     const sections = dirents
-      .filter(dirent => dirent.isDirectory())
-      .map(dirent => dirent.name);
-    
+      .filter((dirent) => dirent.isDirectory())
+      .map((dirent) => dirent.name);
+
     const result: MDXSection[] = [];
     for (const section of sections) {
       const files = await getMDXFiles(section);
       result.push({ section, files });
     }
-    
+
     return result;
   } catch (error) {
     console.error('Error reading MDX sections:', error);
@@ -141,68 +141,126 @@ export async function mdxFilesToNavigationItems(
   baseHref: string
 ): Promise<NavigationItem[]> {
   const files = await getMDXFiles(sectionPath);
-  
-  return files.map(file => ({
+
+  return files.map((file) => ({
     title: file.title,
     href: `${baseHref}/${sectionPath}-${file.slug}`,
   }));
 }
 
 // 섹션별로 네비게이션 아이템 생성 - 서버 액션
-export async function generateMDXNavigation(pathname: string): Promise<NavigationItem[]> {
+export async function generateMDXNavigation(
+  pathname: string
+): Promise<NavigationItem[]> {
   // 현재 경로에서 섹션 추출
   const pathSegments = pathname.split('/').filter(Boolean);
-  
+
   if (pathSegments.length === 0) return [];
-  
+
   // 현재 섹션 결정 (예: /dashboard -> dashboard)
   const currentSection = pathSegments[0];
-  
+
   // 해당 섹션의 MDX 파일들 가져오기
-  const mdxItems = await mdxFilesToNavigationItems(
-    currentSection,
-    '/docs'
-  );
-  
+  const mdxItems = await mdxFilesToNavigationItems(currentSection, '/docs');
+
   return mdxItems;
 }
 
 // 특정 MDX 파일의 내용 가져오기 (동적 라우팅용) - 서버 액션
-export async function getMDXContent(section: string, slug: string): Promise<MDXFile | null> {
+export async function getMDXContent(
+  section: string,
+  slug: string
+): Promise<MDXFile | null> {
   const filePath = path.join(section, `${slug}.mdx`);
   return await getMDXFile(filePath);
 }
 
 // 새로운 MDX 파일 생성 - 서버 액션 (IDE에서 사용 가능)
 export async function createMDXFile(
-  section: string, 
-  slug: string, 
-  frontmatter: MDXFrontmatter, 
+  section: string,
+  slug: string,
+  frontmatter: MDXFrontmatter,
   content: string
 ): Promise<boolean> {
   try {
     await ensureContentDirectory();
-    
+
     const sectionDir = path.join(CONTENT_DIR, section);
-    
+
     // 섹션 디렉토리 생성 (비동기)
     try {
       await fs.access(sectionDir);
     } catch {
       await fs.mkdir(sectionDir, { recursive: true });
     }
-    
+
     const filePath = path.join(sectionDir, `${slug}.mdx`);
     const frontmatterString = Object.entries(frontmatter)
       .map(([key, value]) => `${key}: "${value}"`)
       .join('\n');
-    
+
     const fileContent = `---\n${frontmatterString}\n---\n\n${content}`;
-    
+
     await fs.writeFile(filePath, fileContent, 'utf8');
     return true;
   } catch (error) {
     console.error(`Error creating MDX file ${section}/${slug}:`, error);
     return false;
   }
-} 
+}
+
+// 현재 경로의 형제 파일들을 가져오는 함수
+export async function getSiblingFiles(
+  pathname: string
+): Promise<NavigationItem[]> {
+  try {
+    // pathname에서 섹션과 현재 파일 추출
+    const pathSegments = pathname.split('/').filter(Boolean);
+
+    if (pathSegments.length < 2 || pathSegments[0] !== 'docs') {
+      return [];
+    }
+
+    const section = pathSegments[1]; // 예: 'dashboard', 'guides', 'projects'
+    const sectionDir = path.join(CONTENT_DIR, section);
+
+    // 섹션 디렉토리 존재 여부 확인
+    try {
+      await fs.access(sectionDir);
+    } catch {
+      return [];
+    }
+
+    const files = await fs.readdir(sectionDir);
+    const mdxFiles: MDXFile[] = [];
+
+    for (const file of files) {
+      if (file.endsWith('.mdx')) {
+        const filePath = path.join(section, file);
+        const mdxFile = await getMDXFile(filePath);
+        if (mdxFile) {
+          mdxFiles.push(mdxFile);
+        }
+      }
+    }
+
+    // order 필드에 따라 정렬 후 NavigationItem으로 변환
+    return mdxFiles
+      .sort((a, b) => (a.order || 0) - (b.order || 0))
+      .map((mdxFile) => ({
+        title: mdxFile.title,
+        href: `/docs/${section}/${mdxFile.slug}`,
+      }));
+  } catch (error) {
+    console.error('Error getting sibling files:', error);
+    return [];
+  }
+}
+
+// 현재 경로에서 섹션 제목을 포맷팅하는 함수
+export async function formatSectionTitle(section: string): Promise<string> {
+  return section
+    .split('-')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}

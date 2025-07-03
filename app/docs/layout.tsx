@@ -1,7 +1,9 @@
 import { TopNavigation } from "@/components/top-navigation";
 import { SidebarNavigation } from "@/components/sidebar-navigation";
 import { MobileSidebar } from "@/components/mobile-sidebar";
-import { getTopLevelItems, getSidebarItems } from "@/lib/navigation";
+import { BreadcrumbNavigation } from "@/components/breadcrumb-navigation";
+import { getTopLevelItems, NavigationItem } from "@/lib/navigation";
+import { getSiblingFiles } from "@/lib/mdx-utils";
 
 export default async function DocsLayout({
   children,
@@ -9,8 +11,8 @@ export default async function DocsLayout({
   children: React.ReactNode;
 }) {
   const topLevelItems = await getTopLevelItems();
-  // docs 레이아웃이므로 '/docs' 경로로 사이드바 아이템 가져오기
-  const sidebarItems = await getSidebarItems('/docs');
+  // 사이드바 아이템은 sidebar-navigation.tsx에서 동적으로 생성
+  const sidebarItems: NavigationItem[] = [];
 
   return (
     <div className="min-h-screen bg-background">
@@ -18,8 +20,8 @@ export default async function DocsLayout({
 
       <div className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="flex h-12 items-center px-6">
-          <div className="flex items-center space-x-2 text-sm text-muted-foreground">
-            <span>문서</span>
+          <div className="flex items-center">
+            <BreadcrumbNavigation />
           </div>
           <div className="ml-auto">
             <MobileSidebar sidebarItems={sidebarItems} />

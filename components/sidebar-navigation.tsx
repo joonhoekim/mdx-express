@@ -9,7 +9,7 @@ import { isNavigationItemActiveSync, getIconComponent } from "@/lib/navigation-u
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 interface SidebarNavigationItemProps {
   item: NavigationItem;
@@ -86,8 +86,46 @@ interface SidebarNavigationProps {
 
 export function SidebarNavigation({ sidebarItems }: SidebarNavigationProps) {
   const pathname = usePathname();
+  const [dynamicItems, setDynamicItems] = useState<NavigationItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  if (sidebarItems.length === 0) {
+  useEffect(() => {
+    const fetchSiblingFiles = async () => {
+      try {
+        setIsLoading(true);
+        const response = await fetch(`/api/sibling-files?pathname=${encodeURIComponent(pathname)}`);
+        if (response.ok) {
+          const data = await response.json();
+          setDynamicItems(data.files || []);
+        }
+      } catch (error) {
+        console.error('Error fetching sibling files:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchSiblingFiles();
+  }, [pathname]);
+
+  // 동적으로 가져온 아이템들을 사용하거나, 없으면 props의 아이템들 사용
+  const itemsToRender = dynamicItems.length > 0 ? dynamicItems : sidebarItems;
+
+  if (isLoading) {
+    return (
+      <div className="hidden md:block w-64 border-r bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+        <ScrollArea className="h-full py-4">
+          <div className="space-y-1 px-3">
+            <div className="h-8 bg-muted rounded animate-pulse" />
+            <div className="h-8 bg-muted rounded animate-pulse" />
+            <div className="h-8 bg-muted rounded animate-pulse" />
+          </div>
+        </ScrollArea>
+      </div>
+    );
+  }
+
+  if (itemsToRender.length === 0) {
     return null;
   }
 
@@ -95,7 +133,7 @@ export function SidebarNavigation({ sidebarItems }: SidebarNavigationProps) {
     <div className="hidden md:block w-64 border-r bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <ScrollArea className="h-full py-4">
         <div className="space-y-1 px-3">
-          {sidebarItems.map((item) => (
+          {itemsToRender.map((item) => (
             <SidebarNavigationItem
               key={item.href}
               item={item}
@@ -115,15 +153,51 @@ interface SidebarNavigationContentProps {
 
 export function SidebarNavigationContent({ sidebarItems }: SidebarNavigationContentProps) {
   const pathname = usePathname();
+  const [dynamicItems, setDynamicItems] = useState<NavigationItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  if (sidebarItems.length === 0) {
+  useEffect(() => {
+    const fetchSiblingFiles = async () => {
+      try {
+        setIsLoading(true);
+        const response = await fetch(`/api/sibling-files?pathname=${encodeURIComponent(pathname)}`);
+        if (response.ok) {
+          const data = await response.json();
+          setDynamicItems(data.files || []);
+        }
+      } catch (error) {
+        console.error('Error fetching sibling files:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchSiblingFiles();
+  }, [pathname]);
+
+  // 동적으로 가져온 아이템들을 사용하거나, 없으면 props의 아이템들 사용
+  const itemsToRender = dynamicItems.length > 0 ? dynamicItems : sidebarItems;
+
+  if (isLoading) {
+    return (
+      <ScrollArea className="h-full py-4">
+        <div className="space-y-1 px-3">
+          <div className="h-8 bg-muted rounded animate-pulse" />
+          <div className="h-8 bg-muted rounded animate-pulse" />
+          <div className="h-8 bg-muted rounded animate-pulse" />
+        </div>
+      </ScrollArea>
+    );
+  }
+
+  if (itemsToRender.length === 0) {
     return null;
   }
 
   return (
     <ScrollArea className="h-full py-4">
       <div className="space-y-1 px-3">
-        {sidebarItems.map((item) => (
+        {itemsToRender.map((item) => (
           <SidebarNavigationItem
             key={item.href}
             item={item}
