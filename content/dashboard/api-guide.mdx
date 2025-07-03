@@ -1,6 +1,6 @@
 ---
-title: "API 가이드"
-description: "API 사용법과 예제"
+title: 'API 가이드'
+description: 'API 사용법과 예제'
 order: 2
 ---
 
@@ -25,8 +25,8 @@ curl -H "Authorization: Bearer YOUR_TOKEN" \
 // GET /api/dashboard/stats
 const response = await fetch('/api/dashboard/stats', {
   headers: {
-    'Authorization': `Bearer ${token}`
-  }
+    Authorization: 'Bearer ' + token,
+  },
 });
 
 const data = await response.json();
@@ -41,12 +41,12 @@ const response = await fetch('/api/dashboard/update', {
   method: 'POST',
   headers: {
     'Content-Type': 'application/json',
-    'Authorization': `Bearer ${token}`
+    Authorization: 'Bearer ' + token,
   },
   body: JSON.stringify({
     metric: 'page_views',
-    value: 1000
-  })
+    value: 1000,
+  }),
 });
 ```
 
@@ -60,4 +60,4 @@ const response = await fetch('/api/dashboard/update', {
   "data": {},
   "message": "Success"
 }
-``` 
+```
