@@ -2,8 +2,8 @@ import { TopNavigation } from "@/components/top-navigation";
 import { SidebarNavigation } from "@/components/sidebar-navigation";
 import { MobileSidebar } from "@/components/mobile-sidebar";
 import { BreadcrumbNavigation } from "@/components/breadcrumb-navigation";
-import { getTopLevelItems, NavigationItem } from "@/lib/navigation";
-import { getSiblingFiles } from "@/lib/mdx-utils";
+import { getTopLevelItems, getSidebarItems } from "@/lib/navigation";
+import { headers } from 'next/headers';
 
 export default async function DocsLayout({
   children,
@@ -11,8 +11,11 @@ export default async function DocsLayout({
   children: React.ReactNode;
 }) {
   const topLevelItems = await getTopLevelItems();
-  // 사이드바 아이템은 sidebar-navigation.tsx에서 동적으로 생성
-  const sidebarItems: NavigationItem[] = [];
+
+  // 현재 경로를 가져와서 동적으로 사이드바 아이템 생성
+  const headersList = await headers();
+  const pathname = headersList.get('x-pathname') || '/docs';
+  const sidebarItems = await getSidebarItems(pathname);
 
   return (
     <div className="min-h-screen bg-background">
