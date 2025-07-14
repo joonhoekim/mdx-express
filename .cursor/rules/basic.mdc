@@ -2,4 +2,6 @@
 alwaysApply: true
 ---
 
-use **bun** package manger.
+- use **bun** package manger.
+- nextjs 15. (server action's function must be async function)
+- shadcnui is installed (components/ui/\*.tsx)

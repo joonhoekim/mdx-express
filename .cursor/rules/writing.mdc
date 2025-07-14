@@ -1,6 +1,8 @@
 ---
-alwaysApply: false
+alwaysApply: true
 ---
 
-MDX 기반 글 작성을 요청받았을 때, 사용할 수 있는 컴포넌트는 @/components/writing-ui 에 있습니다.
-해당 경로에 README.md 를 읽어보거나, index.ts 를 참고하세요.
+1. MDX 기반 글 작성을 요청받았을 때, 사용할 수 있는 컴포넌트는 @/components/writing-ui 에 있습니다.
+   해당 경로에 README.md 를 읽어보거나, index.ts 를 참고하세요.
+
+2. 너무 잦은 이모티콘은 글의 가치를 떨어트립니다.
