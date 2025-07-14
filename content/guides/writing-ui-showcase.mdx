@@ -148,12 +148,12 @@ npm install lucide-react`}
 
 function App() {
 return (
+
 <div>
-<h1>Hello React!</h1>
-<button onClick={() => alert('Hello!')}>클릭하세요</button>
+  <h1>Hello React!</h1>
+  <button onClick={() => alert('Hello!')}>클릭하세요</button>
 </div>
-)
-}
+) }
 
 export default App`}
     </CodeBlock>
@@ -189,6 +189,7 @@ export default {
 @Component({
 selector: 'app-root',
 template: \`
+
 <div>
 <h1>Hello Angular!</h1>
 <button (click)="sayHello()">클릭하세요</button>
@@ -218,6 +219,7 @@ alert('Hello!')
   />
 
 {' '}
+
 <Card
   title='Tailwind CSS'
   description='유틸리티 우선 CSS 프레임워크'
@@ -226,6 +228,7 @@ alert('Hello!')
 />
 
 {' '}
+
 <Card
   title='Next.js'
   description='React 기반 풀스택 웹 프레임워크'
@@ -286,6 +289,7 @@ alert('Hello!')
   />
 
 {' '}
+
 <Reference
   title='Component 디자인 패턴'
   description='재사용 가능한 컴포넌트 설계 방법에 대한 아티클'
@@ -339,6 +343,7 @@ headers: {
 'Authorization': 'Bearer ' + process.env.API_KEY
 }
 })`}
+
 </CodeBlock>
 </Step>
 </Steps>
@@ -364,6 +369,42 @@ headers: {
 
   </TabsContent>
 </Tabs>
+
+## 9. 표 (Table)
+
+MDX에서 GitHub Flavored Markdown 표 구문을 사용할 수 있습니다.
+
+### 기본 표
+
+| 컴포넌트  | 타입       | 설명          | 상태    |
+| --------- | ---------- | ------------- | ------- |
+| Callout   | info       | 정보 전달용   | ✅ 완료 |
+| CodeBlock | syntax     | 코드 블록     | ✅ 완료 |
+| Steps     | navigation | 단계별 가이드 | ✅ 완료 |
+| Badge     | status     | 상태 표시     | ✅ 완료 |
+
+### 정렬된 표
+
+| 왼쪽 정렬 | 가운데 정렬 | 오른쪽 정렬 |
+| :-------- | :---------: | ----------: |
+| 왼쪽      |   가운데    |      오른쪽 |
+| Left      |   Center    |       Right |
+| 데이터 1  |  데이터 2   |    데이터 3 |
+
+### 복잡한 표
+
+| 기능             | 지원 여부 | 버전 | 비고                       |
+| ---------------- | :-------: | :--: | -------------------------- |
+| **표 기본 구문** |    ✅     | v1.0 | GitHub Flavored Markdown   |
+| **셀 정렬**      |    ✅     | v1.0 | 왼쪽, 가운데, 오른쪽       |
+| **HTML 태그**    |    ✅     | v1.0 | `code`, **bold**, _italic_ |
+| **복합 컨텐츠**  |    ✅     | v1.1 | 링크, 이미지 등            |
+
+<Callout type='info' title='표 사용 팁'>
+  - 파이프(`|`)로 열을 구분합니다 - 헤더 아래 두 번째 줄로 정렬을 설정합니다 -
+  `:---` (왼쪽), `:---:` (가운데), `---:` (오른쪽) - 표 안에서도 다른 마크다운
+  구문을 사용할 수 있습니다
+</Callout>
 
 <Callout type='success' title='완료!'>
   이제 모든 Writing UI 컴포넌트를 사용할 수 있습니다. 이 컴포넌트들을 활용해서
