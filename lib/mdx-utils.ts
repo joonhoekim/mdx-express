@@ -15,9 +15,29 @@ export interface MDXFile {
   content: string;
 }
 
+// 중첩된 디렉토리 구조를 지원하는 새로운 인터페이스
+export interface MDXFileNode {
+  type: 'file' | 'directory';
+  name: string;
+  slug: string;
+  title: string;
+  description?: string;
+  order?: number;
+  path: string;
+  content?: string;
+  children?: MDXFileNode[];
+  fullPath: string[]; // 전체 경로 배열 (예: ['guides', 'frontend', 'react'])
+}
+
 export interface MDXSection {
   section: string;
   files: MDXFile[];
+}
+
+// 새로운 섹션 인터페이스 - 중첩 구조 지원
+export interface MDXNestedSection {
+  section: string;
+  tree: MDXFileNode[];
 }
 
 // MDX 파일의 frontmatter 타입
@@ -173,6 +193,175 @@ export async function getMDXContent(
 ): Promise<MDXFile | null> {
   const filePath = path.join(section, `${slug}.mdx`);
   return await getMDXFile(filePath);
+}
+
+// 재귀적으로 디렉토리를 탐색하여 MDXFileNode 트리 구축
+export async function buildMDXTree(
+  basePath: string,
+  currentPath: string[] = []
+): Promise<MDXFileNode[]> {
+  try {
+    const fullPath = path.join(CONTENT_DIR, ...currentPath);
+
+    // 디렉토리 존재 여부 확인
+    try {
+      await fs.access(fullPath);
+    } catch {
+      return [];
+    }
+
+    const dirents = await fs.readdir(fullPath, { withFileTypes: true });
+    const nodes: MDXFileNode[] = [];
+
+    // 파일과 디렉토리를 분리하여 처리
+    const files = dirents.filter(
+      (dirent) => dirent.isFile() && dirent.name.endsWith('.mdx')
+    );
+    const directories = dirents.filter((dirent) => dirent.isDirectory());
+
+    // MDX 파일들 처리
+    for (const file of files) {
+      const fileName = file.name;
+      const slug = path.basename(fileName, '.mdx');
+      const filePath = [...currentPath, fileName].join('/');
+
+      const mdxFile = await getMDXFile(filePath);
+      if (mdxFile) {
+        nodes.push({
+          type: 'file',
+          name: fileName,
+          slug,
+          title: mdxFile.title,
+          description: mdxFile.description,
+          order: mdxFile.order || 0,
+          path: filePath,
+          content: mdxFile.content,
+          fullPath: [...currentPath, slug],
+        });
+      }
+    }
+
+    // 하위 디렉토리들 재귀적으로 처리
+    for (const directory of directories) {
+      const dirName = directory.name;
+      const dirPath = [...currentPath, dirName];
+
+      const children = await buildMDXTree(basePath, dirPath);
+
+      // 디렉토리에 index.mdx가 있는지 확인
+      const indexFile = await getMDXFile([...dirPath, 'index.mdx'].join('/'));
+
+      nodes.push({
+        type: 'directory',
+        name: dirName,
+        slug: dirName,
+        title: indexFile?.title || formatDirectoryTitle(dirName),
+        description: indexFile?.description,
+        order: indexFile?.order || 0,
+        path: dirPath.join('/'),
+        content: indexFile?.content,
+        children,
+        fullPath: dirPath,
+      });
+    }
+
+    // order 필드에 따라 정렬
+    return nodes.sort((a, b) => (a.order || 0) - (b.order || 0));
+  } catch (error) {
+    console.error(
+      `Error building MDX tree for ${currentPath.join('/')}:`,
+      error
+    );
+    return [];
+  }
+}
+
+// 모든 섹션의 중첩 구조 가져오기
+export async function getAllMDXNestedSections(): Promise<MDXNestedSection[]> {
+  try {
+    await ensureContentDirectory();
+
+    const dirents = await fs.readdir(CONTENT_DIR, { withFileTypes: true });
+    const sections = dirents
+      .filter((dirent) => dirent.isDirectory())
+      .map((dirent) => dirent.name);
+
+    const result: MDXNestedSection[] = [];
+    for (const section of sections) {
+      const tree = await buildMDXTree(section, [section]);
+      result.push({ section, tree });
+    }
+
+    return result;
+  } catch (error) {
+    console.error('Error reading nested MDX sections:', error);
+    return [];
+  }
+}
+
+// 경로 배열로 특정 MDX 파일 찾기
+export async function getMDXContentByPath(
+  pathArray: string[]
+): Promise<MDXFile | null> {
+  try {
+    // 마지막 요소가 파일명인지 확인
+    const filePath = pathArray.join('/');
+
+    // .mdx 확장자가 없으면 추가
+    const mdxFilePath = filePath.endsWith('.mdx')
+      ? filePath
+      : `${filePath}.mdx`;
+
+    return await getMDXFile(mdxFilePath);
+  } catch (error) {
+    console.error(
+      `Error getting MDX content for path ${pathArray.join('/')}:`,
+      error
+    );
+    return null;
+  }
+}
+
+// 경로 배열로 디렉토리인지 파일인지 판단
+export async function getPathType(
+  pathArray: string[]
+): Promise<'file' | 'directory' | null> {
+  try {
+    const filePath = path.join(CONTENT_DIR, ...pathArray);
+
+    // 파일로 시도
+    const mdxFilePath = `${filePath}.mdx`;
+    try {
+      await fs.access(mdxFilePath);
+      return 'file';
+    } catch {
+      // 파일이 아니면 디렉토리인지 확인
+      try {
+        const stat = await fs.stat(filePath);
+        if (stat.isDirectory()) {
+          return 'directory';
+        }
+      } catch {
+        // 둘 다 아니면 null 반환
+      }
+    }
+
+    return null;
+  } catch (error) {
+    console.error(
+      `Error determining path type for ${pathArray.join('/')}:`,
+      error
+    );
+    return null;
+  }
+}
+
+// 디렉토리명을 제목으로 포맷팅
+function formatDirectoryTitle(dirName: string): string {
+  return dirName
+    .split('-')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
 }
 
 // 새로운 MDX 파일 생성 - 서버 액션 (IDE에서 사용 가능)
