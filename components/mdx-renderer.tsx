@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
 import { MDXRemote } from 'next-mdx-remote/rsc';
+import remarkGfm from 'remark-gfm';
 
 // Writing UI 컴포넌트들 import
 import {
@@ -139,6 +140,11 @@ export function MDXRenderer({ content }: MDXRendererProps) {
       <MDXRemote
         source={content}
         components={components}
+        options={{
+          mdxOptions: {
+            remarkPlugins: [remarkGfm],
+          },
+        }}
       />
     </div>
   );
