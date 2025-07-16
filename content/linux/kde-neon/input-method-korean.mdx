@@ -1,0 +1,157 @@
+import { Callout, Steps, Step, CodeBlock, Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/writing-ui';
+
+# KDE Neon에서 한국어 입력 설정하기
+
+KDE Neon이나 Ubuntu에서 한국어 입력을 설정하는 방법을 안내합니다.
+
+## 입력기 선택
+
+<Callout type="info" title="입력기 선택">
+한국어 입력을 위해서는 **fcitx5**를 권장합니다. ibus와 fcitx 중 선택할 수 있지만, fcitx5가 더 안정적입니다.
+</Callout>
+
+<Callout type="warning" title="ibus의 문제점">
+ibus는 언어 변경 간 딜레이가 있으며, "rㅏ나다"와 같이 일부 글자가 영어나 한글로 잘못 입력되는 문제가 발생할 수 있습니다.
+</Callout>
+
+## 설치 및 설정
+
+<Steps>
+<Step title="fcitx5 패키지 설치">
+터미널을 열고 다음 명령어를 실행합니다:
+
+<CodeBlock language="bash">
+{`sudo apt install fcitx5 fcitx5-hangul fcitx5-config-qt fcitx5-configtool`}
+</CodeBlock>
+
+이 명령어는 입력 프레임워크, 한글 엔진, 설정 도구를 설치합니다.
+</Step>
+
+<Step title="fcitx5를 기본 입력기로 설정">
+다음 명령어를 실행합니다:
+
+<CodeBlock language="bash">
+{`im-config -n fcitx`}
+</CodeBlock>
+
+설정 후 시스템을 재부팅하거나 로그아웃 후 다시 로그인합니다.
+</Step>
+
+<Step title="환경 변수 설정 (선택사항)">
+GTK, Qt, X11 기반 애플리케이션에서 안정적인 입력을 위해 `~/.profile`, `~/.xprofile`, 또는 `~/.bashrc`에 다음 내용을 추가합니다:
+
+<CodeBlock language="bash">
+{`export GTK_IM_MODULE=fcitx
+export QT_IM_MODULE=fcitx
+export XMODIFIERS=@im=fcitx`}
+</CodeBlock>
+</Step>
+
+<Step title="KDE 시스템 설정">
+**Virtual Keyboard 설정:**
+1. Settings > Keyboard > Virtual Keyboard
+2. "Fcitx 5" 선택 후 Apply
+
+**단축키 설정:**
+1. Settings > Keyboard > Key Bindings (우측 상단)
+2. Korean Hangul/Hanja keys 옵션에서 "Make right Alt a Hangul key" 선택
+</Step>
+
+<Step title="Fcitx5 설정 도구 실행">
+애플리케이션 런처에서 "Fcitx5 Configuration"을 실행하거나 터미널에서:
+
+<CodeBlock language="bash">
+{`fcitx5-configtool`}
+</CodeBlock>
+</Step>
+
+<Step title="한글 입력기 추가">
+1. 설정 도구에서 "+" 버튼 클릭
+2. "Hangul" 검색 후 선택 (Korean Keyboard가 아님)
+3. OK 클릭하여 추가
+</Step>
+
+<Step title="단축키 확인">
+기본적으로 `Ctrl + Space`로 한영 전환이 가능합니다. 필요시 Global Options에서 변경할 수 있습니다.
+</Step>
+
+<Step title="자동 시작 설정">
+fcitx5가 KDE와 함께 자동으로 시작되도록 설정되어야 합니다. 자동 시작되지 않으면 KDE 시스템 설정의 자동 시작 애플리케이션에 추가합니다.
+</Step>
+
+<Step title="입력 테스트">
+텍스트 에디터나 브라우저에서 `Ctrl + Space`(또는 설정한 단축키)를 눌러 한글 입력을 테스트합니다.
+</Step>
+</Steps>
+
+## 문제 해결
+
+<Callout type="error" title="입력이 안 되는 경우">
+1. fcitx4와 fcitx5가 동시에 설치되어 있지 않은지 확인
+2. 환경 변수가 올바르게 설정되어 있는지 확인
+3. 시스템 재부팅 후 다시 시도
+4. ibus나 다른 입력기가 동시에 실행되고 있지 않은지 확인
+</Callout>
+
+<Callout type="info" title="한글 폰트 문제">
+한글이 표시되지 않는 경우 다음 폰트 패키지를 설치하세요:
+- `fonts-nanum`
+- `fonts-unfonts-core`
+- `fonts-noto-cjk`
+</Callout>
+
+## 추가 도구: Touchcursor Linux
+
+<Callout type="note" title="생산성 향상 도구">
+키보드 효율성을 높이기 위해 Touchcursor Linux를 설치할 수 있습니다. 이는 스페이스바나 캡스락 키를 하이퍼 키로 사용하여 화살표 키와 같은 기능을 쉽게 사용할 수 있게 해줍니다.
+</Callout>
+
+<Steps>
+<Step title="의존성 설치">
+<CodeBlock language="bash">
+{`sudo apt install build-essential`}
+</CodeBlock>
+</Step>
+
+<Step title="프로젝트 클론">
+<CodeBlock language="bash">
+{`git clone https://github.com/donniebreve/touchcursor-linux`}
+</CodeBlock>
+</Step>
+
+<Step title="설정 파일 수정">
+프로젝트 루트에서 `touchcursor.conf` 파일을 수정합니다:
+
+<Tabs defaultValue="space">
+<TabsList>
+<TabsTrigger value="space">스페이스바 사용</TabsTrigger>
+<TabsTrigger value="caps">캡스락 사용</TabsTrigger>
+</TabsList>
+<TabsContent value="space">
+<CodeBlock language="conf">
+{`[Hyper]
+HYPER1=KEY_SPACE`}
+</CodeBlock>
+</TabsContent>
+<TabsContent value="caps">
+<CodeBlock language="conf">
+{`[Hyper]
+HYPER1=KEY_CAPSLOCK`}
+</CodeBlock>
+</TabsContent>
+</Tabs>
+</Step>
+
+<Step title="컴파일 및 설치">
+<CodeBlock language="bash">
+{`make
+make install`}
+</CodeBlock>
+
+설치 중 키보드 추가 확인 메시지가 나오면 `y`를 입력합니다.
+</Step>
+</Steps>
+
+<Callout type="success" title="설정 완료">
+이제 KDE Neon에서 한국어 입력을 자유롭게 사용할 수 있습니다. 문제가 발생하면 시스템 재부팅 후 다시 시도해보세요.
+</Callout>
