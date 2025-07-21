@@ -1,0 +1,129 @@
+import { Callout, CodeBlock, Steps, Step, Card, Badge } from '@/components/writing-ui'
+
+# KDE Neon에서 프로그래밍 폰트 쉽게 설치하기
+
+개발자에게 폰트는 생산성과 직결되는 중요한 요소입니다. 특히 하루 종일 코드를 보는 프로그래머에게는 더욱 그렇죠. KDE Neon은 Ubuntu LTS 기반이라서 다양한 프로그래밍 폰트를 패키지 매니저로 간편하게 설치할 수 있습니다.
+
+<Callout type="info" title="시작하기 전에">
+KDE Neon은 Ubuntu LTS를 기반으로 하므로, Ubuntu용 폰트 패키지를 그대로 사용할 수 있습니다. `apt` 또는 `pkcon` 명령어로 다양한 프로그래밍 폰트를 쉽게 설치해보세요.
+</Callout>
+
+## 추천 프로그래밍 폰트들
+
+각 폰트마다 고유한 특징이 있어서, 개인 취향에 따라 선택하면 됩니다.
+
+<div className="grid md:grid-cols-2 gap-4 my-6">
+  <Card title="Fira Code" description="프로그래밍 리가처 지원으로 유명한 폰트">
+    <div className="mt-2">
+      <Badge variant="default">fonts-firacode</Badge>
+      <p className="text-sm text-muted-foreground mt-2">
+        화살표, 등호 연산자 등을 아름다운 기호로 표시해주는 리가처 기능이 특징입니다.
+      </p>
+    </div>
+  </Card>
+
+  <Card title="JetBrains Mono" description="최근 가장 인기 있는 개발용 폰트">
+    <div className="mt-2">
+      <Badge variant="success">fonts-jetbrains-mono</Badge>
+      <p className="text-sm text-muted-foreground mt-2">
+        JetBrains에서 개발한 현대적인 폰트로, 가독성이 뛰어납니다.
+      </p>
+    </div>
+  </Card>
+
+  <Card title="Hack" description="가독성에 최적화된 고정폭 폰트">
+    <div className="mt-2">
+      <Badge variant="default">fonts-hack</Badge>
+      <p className="text-sm text-muted-foreground mt-2">
+        작은 크기에서도 선명하게 보이도록 설계된 폰트입니다.
+      </p>
+    </div>
+  </Card>
+
+  <Card title="Ubuntu Mono" description="깔끔한 Ubuntu 기본 폰트">
+    <div className="mt-2">
+      <Badge variant="default">fonts-ubuntu-console</Badge>
+      <p className="text-sm text-muted-foreground mt-2">
+        Ubuntu의 디자인 철학이 담긴 깔끔하고 모던한 폰트입니다.
+      </p>
+    </div>
+  </Card>
+</div>
+
+## 폰트 설치하기
+
+<Steps>
+  <Step title="패키지 목록 업데이트">
+    먼저 패키지 목록을 최신 상태로 업데이트합니다.
+    <CodeBlock language="bash" title="패키지 업데이트">
+      {`sudo apt update`}
+    </CodeBlock>
+  </Step>
+
+  <Step title="원하는 폰트 설치">
+    필요한 폰트를 하나씩 설치하거나 여러 개를 한 번에 설치할 수 있습니다.
+    
+    **개별 설치:**
+    <CodeBlock language="bash" title="개별 폰트 설치">
+      {`sudo apt install fonts-firacode
+sudo apt install fonts-jetbrains-mono
+sudo apt install fonts-hack`}
+    </CodeBlock>
+
+    **한 번에 설치:**
+    <CodeBlock language="bash" title="여러 폰트 동시 설치">
+      {`sudo apt install fonts-firacode fonts-hack fonts-jetbrains-mono fonts-ubuntu-console`}
+    </CodeBlock>
+  </Step>
+
+  <Step title="폰트 캐시 새로고침 (필요시)">
+    폰트가 바로 인식되지 않을 경우 캐시를 수동으로 새로고침합니다.
+    <CodeBlock language="bash" title="폰트 캐시 새로고침">
+      {`fc-cache -fv`}
+    </CodeBlock>
+  </Step>
+</Steps>
+
+## pkcon을 사용한 설치
+
+APT 대신 KDE의 패키지 관리자인 pkcon을 사용할 수도 있습니다.
+
+<CodeBlock language="bash" title="pkcon으로 설치">
+  {`pkcon install fonts-firacode
+pkcon install fonts-jetbrains-mono
+pkcon install fonts-hack`}
+</CodeBlock>
+
+## 설치된 폰트 적용하기
+
+<Steps>
+  <Step title="시스템 폰트 설정">
+    **System Settings (시스템 설정)** → **Appearance (외관)** → **Fonts (글꼴)**에서 **Fixed Width** 항목을 원하는 프로그래밍 폰트로 변경합니다.
+  </Step>
+
+  <Step title="터미널 폰트 설정">
+    **Konsole** → **Settings (설정)** → **Edit Profile (프로파일 편집)** → **Appearance (외관)** → **Font (폰트)**에서 설치한 폰트를 선택합니다.
+  </Step>
+
+  <Step title="코드 에디터 설정">
+    VS Code, IntelliJ 등 사용하는 에디터의 설정에서 폰트를 변경할 수 있습니다.
+  </Step>
+</Steps>
+
+<Callout type="success" title="완료!">
+이제 선명하고 읽기 쉬운 프로그래밍 폰트로 코딩을 즐길 수 있습니다.
+</Callout>
+
+## 추가 팁
+
+<Callout type="note" title="더 많은 폰트 옵션">
+- **DejaVu Sans Mono**: `fonts-dejavu` - 시스템 기본 고정폭 폰트
+- **Noto Mono**: `fonts-noto-mono` - 구글 Noto 폰트의 monospace 버전  
+- **Microsoft 코어 폰트**: `ttf-mscorefonts-installer` - Windows 기본 폰트들
+</Callout>
+
+<Callout type="warning" title="수동 폰트 설치">
+직접 다운로드한 폰트 파일(.ttf, .otf)이 있다면 `~/.fonts` 또는 `~/.local/share/fonts` 폴더에 복사하거나, KDE System Settings의 **Font Management (글꼴 관리)**에서 설치할 수 있습니다.
+</Callout>
+
+프로그래밍 폰트 하나만 바꿔도 코딩하는 기분이 완전히 달라집니다. 여러 폰트를 설치해보고 자신에게 가장 잘 맞는 폰트를 찾아보세요!
