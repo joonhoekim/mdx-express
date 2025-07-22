@@ -1,0 +1,538 @@
+import { Callout, CodeBlock, Steps, Step, Badge } from '@/components/writing-ui'
+
+# KDE neon 스왑 관리 완전 가이드
+
+<Callout type="info" title="대상 독자">
+  이 가이드는 KDE neon(및 Ubuntu 계열 배포판)을 사용하는 사용자를 위해 작성되었습니다. 스왑(Swap) 영역을 **파일** 또는 **파티션** 기반으로 설정·관리·튜닝하는 모든 방법을 다룹니다.
+</Callout>
+
+## 1. Swapfile로 관리하는 방법
+
+Swapfile은 일반 파일을 스왑 공간으로 사용하는 방식입니다. 설치가 끝난 후에도 쉽게 추가할 수 있고, 크기 조절이 자유로워 많은 사용자들이 선호하는 방법입니다.
+
+### 1-1. 현재 스왑 상태 확인
+
+먼저 현재 시스템의 스왑 사용 상황을 확인해보겠습니다.
+
+<CodeBlock language="bash">{`free -h
+swapon --show`}</CodeBlock>
+
+`free -h` 명령어는 메모리와 스왑 사용량을 사람이 읽기 쉬운 형태로 보여주며, `swapon --show`는 현재 활성화된 스왑 장치들의 상세 정보를 표시합니다.
+
+### 1-2. Swapfile 생성
+
+이제 단계별로 스왑파일을 생성해보겠습니다. 각 단계는 신중하게 진행해야 합니다.
+
+<Steps>
+  <Step title="스왑 파일 생성">
+    먼저 원하는 크기의 빈 파일을 생성합니다. 여기서는 4GB 크기로 예시를 들겠습니다.
+    <CodeBlock language="bash">{`# 4GB 스왑파일 생성
+sudo dd if=/dev/zero of=/swapfile bs=1M count=4096`}</CodeBlock>
+    `dd` 명령어는 블록 단위로 파일을 복사하는 도구입니다. `/dev/zero`에서 0으로 채워진 데이터를 읽어와 `/swapfile`에 씁니다. `bs=1M`은 블록 크기를 1MB로, `count=4096`은 4096개의 블록을 의미하므로 총 4GB가 됩니다.
+  </Step>
+  <Step title="권한 설정 (보안상 중요)">
+    스왑파일은 루트만 읽고 쓸 수 있도록 권한을 제한해야 합니다.
+    <CodeBlock language="bash">{`sudo chmod 600 /swapfile`}</CodeBlock>
+    `600` 권한은 소유자(root)만 읽기/쓰기가 가능하고, 그룹과 다른 사용자는 접근할 수 없음을 의미합니다. 이는 보안상 매우 중요한 단계입니다.
+  </Step>
+  <Step title="스왑 영역으로 설정">
+    일반 파일을 스왑 영역으로 포맷합니다.
+    <CodeBlock language="bash">{`sudo mkswap /swapfile`}</CodeBlock>
+    `mkswap` 명령어는 파일이나 파티션을 스왑 영역으로 포맷하는 역할을 합니다. 이 과정에서 스왑 시그니처가 생성됩니다.
+  </Step>
+  <Step title="스왑 활성화">
+    포맷된 스왑파일을 시스템에서 사용할 수 있도록 활성화합니다.
+    <CodeBlock language="bash">{`sudo swapon /swapfile`}</CodeBlock>
+    `swapon` 명령어로 스왑 영역을 즉시 활성화할 수 있습니다. 이제 시스템이 메모리가 부족할 때 이 파일을 사용하게 됩니다.
+  </Step>
+</Steps>
+
+### 1-3. 영구적으로 설정
+
+재부팅 후에도 스왑파일이 자동으로 마운트되도록 `/etc/fstab` 파일에 추가해야 합니다.
+
+<CodeBlock language="bash">{`echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab`}</CodeBlock>
+
+`/etc/fstab`은 시스템 부팅 시 자동으로 마운트할 파일시스템을 정의하는 파일입니다. 여기에 스왑파일 정보를 추가하면 재부팅 후에도 자동으로 스왑이 활성화됩니다.
+
+### 1-4. Swapfile 제거
+
+스왑파일이 더 이상 필요하지 않다면 다음 순서로 제거할 수 있습니다.
+
+<Steps>
+  <Step title="스왑 비활성화">
+    먼저 현재 사용 중인 스왑을 비활성화합니다.
+    <CodeBlock language="bash">{`sudo swapoff /swapfile`}</CodeBlock>
+    스왑을 사용 중인 상태에서는 파일을 삭제할 수 없으므로 반드시 먼저 비활성화해야 합니다.
+  </Step>
+  <Step title="/etc/fstab에서 항목 제거">
+    자동 마운트 설정을 제거합니다.
+    <CodeBlock language="bash">{`sudo nano /etc/fstab`}</CodeBlock>
+    에디터에서 스왑파일과 관련된 라인을 찾아 삭제하고 저장합니다. 보통 `/swapfile none swap sw 0 0`과 같은 형태입니다.
+  </Step>
+  <Step title="파일 삭제">
+    마지막으로 스왑파일 자체를 삭제합니다.
+    <CodeBlock language="bash">{`sudo rm /swapfile`}</CodeBlock>
+    이제 스왑파일이 완전히 제거되었습니다.
+  </Step>
+</Steps>
+
+## 2. Swap Partition으로 관리하는 방법
+
+스왑 파티션은 디스크의 별도 파티션을 스왑 전용으로 사용하는 방식입니다. 파일시스템 오버헤드가 없어 약간 더 빠른 성능을 보이지만, 크기 변경이 어렵다는 단점이 있습니다.
+
+### 2-1. 파티션 확인
+
+먼저 현재 디스크의 파티션 구조를 파악해야 합니다.
+
+<CodeBlock language="bash">{`sudo fdisk -l
+lsblk`}</CodeBlock>
+
+`fdisk -l`은 모든 디스크의 파티션 테이블을 보여주고, `lsblk`는 블록 장치를 트리 형태로 표시합니다. 이 정보를 통해 스왑 파티션을 만들 공간이 있는지 확인할 수 있습니다.
+
+### 2-2. GParted를 이용한 방법 (GUI)
+
+GParted는 파티션 작업을 위한 그래픽 도구로, 초보자도 쉽게 사용할 수 있습니다.
+
+<Steps>
+  <Step title="GParted 설치">
+    먼저 GParted가 설치되어 있는지 확인하고, 없다면 설치합니다.
+    <CodeBlock language="bash">{`sudo apt update
+sudo apt install gparted`}</CodeBlock>
+    설치가 완료되면 `sudo gparted` 명령어로 실행하거나, 애플리케이션 메뉴에서 찾아 실행할 수 있습니다.
+  </Step>
+  <Step title="파티션 작업 준비">
+    GParted를 실행하면 현재 디스크와 파티션 상황이 그래픽으로 표시됩니다. 스왑 파티션을 만들기 위해서는 빈 공간이 필요합니다.
+    
+    <Callout type="warning" title="데이터 백업 필수">
+      파티션 작업은 데이터 손실 위험이 있으므로 중요한 데이터는 반드시 백업하세요.
+    </Callout>
+  </Step>
+  <Step title="기존 파티션 축소 (필요한 경우)">
+    빈 공간이 없다면 기존 파티션을 축소해야 합니다.
+    <ol>
+      <li>축소할 파티션을 우클릭하고 "Resize/Move"를 선택합니다</li>
+      <li>파티션 크기를 조절하여 스왑용 공간을 확보합니다 (보통 2-8GB 정도)</li>
+      <li>아직 "Apply"를 누르지 마세요 - 모든 작업을 계획한 후 한 번에 적용하는 것이 안전합니다</li>
+    </ol>
+  </Step>
+  <Step title="스왑 파티션 생성">
+    확보된 빈 공간에 새 파티션을 생성합니다.
+    <ol>
+      <li>빈 공간(Unallocated)을 우클릭하고 "New"를 선택합니다</li>
+      <li>파티션 크기를 설정합니다 (권장 크기는 뒤에서 설명합니다)</li>
+      <li>파일시스템을 <Badge variant="secondary">linux-swap</Badge>으로 선택합니다</li>
+      <li>레이블에 "swap" 등 알아보기 쉬운 이름을 입력합니다</li>
+      <li>"Add"를 클릭하여 작업 목록에 추가합니다</li>
+    </ol>
+  </Step>
+  <Step title="변경사항 적용">
+    모든 계획이 완료되면 실제로 적용합니다.
+    <ol>
+      <li>상단의 체크 표시 버튼("Apply All Operations")을 클릭합니다</li>
+      <li>경고 메시지를 확인하고 "Apply"를 클릭합니다</li>
+      <li>작업이 완료될 때까지 기다립니다 (크기에 따라 몇 분에서 수십 분 소요)</li>
+    </ol>
+    
+    <Callout type="success" title="완료">
+      작업이 성공적으로 완료되면 새로운 스왑 파티션이 생성됩니다.
+    </Callout>
+  </Step>
+</Steps>
+
+### 2-3. 명령어를 이용한 방법
+
+터미널에 익숙한 사용자라면 명령어로도 파티션을 생성할 수 있습니다. 하지만 실수 시 데이터 손실 위험이 크므로 신중하게 진행하세요.
+
+<Steps>
+  <Step title="파티션 생성">
+    `fdisk` 도구를 사용하여 새 파티션을 생성합니다.
+    <CodeBlock language="bash">{`sudo fdisk /dev/sdb
+# n -> p -> 파티션 번호 -> 시작/끝 섹터
+# t -> 82 (Linux swap)
+# w (저장)`}</CodeBlock>
+    여기서 `/dev/sdb`는 예시이므로 실제 환경에 맞는 디스크를 선택해야 합니다. 작업 중 `p` 명령어로 현재 파티션 테이블을 확인할 수 있습니다.
+  </Step>
+  <Step title="스왑 영역 생성 및 활성화">
+    새로 만든 파티션을 스왑 영역으로 포맷하고 활성화합니다.
+    <CodeBlock language="bash">{`sudo mkswap /dev/sdb2
+sudo swapon /dev/sdb2`}</CodeBlock>
+    `/dev/sdb2`는 방금 생성한 파티션의 경로입니다. 실제 환경에서는 `lsblk` 명령어로 정확한 경로를 확인하세요.
+  </Step>
+  <Step title="/etc/fstab에 추가">
+    재부팅 후에도 자동으로 마운트되도록 설정합니다.
+    <CodeBlock language="bash">{`echo '/dev/sdb2 none swap sw 0 0' | sudo tee -a /etc/fstab`}</CodeBlock>
+    이제 시스템 재부팅 후에도 스왑 파티션이 자동으로 활성화됩니다.
+  </Step>
+</Steps>
+
+### 2-4. UUID를 이용한 영구 설정 (권장)
+
+디스크나 파티션 순서가 바뀔 수 있으므로 UUID를 사용하는 것이 더 안전합니다.
+
+<CodeBlock language="bash">{`sudo blkid /dev/sdb2
+# 출력된 UUID를 복사하여 아래 명령에서 사용하세요
+echo 'UUID=<복사한-uuid> none swap sw 0 0' | sudo tee -a /etc/fstab`}</CodeBlock>
+
+UUID는 각 파티션의 고유 식별자로, 디스크 연결 순서가 바뀌어도 올바른 파티션을 찾을 수 있습니다.
+
+## 3. 두 방법의 장단점
+
+두 방식 모두 나름의 장단점이 있으므로, 상황에 맞게 선택하는 것이 중요합니다.
+
+**Swapfile의 장점:**
+- 유연성이 뛰어납니다 - 크기 변경이 쉽고 여러 개를 만들 수도 있습니다
+- 설치 후에도 언제든 추가할 수 있어 편리합니다
+- 기존 파티션 구조를 건드리지 않아 안전합니다
+
+**Swapfile의 단점:**
+- 파일시스템을 거쳐야 하므로 약간의 성능 오버헤드가 있습니다
+- 시간이 지나면서 파일 단편화가 발생할 수 있습니다
+
+**Swap Partition의 장점:**
+- 직접적인 디스크 액세스로 최적의 성능을 제공합니다
+- 파일시스템에 독립적이어서 더 안정적입니다
+- 오랫동안 사용되어 온 검증된 방식입니다
+
+**Swap Partition의 단점:**
+- 한 번 만들면 크기 변경이 매우 어렵습니다
+- 보통 OS 설치 시에만 쉽게 만들 수 있습니다
+- 사용하지 않아도 디스크 공간이 고정적으로 할당됩니다
+
+## 4. 사이즈 조절 방법
+
+시스템 사용 패턴이 바뀌거나 메모리를 증설했을 때는 스왑 크기도 조정해야 할 수 있습니다.
+
+### 4-1. Swapfile 사이즈 조절
+
+Swapfile의 가장 큰 장점은 크기 조절이 쉽다는 것입니다.
+
+#### 크기 증가
+메모리 사용량이 늘어났거나 더 큰 스왑이 필요할 때 사용합니다.
+
+<CodeBlock language="bash">{`sudo swapoff /swapfile
+sudo dd if=/dev/zero of=/swapfile bs=1M count=8192
+sudo mkswap /swapfile
+sudo swapon /swapfile`}</CodeBlock>
+
+이 예시는 스왑을 8GB로 증가시키는 방법입니다. 기존 파일을 덮어쓰므로 데이터는 사라지지만 스왑에는 중요한 데이터가 없으므로 문제없습니다.
+
+#### 크기 감소
+메모리를 증설했거나 디스크 공간이 부족할 때 스왑 크기를 줄일 수 있습니다.
+
+<CodeBlock language="bash">{`sudo swapoff /swapfile
+sudo dd if=/dev/zero of=/swapfile bs=1M count=2048
+sudo mkswap /swapfile
+sudo swapon /swapfile`}</CodeBlock>
+
+이 예시는 스왑을 2GB로 감소시키는 방법입니다.
+
+### 4-2. Swap Partition 사이즈 조절
+
+파티션 크기 조절은 더 복잡하고 위험한 작업입니다.
+
+<Callout type="warning" title="라이브 환경 필요">
+  루트 파티션을 건드려야 하는 경우 **Live USB**로 부팅하거나 복구 모드에서 작업하는 것을 권장합니다. 사용 중인 파티션은 크기를 변경할 수 없기 때문입니다.
+</Callout>
+
+<Steps>
+  <Step title="스왑 비활성화">
+    먼저 스왑 파티션을 비활성화합니다.
+    <CodeBlock language="bash">{`sudo swapoff /dev/sdb2`}</CodeBlock>
+    파티션이 사용 중인 상태에서는 크기를 변경할 수 없습니다.
+  </Step>
+  <Step title="파티션 크기 조절">
+    GParted를 사용하거나 <Badge variant="secondary">parted</Badge> 명령어를 사용해 크기를 조정합니다.
+    
+    GParted 사용 시:
+    <ol>
+      <li>스왑 파티션을 우클릭하고 "Resize/Move" 선택</li>
+      <li>원하는 크기로 조정</li>
+      <li>변경사항 적용</li>
+    </ol>
+  </Step>
+  <Step title="스왑 영역 재생성">
+    크기가 변경된 파티션을 다시 스왑으로 포맷합니다.
+    <CodeBlock language="bash">{`sudo mkswap /dev/sdb2
+sudo swapon /dev/sdb2`}</CodeBlock>
+    파티션 크기가 변경되면 스왑 시그니처도 다시 생성해야 합니다.
+  </Step>
+</Steps>
+
+## 5. 방법 간 전환
+
+사용하다 보니 다른 방식이 더 적합하다고 판단되면 언제든 전환할 수 있습니다.
+
+### Swapfile → Swap Partition
+파일 방식에서 파티션 방식으로 전환하는 경우입니다.
+
+<CodeBlock language="bash">{`sudo swapoff /swapfile
+sudo nano /etc/fstab  # 스왑파일 항목 제거
+# 파티션 생성 후 아래 명령 수행
+echo 'UUID=<uuid> none swap sw 0 0' | sudo tee -a /etc/fstab
+sudo rm /swapfile`}</CodeBlock>
+
+중간에 앞서 설명한 파티션 생성 과정을 거쳐야 합니다.
+
+### Swap Partition → Swapfile
+파티션 방식에서 파일 방식으로 전환하는 경우입니다.
+
+<CodeBlock language="bash">{`sudo swapoff /dev/sdb2
+sudo nano /etc/fstab  # 파티션 항목 제거
+# 스왑파일 생성 후 활성화 (앞서 설명한 방법 참고)`}</CodeBlock>
+
+### 두 방법 동시 사용 및 우선순위 설정
+필요하다면 두 방식을 모두 사용할 수도 있습니다. 우선순위를 설정하면 더 빠른 저장장치를 먼저 사용하게 할 수 있습니다.
+
+<CodeBlock language="bash">{`sudo swapon -p 1 /swapfile
+sudo swapon -p 2 /dev/sdb2`}</CodeBlock>
+
+숫자가 높을수록 우선순위가 높습니다. 이 예시에서는 파티션을 먼저 사용하고, 부족할 때 파일을 사용합니다.
+
+## 5-1. 하이브리드 스왑 구성 완전 가이드
+
+스왑파일과 스왑 파티션을 동시에 사용하는 하이브리드 구성은 각각의 장점을 활용할 수 있는 고급 설정입니다. 이 방식은 특히 다음과 같은 상황에서 유용합니다.
+
+### 하이브리드 구성이 유용한 시나리오
+
+**시나리오 1: 성능과 유연성의 균형**
+- 기본적으로는 빠른 스왑 파티션을 사용하되, 추가 메모리가 필요할 때만 스왑파일을 보조로 사용
+
+**시나리오 2: 저장장치별 최적화**
+- SSD에는 작은 스왑파일(긴급용), HDD에는 큰 스왑 파티션(주 사용)으로 구성하여 SSD 수명 보호
+
+**시나리오 3: 단계적 확장**
+- 기존 스왑 파티션이 있지만 일시적으로 더 많은 스왑이 필요한 경우
+
+**시나리오 4: 백업 및 안정성**
+- 하나의 스왑이 문제가 생겨도 다른 스왑으로 시스템 안정성 유지
+
+### 하이브리드 구성 설정 방법
+
+<Steps>
+  <Step title="기존 스왑 상태 확인">
+    현재 활성화된 스왑을 확인합니다.
+    <CodeBlock language="bash">{`free -h
+swapon --show
+cat /proc/swaps`}</CodeBlock>
+    이 명령어들로 현재 스왑 사용량과 활성화된 스왑 장치들을 확인할 수 있습니다.
+  </Step>
+  
+  <Step title="두 번째 스왑 생성">
+    이미 스왑 파티션이 있다면 스왑파일을 추가로 생성하거나, 스왑파일이 있다면 파티션을 추가로 생성합니다.
+    
+    <Callout type="info" title="예시 시나리오">
+      기존에 2GB 스왑 파티션이 있고, 4GB 스왑파일을 추가하는 상황으로 설명하겠습니다.
+    </Callout>
+    
+    <CodeBlock language="bash">{`# 4GB 스왑파일 생성
+sudo dd if=/dev/zero of=/swapfile bs=1M count=4096
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile`}</CodeBlock>
+  </Step>
+  
+  <Step title="우선순위 계획 수립">
+    어떤 스왑을 먼저 사용할지 결정합니다. 일반적인 우선순위 전략:
+    
+    - **성능 우선**: 빠른 저장장치(SSD 파티션) > 느린 저장장치(HDD)
+    - **수명 보호**: HDD 파티션 > SSD 파일
+    - **크기별**: 작은 스왑(빠른 응답) > 큰 스왑(대용량 처리)
+  </Step>
+  
+  <Step title="우선순위와 함께 활성화">
+    계획한 우선순위에 따라 스왑을 활성화합니다.
+    
+    <CodeBlock language="bash">{`# 예시: 파티션을 높은 우선순위로, 파일을 낮은 우선순위로
+sudo swapon -p 10 /dev/sdb2  # 스왑 파티션 (높은 우선순위)
+sudo swapon -p 5 /swapfile   # 스왑 파일 (낮은 우선순위)
+
+# 결과 확인
+swapon --show`}</CodeBlock>
+    
+    우선순위는 -1부터 32767까지 설정 가능하며, 높은 숫자가 높은 우선순위입니다.
+  </Step>
+  
+  <Step title="/etc/fstab 설정">
+    재부팅 후에도 자동으로 마운트되도록 설정합니다.
+    
+    <CodeBlock language="bash">{`# 기존 항목 확인
+sudo nano /etc/fstab
+
+# 다음과 같은 형태로 추가/수정
+# UUID=<partition-uuid> none swap sw,pri=10 0 0
+# /swapfile none swap sw,pri=5 0 0`}</CodeBlock>
+    
+    `pri=숫자` 옵션으로 우선순위를 영구적으로 설정할 수 있습니다.
+  </Step>
+</Steps>
+
+### 실제 구성 예시들
+
+#### 예시 1: SSD + HDD 하이브리드 (권장)
+
+<CodeBlock language="bash">{`# SSD에 2GB 스왑파일 (긴급용, 낮은 우선순위)
+sudo dd if=/dev/zero of=/swapfile_ssd bs=1M count=2048
+sudo chmod 600 /swapfile_ssd
+sudo mkswap /swapfile_ssd
+sudo swapon -p 1 /swapfile_ssd
+
+# HDD에 8GB 스왑 파티션 (주 사용, 높은 우선순위)
+sudo swapon -p 10 /dev/sdb2  # HDD 파티션
+
+# /etc/fstab 설정
+echo '/swapfile_ssd none swap sw,pri=1 0 0' | sudo tee -a /etc/fstab
+echo 'UUID=<hdd-partition-uuid> none swap sw,pri=10 0 0' | sudo tee -a /etc/fstab`}</CodeBlock>
+
+**장점**: SSD 수명을 보호하면서도 필요시 빠른 응답 가능
+
+#### 예시 2: 크기별 계층화
+
+<CodeBlock language="bash">{`# 작은 스왑 파티션 (2GB, 빠른 응답용)
+sudo swapon -p 20 /dev/sda3
+
+# 큰 스왑파일 (8GB, 대용량 처리용)  
+sudo swapon -p 10 /swapfile_large`}</CodeBlock>
+
+**장점**: 일반적인 상황에서는 빠른 응답, 대용량 작업시에는 충분한 공간 제공
+
+#### 예시 3: 백업 구성
+
+<CodeBlock language="bash">{`# 주 스왑 파티션
+sudo swapon -p 10 /dev/sdb2
+
+# 백업 스왑파일 (같은 우선순위로 병렬 사용)
+sudo swapon -p 10 /swapfile_backup`}</CodeBlock>
+
+**장점**: 하나의 스왑에 문제가 생겨도 시스템 안정성 유지
+
+### 모니터링 및 관리
+
+하이브리드 구성에서는 각 스왑의 사용량을 개별적으로 모니터링하는 것이 중요합니다.
+
+<CodeBlock language="bash">{`# 상세한 스왑 정보 확인
+swapon --show=NAME,TYPE,SIZE,USED,PRIO
+
+# 실시간 모니터링
+watch -n 2 'swapon --show && echo "---" && free -h'
+
+# 개별 스왑 사용량 확인
+cat /proc/swaps`}</CodeBlock>
+
+### 문제 해결 및 조정
+
+#### 우선순위 변경
+운영 중에 우선순위를 변경하려면:
+
+<CodeBlock language="bash">{`# 기존 스왑 비활성화
+sudo swapoff /swapfile
+
+# 새로운 우선순위로 재활성화
+sudo swapon -p 15 /swapfile`}</CodeBlock>
+
+#### 특정 스왑만 비활성화
+<CodeBlock language="bash">{`# 특정 스왑파일만 비활성화
+sudo swapoff /swapfile
+
+# 특정 파티션만 비활성화  
+sudo swapoff /dev/sdb2`}</CodeBlock>
+
+#### 성능 분석
+<CodeBlock language="bash">{`# I/O 통계로 각 장치별 사용량 확인
+iostat -x 1 5
+
+# 스왑 사용 패턴 분석
+vmstat -s | grep -i swap`}</CodeBlock>
+
+### 주의사항 및 권장사항
+
+<Callout type="warning" title="주의사항">
+- 너무 많은 스왑 장치는 관리 복잡성을 증가시킵니다 (보통 2–3개가 적당)
+- 같은 물리 디스크에 여러 스왑을 만들면 성능상 이점이 없습니다
+- 우선순위 설정을 잘못하면 원하지 않는 장치를 먼저 사용할 수 있습니다
+</Callout>
+
+<Callout type="success" title="최적화 팁">
+- SSD + HDD 환경에서는 HDD를 주 스왑으로, SSD를 보조 스왑으로 사용하세요
+- 네트워크 스토리지는 스왑용으로 사용하지 마세요 (성능 저하)
+- 정기적으로 각 스왑의 사용 패턴을 모니터링하여 구성을 최적화하세요
+</Callout>
+
+## 6. 시나리오별 권장 스왑 크기
+
+사용 패턴에 따라 적절한 스왑 크기가 다릅니다. 다음 가이드라인을 참고하세요.
+
+**웹서핑 및 일반 사용:**
+- 4GB 이하 RAM: RAM의 2배 크기를 권장합니다. 메모리 부족 상황에 대비할 수 있습니다.
+- 4GB–8GB RAM: RAM과 동일한 크기면 충분합니다. 적절한 버퍼 역할을 합니다.
+- 8GB 이상 RAM: 2–4GB 정도의 최소한의 안전장치만 있으면 됩니다.
+
+**문서작업 및 오피스:**
+- 4GB 이하 RAM: RAM의 1.5배 크기로, 다중 문서 작업을 지원합니다.
+- 4GB–8GB RAM: RAM의 0.5–1배 크기로, 원활한 멀티태스킹이 가능합니다.
+- 8GB 이상 RAM: 2GB 정도의 기본적인 버퍼만 제공하면 됩니다.
+
+**개발 작업:**
+- 8GB 이하 RAM: RAM의 1–2배 크기를 권장합니다. IDE, 컴파일러, 가상머신을 고려해야 합니다.
+- 8GB–16GB RAM: RAM의 0.5–1배 크기로, 대용량 프로젝트 빌드에 대비합니다.
+- 16GB 이상 RAM: 4–8GB 정도로, 가상머신이나 컨테이너 환경을 고려합니다.
+
+**특수 상황:**
+- 하이버네이션을 사용한다면 RAM 크기와 동일하거나 더 큰 스왑이 필요합니다.
+- 가상머신 호스트로 사용한다면 RAM의 1–2배를 권장합니다.
+- 서버 환경에서는 최소 2–4GB의 OOM 방지용 스왑을 유지하세요.
+
+## 7. SSD 환경 최적화
+
+최근 대부분의 시스템이 SSD를 사용하므로, SSD에 특화된 최적화가 필요합니다.
+
+<Callout type="error" title="SSD 쓰기 수명에 주의">
+  SSD에 과도한 스왑이 발생하면 쓰기 수명(Write Endurance)이 감소할 수 있습니다. 가능하면 RAM을 늘리거나 swappiness 값을 조절하여 스왑 사용을 최소화하세요.
+</Callout>
+
+### 최적화 설정
+
+SSD 환경에서는 다음과 같은 설정을 권장합니다.
+
+<CodeBlock language="bash">{`# swappiness 값을 10으로 조정 (기본값은 60)
+echo 'vm.swappiness=10' | sudo tee -a /etc/sysctl.conf
+
+# TRIM 기능을 주기적으로 실행하여 SSD 성능 유지
+sudo systemctl enable fstrim.timer`}</CodeBlock>
+
+swappiness 값이 낮을수록 시스템은 스왑 사용을 피하려고 합니다. SSD 환경에서는 10–20 정도가 적절합니다.
+
+### 하이브리드 구성 권장
+
+만약 HDD와 SSD를 모두 사용한다면, 시스템은 SSD에, 스왑은 HDD에 두는 것이 이상적입니다.
+
+<CodeBlock language="bash">{`# HDD의 스왑을 높은 우선순위로 설정
+sudo swapon -p 10 /dev/sdb2  # HDD 파티션
+sudo swapon -p 5 /swapfile   # SSD 파일 (백업용)`}</CodeBlock>
+
+## 8. 실시간 모니터링 및 문제 해결
+
+스왑 사용량을 모니터링하면 시스템 성능을 더 잘 이해할 수 있습니다.
+
+### 기본 모니터링 명령어
+
+<CodeBlock language="bash">{`# 실시간 메모리 및 스왑 사용량 확인
+watch -n 1 'free -h && swapon --show'
+
+# 시스템 성능 통계 확인
+vmstat 1 10
+
+# I/O 사용량 모니터링
+iostat -x 1 10`}</CodeBlock>
+
+### 스왑 사용량이 높을 때 대처법
+
+만약 스왑 사용량이 지속적으로 높다면:
+
+1. **메모리 사용량 분석**: `htop`이나 `ps aux --sort=-%mem`로 메모리를 많이 사용하는 프로세스를 확인합니다.
+2. **불필요한 서비스 중단**: 사용하지 않는 서비스나 애플리케이션을 종료합니다.
+3. **RAM 증설 고려**: 근본적인 해결책은 물리 메모리를 늘리는 것입니다.
+4. **스왑 크기 조정**: 임시 방편으로 스왑 크기를 늘릴 수 있지만, 성능 저하는 피할 수 없습니다.
+
+<Callout type="success" title="마무리">
+  스왑은 시스템 안정성을 위한 **안전망**입니다. 스왑 사용량이 자주 높다면 RAM 증설을 고려하고, 그렇지 않다면 swappiness 조절로 SSD 수명을 보호하는 것이 현명합니다. 무엇보다 자신의 사용 패턴에 맞는 적절한 설정을 찾는 것이 중요합니다.
+</Callout>
