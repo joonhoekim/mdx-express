@@ -1,0 +1,429 @@
+---
+title: "리눅스 sed 명령어 완전 가이드 - 시나리오별 실전 활용법"
+description: "리눅스 sed 명령어의 기본 개념부터 고급 활용법까지, 실제 시나리오를 통해 배워보는 완전 가이드"
+date: "2024-12-19"
+tags: ["linux", "sed", "shell", "text-processing"]
+---
+
+import { Callout, CodeBlock, Steps, Step, Tabs, TabsList, TabsTrigger, TabsContent, Card, Blockquote, Badge, Reference, ReferenceList } from '@/components/writing-ui';
+
+# 리눅스 sed 명령어 완전 가이드
+
+<Callout type="info" title="이 글을 읽기 전에">
+  이 가이드는 리눅스/Unix 환경에서 텍스트 처리를 위한 sed 명령어를 다룹니다. 
+  기본적인 터미널 사용법을 알고 있다면 누구나 따라할 수 있습니다.
+</Callout>
+
+## sed란 무엇인가?
+
+**sed**(Stream Editor)는 리눅스와 Unix 시스템에서 텍스트를 처리하고 변환하는 강력한 명령어입니다. 파일이나 표준 입력에서 텍스트를 읽어서 지정된 규칙에 따라 편집한 후 결과를 출력합니다.
+
+<Blockquote author="Unix 철학" cite="Unix Philosophy">
+  "하나의 도구가 하나의 일을 잘 하도록 하라" - sed는 텍스트 편집이라는 한 가지 일을 완벽하게 수행합니다.
+</Blockquote>
+
+## 기본 문법과 구조
+
+sed의 기본 문법은 다음과 같습니다:
+
+```bash
+sed [옵션] '명령어' 파일명
+```
+
+### 주요 옵션들
+
+<CodeBlock title="sed 주요 옵션" language="bash">
+# -n: 패턴 스페이스 자동 출력 억제
+sed -n '1p' file.txt
+
+# -i: 파일을 직접 수정 (백업 파일 생성)
+sed -i.bak 's/old/new/g' file.txt
+
+# -e: 여러 명령어 실행
+sed -e 's/old1/new1/g' -e 's/old2/new2/g' file.txt
+
+# -f: 스크립트 파일에서 명령어 읽기
+sed -f script.sed file.txt
+</CodeBlock>
+
+## 시나리오 1: 기본 텍스트 치환
+
+가장 기본적이고 자주 사용되는 기능인 텍스트 치환부터 시작해보겠습니다.
+
+### 1.1 단순 치환
+
+<CodeBlock title="기본 치환 예제" language="bash">
+# 파일에서 'hello'를 'hi'로 변경
+sed 's/hello/hi/g' input.txt
+
+# 첫 번째 매치만 변경
+sed 's/hello/hi/' input.txt
+
+# 대소문자 구분 없이 치환
+sed 's/hello/hi/gi' input.txt
+</CodeBlock>
+
+### 1.2 실제 파일 수정
+
+<Callout type="warning" title="주의사항">
+  -i 옵션을 사용하면 원본 파일이 직접 수정됩니다. 
+  중요한 파일을 다룰 때는 반드시 백업을 먼저 생성하세요.
+</Callout>
+
+<CodeBlock title="파일 직접 수정" language="bash">
+# 백업 파일과 함께 수정
+sed -i.bak 's/old/new/g' config.txt
+
+# 백업 없이 수정 (위험!)
+sed -i 's/old/new/g' config.txt
+
+# 수정 전후 확인
+diff config.txt config.txt.bak
+</CodeBlock>
+
+## 시나리오 2: 특정 라인 처리
+
+### 2.1 라인 번호로 작업
+
+<CodeBlock title="라인 번호 기반 작업" language="bash">
+# 3번째 라인만 출력
+sed -n '3p' file.txt
+
+# 1-5번째 라인 출력
+sed -n '1,5p' file.txt
+
+# 3번째 라인만 치환
+sed '3s/old/new/g' file.txt
+
+# 1-10번째 라인에서만 치환
+sed '1,10s/old/new/g' file.txt
+</CodeBlock>
+
+### 2.2 패턴 매칭으로 라인 선택
+
+<CodeBlock title="패턴 매칭" language="bash">
+# 'error'가 포함된 라인만 출력
+sed -n '/error/p' log.txt
+
+# 'error'가 포함된 라인에서 치환
+sed '/error/s/old/new/g' log.txt
+
+# 'error'가 포함된 라인 삭제
+sed '/error/d' log.txt
+
+# 'error'가 포함되지 않은 라인만 출력
+sed '/error/!p' log.txt
+</CodeBlock>
+
+## 시나리오 3: 복잡한 패턴 매칭
+
+### 3.1 정규표현식 활용
+
+<CodeBlock title="정규표현식 예제" language="bash">
+# 이메일 주소 찾기
+sed -n '/[a-zA-Z0-9._%+-]\+@[a-zA-Z0-9.-]\+\.[a-zA-Z]\{2,\}/p' emails.txt
+
+# 전화번호 형식 변경 (010-1234-5678 → 01012345678)
+sed 's/\([0-9]\{3\}\)-\([0-9]\{4\}\)-\([0-9]\{4\}\)/\1\2\3/g' phones.txt
+
+# HTML 태그 제거
+sed 's/<[^>]*>//g' html.txt
+</CodeBlock>
+
+### 3.2 그룹 캡처와 참조
+
+<CodeBlock title="그룹 캡처 예제" language="bash">
+# 날짜 형식 변경 (2024-12-19 → 19/12/2024)
+sed 's/\([0-9]\{4\}\)-\([0-9]\{2\}\)-\([0-9]\{2\}\)/\3\/\2\/\1/g' dates.txt
+
+# 파일 확장자 변경
+sed 's/\(.*\)\.txt/\1.md/g' files.txt
+
+# URL에서 도메인 추출
+sed 's/.*https\?:\/\/\([^\/]*\).*/\1/' urls.txt
+</CodeBlock>
+
+## 시나리오 4: 다중 명령어와 조건부 처리
+
+### 4.1 여러 명령어 조합
+
+<CodeBlock title="다중 명령어" language="bash">
+# 여러 치환을 한 번에 수행
+sed -e 's/old1/new1/g' -e 's/old2/new2/g' -e 's/old3/new3/g' file.txt
+
+# 또는 세미콜론으로 구분
+sed 's/old1/new1/g; s/old2/new2/g; s/old3/new3/g' file.txt
+</CodeBlock>
+
+### 4.2 조건부 처리
+
+<CodeBlock title="조건부 처리" language="bash">
+# 'error' 라인에서만 치환하고, 'warning' 라인은 삭제
+sed '/error/s/old/new/g; /warning/d' log.txt
+
+# 특정 라인 범위에서만 작업
+sed '5,10{/pattern/s/old/new/g}' file.txt
+
+# 패턴이 매치되면 다음 라인까지 처리
+sed '/start/,/end/s/old/new/g' file.txt
+</CodeBlock>
+
+## 시나리오 5: 실제 개발 환경 활용
+
+### 5.1 로그 파일 처리
+
+<Callout type="note" title="실무 팁">
+  로그 파일 처리는 sed의 가장 일반적인 사용 사례 중 하나입니다.
+</Callout>
+
+<CodeBlock title="로그 파일 처리" language="bash">
+# ERROR 레벨 로그만 추출
+sed -n '/ERROR/p' app.log
+
+# 타임스탬프 제거
+sed 's/^[0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\} [0-9:]* //' app.log
+
+# 특정 IP 주소의 로그만 추출
+sed -n '/192\.168\.1\.100/p' access.log
+
+# 로그 레벨별 색상 변경 (터미널에서)
+sed 's/ERROR/\x1b[31mERROR\x1b[0m/g; s/WARN/\x1b[33mWARN\x1b[0m/g' app.log
+</CodeBlock>
+
+### 5.2 설정 파일 수정
+
+<CodeBlock title="설정 파일 수정" language="bash">
+# 환경 변수 값 변경
+sed -i 's/^DB_HOST=.*/DB_HOST=localhost/' .env
+
+# 주석 처리
+sed -i 's/^#*\(.*\)/#\1/' config.conf
+
+# 주석 해제
+sed -i 's/^#\(.*\)/\1/' config.conf
+
+# 특정 섹션에서만 수정
+sed -i '/\[database\]/,/\[/s/^host=.*/host=localhost/' config.ini
+</CodeBlock>
+
+### 5.3 코드 리팩토링
+
+<CodeBlock title="코드 리팩토링" language="bash">
+# 함수명 변경
+sed -i 's/oldFunctionName/newFunctionName/g' *.js
+
+# import 경로 수정
+sed -i 's/from "\.\/old\/path"/from ".\/new\/path"/g' *.ts
+
+# 변수명 일괄 변경
+sed -i 's/\bvar\b/let/g' *.js
+
+# 들여쓰기 수정 (탭을 스페이스로)
+sed -i 's/\t/    /g' *.py
+</CodeBlock>
+
+## 시나리오 6: 고급 기능과 트릭
+
+### 6.1 라인 조작
+
+<CodeBlock title="라인 조작" language="bash">
+# 특정 라인 삭제
+sed '5d' file.txt                    # 5번째 라인 삭제
+sed '1,5d' file.txt                  # 1-5번째 라인 삭제
+sed '/pattern/d' file.txt            # 패턴이 매치되는 라인 삭제
+
+# 라인 삽입
+sed '3i\새로운 라인' file.txt        # 3번째 라인 앞에 삽입
+sed '3a\새로운 라인' file.txt        # 3번째 라인 뒤에 삽입
+
+# 라인 교체
+sed '3c\교체된 라인' file.txt        # 3번째 라인 교체
+</CodeBlock>
+
+### 6.2 파일 분할과 병합
+
+<CodeBlock title="파일 분할" language="bash">
+# 특정 패턴을 기준으로 파일 분할
+sed -n '/^===/,/^===/p' input.txt > section1.txt
+
+# 라인 번호로 분할
+sed -n '1,100p' large_file.txt > part1.txt
+sed -n '101,200p' large_file.txt > part2.txt
+
+# 빈 라인을 기준으로 섹션 분할
+sed '/^$/q' input.txt > first_section.txt
+</CodeBlock>
+
+### 6.3 조건부 치환과 변환
+
+<CodeBlock title="조건부 치환" language="bash">
+# 첫 번째 매치만 치환
+sed '0,/pattern/s/old/new/' file.txt
+
+# 마지막 매치만 치환
+sed ':a;N;$!ba;s/old/new/' file.txt
+
+# 특정 횟수만큼 치환
+sed 's/old/new/2' file.txt           # 2번째 매치만 치환
+
+# 매치된 부분만 출력
+sed -n 's/pattern/&/p' file.txt
+</CodeBlock>
+
+## 시나리오 7: 성능 최적화와 주의사항
+
+### 7.1 대용량 파일 처리
+
+<Callout type="warning" title="성능 고려사항">
+  대용량 파일을 처리할 때는 메모리 사용량과 처리 속도를 고려해야 합니다.
+</Callout>
+
+<CodeBlock title="대용량 파일 처리" language="bash">
+# 메모리 효율적인 처리
+sed -n '1,1000p' large_file.txt     # 청크 단위로 처리
+
+# 병렬 처리 (GNU parallel 사용)
+parallel -a file_list.txt sed 's/old/new/g' {} > {}.new
+
+# 임시 파일 사용
+sed 's/old/new/g' large_file.txt > temp_file && mv temp_file large_file.txt
+</CodeBlock>
+
+### 7.2 안전한 사용법
+
+<CodeBlock title="안전한 사용법" language="bash">
+# 항상 백업 생성
+cp original.txt original.txt.backup
+sed -i 's/old/new/g' original.txt
+
+# 변경사항 미리보기
+sed 's/old/new/g' file.txt | diff file.txt -
+
+# 드라이 런 (실제 변경 없이 확인)
+sed 's/old/new/g' file.txt | head -10
+
+# 정규표현식 이스케이프
+sed 's/\[/\\[/g' file.txt            # 대괄호 이스케이프
+sed 's/\./\\\./g' file.txt           # 점 이스케이프
+</CodeBlock>
+
+## 실전 연습 문제
+
+<Steps>
+  <Step title="기본 치환 연습">
+    다음 텍스트에서 모든 'hello'를 'hi'로 변경하세요:
+    <CodeBlock language="text">
+hello world
+hello there
+goodbye hello
+    </CodeBlock>
+  </Step>
+  
+  <Step title="라인 선택 연습">
+    로그 파일에서 ERROR 레벨 메시지만 추출하세요:
+    <CodeBlock language="text">
+2024-12-19 10:00:01 INFO: Application started
+2024-12-19 10:00:02 ERROR: Database connection failed
+2024-12-19 10:00:03 WARN: High memory usage
+2024-12-19 10:00:04 ERROR: File not found
+    </CodeBlock>
+  </Step>
+  
+  <Step title="패턴 매칭 연습">
+    이메일 주소만 추출하세요:
+    <CodeBlock language="text">
+Contact: john@example.com
+Phone: 010-1234-5678
+Email: jane@test.org
+    </CodeBlock>
+  </Step>
+</Steps>
+
+## 자주 묻는 질문
+
+<Tabs defaultValue="basic">
+  <TabsList>
+    <TabsTrigger value="basic">기본 사용법</TabsTrigger>
+    <TabsTrigger value="advanced">고급 기능</TabsTrigger>
+    <TabsTrigger value="troubleshooting">문제 해결</TabsTrigger>
+  </TabsList>
+  
+  <TabsContent value="basic">
+    <Card title="Q: sed와 awk의 차이점은 무엇인가요?">
+      sed는 주로 텍스트 치환과 편집에 특화되어 있고, awk는 데이터 처리와 분석에 더 적합합니다. 
+      sed는 라인 단위로 작업하고, awk는 필드 단위로 작업할 수 있습니다.
+    </Card>
+    
+    <Card title="Q: 왜 -i 옵션을 사용할 때 백업이 필요한가요?">
+      -i 옵션은 원본 파일을 직접 수정하므로, 실수로 잘못된 변경을 하면 되돌릴 수 없습니다. 
+      백업 파일이 있으면 언제든 원래 상태로 복원할 수 있습니다.
+    </Card>
+  </TabsContent>
+  
+  <TabsContent value="advanced">
+    <Card title="Q: 복잡한 정규표현식을 어떻게 디버깅하나요?">
+      먼저 간단한 패턴으로 테스트하고, 점진적으로 복잡하게 만들어가세요. 
+      echo 명령어와 함께 사용하여 패턴이 올바르게 매치되는지 확인할 수 있습니다.
+    </Card>
+    
+    <Card title="Q: 여러 파일을 한 번에 처리하려면?">
+      for 루프나 find 명령어와 함께 사용하세요:
+      <CodeBlock language="bash">
+for file in *.txt; do
+  sed -i 's/old/new/g' "$file"
+done
+      </CodeBlock>
+    </Card>
+  </TabsContent>
+  
+  <TabsContent value="troubleshooting">
+    <Card title="Q: sed 명령어가 작동하지 않을 때">
+      1. 정규표현식 문법 확인
+      2. 파일 권한 확인
+      3. 백슬래시 이스케이프 확인
+      4. 따옴표 사용법 확인
+    </Card>
+    
+    <Card title="Q: 특수문자가 포함된 패턴 처리">
+      특수문자는 백슬래시로 이스케이프하거나 다른 구분자를 사용하세요:
+      <CodeBlock language="bash">
+sed 's|/path/to/file|/new/path|g' file.txt
+      </CodeBlock>
+    </Card>
+  </TabsContent>
+</Tabs>
+
+## 마무리
+
+sed는 리눅스 시스템에서 텍스트 처리를 위한 가장 강력한 도구 중 하나입니다. 기본적인 치환부터 복잡한 패턴 매칭까지, 다양한 시나리오에서 활용할 수 있습니다.
+
+<Callout type="success" title="핵심 포인트">
+  - 항상 백업을 먼저 생성하세요
+  - 정규표현식을 점진적으로 테스트하세요
+  - 대용량 파일 처리 시 성능을 고려하세요
+  - 실무에서는 sed 스크립트 파일을 활용하세요
+</Callout>
+
+<ReferenceList title="추가 학습 자료">
+  <Reference
+    title="GNU sed 매뉴얼"
+    description="sed의 공식 매뉴얼로 모든 기능을 상세히 설명합니다."
+    href="https://www.gnu.org/software/sed/manual/"
+    type="documentation"
+    author="GNU Project"
+  />
+  <Reference
+    title="정규표현식 완전 가이드"
+    description="sed에서 사용하는 정규표현식의 모든 문법을 다룹니다."
+    href="https://regex101.com"
+    type="tutorial"
+  />
+  <Reference
+    title="Unix 텍스트 처리 도구들"
+    description="sed, awk, grep 등 Unix 텍스트 처리 도구들의 비교와 활용법을 설명합니다."
+    href="https://en.wikipedia.org/wiki/Unix_text_processing_utilities"
+    type="reference"
+  />
+</ReferenceList>
+
+<Badge variant="success" size="lg">완료!</Badge> 이제 sed 명령어를 마스터하여 텍스트 처리 작업을 효율적으로 수행할 수 있습니다!
