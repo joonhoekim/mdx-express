@@ -51,6 +51,26 @@ export interface MDXFrontmatter {
 // 컨텐츠 디렉토리 경로
 const CONTENT_DIR = path.join(process.cwd(), 'content');
 
+// MDX 파서 오류를 방지하기 위해 코드 블록 내부의 특수문자들을 이스케이프하는 함수
+export async function sanitizeMDXContent(content: string): Promise<string> {
+  // CodeBlock 컴포넌트 내부의 텍스트를 JSX 파서가 해석하지 않도록 HTML 엔티티로 이스케이프
+  // - JSX 컨텐츠에서 `<`, `>`, `{`, `}` 는 문법으로 해석되기 때문에 반드시 치환 필요
+  // - 템플릿 리터럴로 감싸는 방식은 JS 이스케이프 해석 문제(예: \x, \[)를 유발하므로 사용하지 않음
+  return content.replace(
+    /<CodeBlock[^>]*>([\s\S]*?)<\/CodeBlock>/g,
+    (match, codeContent) => {
+      const htmlEscaped = codeContent
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/\{/g, '&#123;')
+        .replace(/\}/g, '&#125;');
+
+      return match.replace(codeContent, htmlEscaped);
+    }
+  );
+}
+
 // 디렉토리 생성 (없으면) - 비동기 버전으로 변경
 export async function ensureContentDirectory(): Promise<void> {
   try {
@@ -84,7 +104,7 @@ export async function getMDXFile(filePath: string): Promise<MDXFile | null> {
       description: frontmatter.description,
       order: frontmatter.order || 0,
       path: filePath,
-      content,
+      content: await sanitizeMDXContent(content), // MDX 파서 오류 방지를 위해 이스케이프 처리
     };
   } catch (error) {
     console.error(`Error reading MDX file ${filePath}:`, error);

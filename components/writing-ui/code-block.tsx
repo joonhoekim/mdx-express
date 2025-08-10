@@ -23,13 +23,29 @@ export function CodeBlock({
 }: CodeBlockProps) {
     const [copied, setCopied] = React.useState(false)
 
-    const copyToClipboard = async () => {
-        const textContent = React.Children.toArray(children)
-            .map(child => typeof child === 'string' ? child : '')
-            .join('')
+    // children을 문자열로 변환하는 함수
+    const getCodeString = (children: React.ReactNode): string => {
+        if (typeof children === 'string') {
+            return children
+        }
+        
+        if (Array.isArray(children)) {
+            return children.map(child => getCodeString(child)).join('')
+        }
+        
+        if (React.isValidElement(children)) {
+            const element = children as React.ReactElement<any>
+            return getCodeString(element.props.children)
+        }
+        
+        return String(children)
+    }
 
+    const codeString = getCodeString(children)
+
+    const copyToClipboard = async () => {
         try {
-            await navigator.clipboard.writeText(textContent)
+            await navigator.clipboard.writeText(codeString)
             setCopied(true)
             setTimeout(() => setCopied(false), 2000)
         } catch (err) {
@@ -75,7 +91,7 @@ export function CodeBlock({
             )}
             <div className="p-4 overflow-x-auto">
                 <pre className="text-sm text-gray-300 leading-relaxed">
-                    <code>{children}</code>
+                    <code>{codeString}</code>
                 </pre>
             </div>
         </div>

@@ -5,6 +5,8 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
 import { MDXRemote } from 'next-mdx-remote/rsc';
 import remarkGfm from 'remark-gfm';
+import rehypeRaw from 'rehype-raw';
+import remarkMdx from 'remark-mdx';
 
 // Writing UI 컴포넌트들 import
 import {
@@ -148,7 +150,13 @@ export function MDXRenderer({ content }: MDXRendererProps) {
         components={components}
         options={{
           mdxOptions: {
-            remarkPlugins: [remarkGfm],
+            remarkPlugins: [remarkGfm, remarkMdx],
+            rehypePlugins: [
+              [rehypeRaw, { passThrough: ['mdxJsxFlowElement', 'mdxJsxTextElement'] }]
+            ],
+            development: false,
+            format: 'mdx',
+            jsxImportSource: undefined, // JSX 파싱 비활성화
           },
         }}
       />
