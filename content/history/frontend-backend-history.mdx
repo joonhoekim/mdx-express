@@ -1,0 +1,361 @@
+# Frontend-Backend 연결 편의성의 역사
+
+## 1. SOAP (2000년대 초반)
+
+**특징**: XML 기반, 복잡한 스키마, WSDL 정의 필요
+
+### Backend (Java/C#)
+
+```java
+@WebService
+public class UserService {
+    @WebMethod
+    public GetUserResponse getUser(@WebParam(name = "userId") String userId) {
+        // 복잡한 XML 응답 생성
+        GetUserResponse response = new GetUserResponse();
+        response.setUser(findUserById(userId));
+        return response;
+    }
+}
+```
+
+### Frontend (JavaScript)
+
+```javascript
+// SOAP 클라이언트 생성 (매우 복잡)
+var soapClient = new SOAPClient();
+soapClient.url = 'http://api.example.com/userservice?wsdl';
+
+// SOAP 엔벨로프 수동 생성
+var soapEnvelope = `
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+    <GetUser xmlns="http://userservice.example.com/">
+      <userId>123</userId>
+    </GetUser>
+  </soap:Body>
+</soap:Envelope>`;
+
+soapClient.sendRequest(soapEnvelope, function (response) {
+  // XML 파싱 필요
+  var parser = new DOMParser();
+  var xmlDoc = parser.parseFromString(response, 'text/xml');
+  // 복잡한 XML 탐색...
+});
+```
+
+**문제점**: XML 파싱, 복잡한 스키마, 타입 안전성 부족
+
+---
+
+## 2. Non-RESTful API (2000년대 중반)
+
+**특징**: HTTP + JSON, 하지만 일관성 없는 엔드포인트 설계
+
+### Backend (PHP/Node.js)
+
+```php
+// 일관성 없는 엔드포인트들
+// GET /getUserData.php?id=123
+// POST /updateUser.php
+// GET /deleteUserById.php?userId=123
+
+function getUserData($userId) {
+    return json_encode([
+        "success" => true,
+        "userData" => findUser($userId),
+        "timestamp" => time()
+    ]);
+}
+
+function updateUser($data) {
+    return json_encode([
+        "status" => "ok",
+        "user" => updateUserInDB($data)
+    ]);
+}
+```
+
+### Frontend (JavaScript)
+
+```javascript
+// 각 API마다 다른 응답 구조
+function getUser(userId) {
+  return fetch(`/getUserData.php?id=${userId}`)
+    .then((res) => res.json())
+    .then((data) => data.userData); // 응답 구조가 다름
+}
+
+function updateUser(userData) {
+  return fetch('/updateUser.php', {
+    method: 'POST',
+    body: JSON.stringify(userData),
+  })
+    .then((res) => res.json())
+    .then((data) => data.user); // 또 다른 응답 구조
+}
+```
+
+**문제점**: 일관성 없는 API 설계, 예측 불가능한 응답 구조
+
+---
+
+## 3. RESTful API (2010년대)
+
+**특징**: HTTP 메서드 + 리소스 기반 URL, 일관된 응답 구조
+
+### Backend (Express.js)
+
+```javascript
+// 일관된 RESTful 엔드포인트
+app.get('/api/users/:id', (req, res) => {
+  const user = findUserById(req.params.id);
+  res.json({
+    data: user,
+    status: 'success',
+  });
+});
+
+app.put('/api/users/:id', (req, res) => {
+  const user = updateUser(req.params.id, req.body);
+  res.json({
+    data: user,
+    status: 'success',
+  });
+});
+
+app.delete('/api/users/:id', (req, res) => {
+  deleteUser(req.params.id);
+  res.json({
+    message: 'User deleted',
+    status: 'success',
+  });
+});
+```
+
+### Frontend (JavaScript)
+
+```javascript
+class UserAPI {
+  static async getUser(id) {
+    const response = await fetch(`/api/users/${id}`);
+    const result = await response.json();
+    return result.data;
+  }
+
+  static async updateUser(id, userData) {
+    const response = await fetch(`/api/users/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(userData),
+    });
+    const result = await response.json();
+    return result.data;
+  }
+
+  static async deleteUser(id) {
+    await fetch(`/api/users/${id}`, { method: 'DELETE' });
+  }
+}
+```
+
+**개선점**: 일관된 API 설계, 예측 가능한 응답
+**한계점**: 여전히 타입 안전성 부족, 런타임 에러 가능성
+
+---
+
+## 4. RPC 시대
+
+### 4-1. gRPC (2015년)
+
+**특징**: Protocol Buffers, 강타입, HTTP/2
+
+### Protocol Buffer 정의
+
+```protobuf
+// user.proto
+syntax = "proto3";
+
+message User {
+    string id = 1;
+    string name = 2;
+    string email = 3;
+}
+
+message GetUserRequest {
+    string user_id = 1;
+}
+
+service UserService {
+    rpc GetUser(GetUserRequest) returns (User);
+    rpc UpdateUser(User) returns (User);
+}
+```
+
+### Backend (Go)
+
+```go
+type server struct {
+    pb.UnimplementedUserServiceServer
+}
+
+func (s *server) GetUser(ctx context.Context, req *pb.GetUserRequest) (*pb.User, error) {
+    user := findUserById(req.UserId)
+    return &pb.User{
+        Id:    user.ID,
+        Name:  user.Name,
+        Email: user.Email,
+    }, nil
+}
+```
+
+### Frontend (TypeScript - 생성된 코드)
+
+```typescript
+import { UserServiceClient } from './generated/user_grpc_web_pb';
+import { GetUserRequest } from './generated/user_pb';
+
+const client = new UserServiceClient('http://localhost:8080');
+
+async function getUser(userId: string): Promise<User> {
+  const request = new GetUserRequest();
+  request.setUserId(userId);
+
+  return new Promise((resolve, reject) => {
+    client.getUser(request, {}, (err, response) => {
+      if (err) reject(err);
+      else
+        resolve({
+          id: response.getId(),
+          name: response.getName(),
+          email: response.getEmail(),
+        });
+    });
+  });
+}
+```
+
+**개선점**: 강타입, 성능 향상, 코드 생성
+**한계점**: 설정 복잡성, 웹 브라우저 지원 제한
+
+### 4-2. tRPC (2021년)
+
+**특징**: TypeScript 기반, End-to-end 타입 안전성
+
+### Backend (TypeScript)
+
+```typescript
+import { initTRPC } from '@trpc/server';
+import { z } from 'zod';
+
+const t = initTRPC.create();
+
+const userRouter = t.router({
+  getUser: t.procedure.input(z.string()).query(async ({ input: userId }) => {
+    const user = await findUserById(userId);
+    return {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+    };
+  }),
+
+  updateUser: t.procedure
+    .input(
+      z.object({
+        id: z.string(),
+        name: z.string().optional(),
+        email: z.string().email().optional(),
+      })
+    )
+    .mutation(async ({ input }) => {
+      const user = await updateUser(input.id, input);
+      return user;
+    }),
+});
+
+export type UserRouter = typeof userRouter;
+```
+
+### Frontend (TypeScript)
+
+```typescript
+import { createTRPCProxyClient, httpBatchLink } from '@trpc/client';
+import type { UserRouter } from '../server/router';
+
+const trpc = createTRPCProxyClient<UserRouter>({
+  links: [httpBatchLink({ url: 'http://localhost:3000/trpc' })],
+});
+
+// 완전한 타입 안전성!
+async function getUser(userId: string) {
+  const user = await trpc.getUser.query(userId);
+  // user는 자동으로 { id: string, name: string, email: string } 타입
+  console.log(user.name); // 타입 안전!
+}
+
+async function updateUser(userData: {
+  id: string;
+  name?: string;
+  email?: string;
+}) {
+  const user = await trpc.updateUser.mutate(userData);
+  // 컴파일 타임에 타입 체크됨
+  return user;
+}
+```
+
+---
+
+## TypeScript 기반 통합의 혁신
+
+### 기존 방식 (RESTful + Manual Types)
+
+```typescript
+// 수동으로 타입 정의 (동기화 문제)
+interface User {
+  id: string;
+  name: string;
+  email: string;
+}
+
+// 런타임에 타입 불일치 가능성
+async function getUser(id: string): Promise<User> {
+  const response = await fetch(`/api/users/${id}`);
+  const user = await response.json(); // any 타입!
+  return user as User; // 타입 캐스팅으로 위험성 내포
+}
+```
+
+### 현재 방식 (tRPC)
+
+```typescript
+// 서버에서 스키마 정의
+const userSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  email: z.string().email(),
+});
+
+const userRouter = t.router({
+  getUser: t.procedure.input(z.string()).query(({ input }) => {
+    // 반환 타입이 자동으로 추론됨
+    return findUser(input);
+  }),
+});
+
+// 프론트엔드에서 자동 타입 추론
+const user = await trpc.getUser.query('123');
+// user 타입이 자동으로 { id: string, name: string, email: string }
+// 컴파일 타임에 모든 타입 오류 검출!
+```
+
+## 발전 과정 요약
+
+1. **SOAP**: XML 복잡성, 설정 지옥
+2. **Non-RESTful**: 일관성 부족, 예측 불가능
+3. **RESTful**: 일관성 확보, 하지만 타입 안전성 부족
+4. **gRPC**: 강타입 + 성능, 하지만 설정 복잡
+5. **tRPC**: TypeScript 생태계 통합, End-to-end 타입 안전성
+
+**결론**: tRPC는 TypeScript의 타입 시스템을 활용해 프론트엔드-백엔드 간 완전한 타입 안전성을 제공하며, 개발자 경험(DX)을 크게 향상시켰습니다.
