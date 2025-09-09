@@ -1,4 +1,4 @@
-import { TopNavigation } from "@/components/top-navigation";
+import { TopNavigationServer } from "@/components/top-navigation-server";
 import { SidebarNavigation } from "@/components/sidebar-navigation";
 import { MobileSidebar } from "@/components/mobile-sidebar";
 import { BreadcrumbNavigation } from "@/components/breadcrumb-navigation";
@@ -19,7 +19,7 @@ export default async function DocsLayout({
 
   return (
     <div className="min-h-screen bg-background">
-      <TopNavigation topLevelItems={topLevelItems} />
+      <TopNavigationServer topLevelItems={topLevelItems} />
 
       <div className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="flex h-12 items-center px-6">

@@ -9,7 +9,8 @@ import { isNavigationItemActiveSync, getIconComponent } from "@/lib/navigation-u
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { useState, useEffect } from "react";
+import { useState, useMemo, memo } from "react";
+import { useSiblingFiles } from "@/hooks/use-sibling-files";
 
 interface SidebarNavigationItemProps {
   item: NavigationItem;
@@ -17,11 +18,15 @@ interface SidebarNavigationItemProps {
   level?: number;
 }
 
-function SidebarNavigationItem({ item, pathname, level = 0 }: SidebarNavigationItemProps) {
+const SidebarNavigationItem = memo(({ item, pathname, level = 0 }: SidebarNavigationItemProps) => {
   const [isOpen, setIsOpen] = useState(isNavigationItemActiveSync(item, pathname));
-  const isActive = item.href === pathname;
-  const hasChildren = item.children && item.children.length > 0;
-  const Icon = getIconComponent(item.icon);
+
+  // 메모이제이션으로 불필요한 재계산 방지
+  const { isActive, hasChildren, Icon } = useMemo(() => ({
+    isActive: item.href === pathname,
+    hasChildren: item.children && item.children.length > 0,
+    Icon: getIconComponent(item.icon)
+  }), [item, pathname]);
 
   if (hasChildren) {
     return (
@@ -78,7 +83,7 @@ function SidebarNavigationItem({ item, pathname, level = 0 }: SidebarNavigationI
       </Link>
     </Button>
   );
-}
+});
 
 interface SidebarNavigationProps {
   sidebarItems: NavigationItem[];
@@ -86,30 +91,13 @@ interface SidebarNavigationProps {
 
 export function SidebarNavigation({ sidebarItems }: SidebarNavigationProps) {
   const pathname = usePathname();
-  const [dynamicItems, setDynamicItems] = useState<NavigationItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const { dynamicItems, isLoading } = useSiblingFiles(pathname);
 
-  useEffect(() => {
-    const fetchSiblingFiles = async () => {
-      try {
-        setIsLoading(true);
-        const response = await fetch(`/api/sibling-files?pathname=${encodeURIComponent(pathname)}`);
-        if (response.ok) {
-          const data = await response.json();
-          setDynamicItems(data.files || []);
-        }
-      } catch (error) {
-        console.error('Error fetching sibling files:', error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchSiblingFiles();
-  }, [pathname]);
-
-  // 동적으로 가져온 아이템들을 사용하거나, 없으면 props의 아이템들 사용
-  const itemsToRender = dynamicItems.length > 0 ? dynamicItems : sidebarItems;
+  // 메모이제이션으로 불필요한 재계산 방지
+  const itemsToRender = useMemo(() =>
+    dynamicItems.length > 0 ? dynamicItems : sidebarItems,
+    [dynamicItems, sidebarItems]
+  );
 
   if (isLoading) {
     return (
@@ -153,30 +141,13 @@ interface SidebarNavigationContentProps {
 
 export function SidebarNavigationContent({ sidebarItems }: SidebarNavigationContentProps) {
   const pathname = usePathname();
-  const [dynamicItems, setDynamicItems] = useState<NavigationItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const { dynamicItems, isLoading } = useSiblingFiles(pathname);
 
-  useEffect(() => {
-    const fetchSiblingFiles = async () => {
-      try {
-        setIsLoading(true);
-        const response = await fetch(`/api/sibling-files?pathname=${encodeURIComponent(pathname)}`);
-        if (response.ok) {
-          const data = await response.json();
-          setDynamicItems(data.files || []);
-        }
-      } catch (error) {
-        console.error('Error fetching sibling files:', error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchSiblingFiles();
-  }, [pathname]);
-
-  // 동적으로 가져온 아이템들을 사용하거나, 없으면 props의 아이템들 사용
-  const itemsToRender = dynamicItems.length > 0 ? dynamicItems : sidebarItems;
+  // 메모이제이션으로 불필요한 재계산 방지
+  const itemsToRender = useMemo(() =>
+    dynamicItems.length > 0 ? dynamicItems : sidebarItems,
+    [dynamicItems, sidebarItems]
+  );
 
   if (isLoading) {
     return (

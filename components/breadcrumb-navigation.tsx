@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useMemo } from "react";
 import { ChevronRight, Home } from "lucide-react";
 import {
   Breadcrumb,
@@ -49,16 +50,25 @@ function generateBreadcrumbs(pathname: string): BreadcrumbItem[] {
 
 export function BreadcrumbNavigation() {
   const pathname = usePathname();
-  const breadcrumbs = generateBreadcrumbs(pathname);
 
-  // 홈 페이지에서는 브레드크럼을 표시하지 않음
-  // docs 경로에서는 더 자주 브레드크럼 표시
-  if (pathname === "/") {
-    return null;
-  }
+  // 메모이제이션으로 breadcrumbs 계산 최적화
+  const { breadcrumbs, shouldShowBreadcrumbs } = useMemo(() => {
+    const crumbs = generateBreadcrumbs(pathname);
 
-  // docs 경로가 아닌 경우에만 길이 제한 적용
-  if (!pathname.startsWith("/docs") && breadcrumbs.length <= 2) {
+    // 홈 페이지에서는 브레드크럼을 표시하지 않음
+    if (pathname === "/") {
+      return { breadcrumbs: crumbs, shouldShowBreadcrumbs: false };
+    }
+
+    // docs 경로가 아닌 경우에만 길이 제한 적용
+    if (!pathname.startsWith("/docs") && crumbs.length <= 2) {
+      return { breadcrumbs: crumbs, shouldShowBreadcrumbs: false };
+    }
+
+    return { breadcrumbs: crumbs, shouldShowBreadcrumbs: true };
+  }, [pathname]);
+
+  if (!shouldShowBreadcrumbs) {
     return null;
   }
 

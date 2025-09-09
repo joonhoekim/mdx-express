@@ -2,6 +2,7 @@
 
 import { readdirSync, statSync } from 'fs';
 import { join } from 'path';
+import { cache } from 'react';
 
 export interface NavigationItem {
   title: string;
@@ -16,8 +17,8 @@ export interface NavigationStructure {
   sidebarItems: NavigationItem[];
 }
 
-// content 폴더에서 최상위 디렉토리들을 읽어와서 topLevel 아이템 생성
-export async function getTopLevelItems(): Promise<NavigationItem[]> {
+// content 폴더에서 최상위 디렉토리들을 읽어와서 topLevel 아이템 생성 (캐시됨)
+export const getTopLevelItems = cache(async (): Promise<NavigationItem[]> => {
   try {
     const contentPath = join(process.cwd(), 'content');
     const directories = readdirSync(contentPath).filter((item) => {
@@ -40,7 +41,7 @@ export async function getTopLevelItems(): Promise<NavigationItem[]> {
       },
     ]; // 기본값 반환
   }
-}
+});
 
 // 동적 네비게이션 구조 생성
 export async function getNavigationStructure(): Promise<NavigationStructure> {
@@ -52,10 +53,10 @@ export async function getNavigationStructure(): Promise<NavigationStructure> {
   };
 }
 
-// 현재 경로에 기반하여 사이드바 아이템을 동적으로 생성
-export async function getSidebarItems(
+// 현재 경로에 기반하여 사이드바 아이템을 동적으로 생성 (캐시됨)
+export const getSidebarItems = cache(async (
   pathname: string
-): Promise<NavigationItem[]> {
+): Promise<NavigationItem[]> => {
   const staticItems: NavigationItem[] = [];
 
   if (pathname.startsWith('/dashboard')) {
@@ -125,7 +126,7 @@ export async function getSidebarItems(
   }
 
   return staticItems;
-}
+});
 
 // 네비게이션 아이템이 활성 상태인지 확인
 export async function isNavigationItemActive(

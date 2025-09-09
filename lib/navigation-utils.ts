@@ -17,10 +17,20 @@ const iconMap: Record<string, LucideIcon> = {
   FileText,
 };
 
-// 아이콘 문자열을 컴포넌트로 변환
+// 아이콘 매핑 캐시
+const iconCache = new Map<string, LucideIcon | undefined>();
+
+// 아이콘 문자열을 컴포넌트로 변환 (캐시됨)
 export function getIconComponent(iconName?: string): LucideIcon | undefined {
   if (!iconName) return undefined;
-  return iconMap[iconName];
+  
+  if (iconCache.has(iconName)) {
+    return iconCache.get(iconName);
+  }
+  
+  const icon = iconMap[iconName];
+  iconCache.set(iconName, icon);
+  return icon;
 }
 
 // 클라이언트에서 사용할 수 있는 간단한 활성 아이템 찾기 헬퍼 (동기)
