@@ -109,12 +109,35 @@ export function MDXRenderer({ content }: MDXRendererProps) {
     blockquote: (props: any) => (
       <blockquote className="my-8 border-l-4 border-blue-500/30 bg-slate-50 dark:bg-slate-800/50 pl-6 pr-4 py-4 italic rounded-r-lg shadow-sm" {...props} />
     ),
-    code: (props: any) => (
-      <code className="relative rounded-md bg-slate-100 dark:bg-slate-800 px-2 py-1 font-mono text-sm font-semibold text-blue-600 dark:text-blue-400 border border-slate-200 dark:border-slate-700" {...props} />
-    ),
-    pre: (props: any) => (
-      <pre className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-6 font-mono text-sm my-8 shadow-sm" {...props} />
-    ),
+    code: (props: any) => {
+      // 인라인 코드인 경우 (pre 태그 안에 있지 않은 경우)
+      if (props.className?.includes('language-') && props.children) {
+        return (
+          <code className="relative rounded-md bg-slate-100 dark:bg-slate-800 px-2 py-1 font-mono text-sm font-semibold text-blue-600 dark:text-blue-400 border border-slate-200 dark:border-slate-700" {...props} />
+        );
+      }
+      return (
+        <code className="relative rounded-md bg-slate-100 dark:bg-slate-800 px-2 py-1 font-mono text-sm font-semibold text-blue-600 dark:text-blue-400 border border-slate-200 dark:border-slate-700" {...props} />
+      );
+    },
+    pre: (props: any) => {
+      // 코드 블록인 경우 writing-ui CodeBlock 컴포넌트 사용
+      if (props.children?.props?.className?.includes('language-')) {
+        const language = props.children.props.className.replace('language-', '');
+        const codeContent = props.children.props.children;
+
+        return (
+          <CodeBlock language={language}>
+            {codeContent}
+          </CodeBlock>
+        );
+      }
+
+      // 일반 pre 태그인 경우 기존 스타일 사용
+      return (
+        <pre className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-6 font-mono text-sm my-8 shadow-sm" {...props} />
+      );
+    },
     a: (props: any) => (
       <a className="font-medium text-blue-600 dark:text-blue-400 underline underline-offset-4 hover:text-blue-800 dark:hover:text-blue-300 transition-colors decoration-blue-300 dark:decoration-blue-600 hover:decoration-blue-600 dark:hover:decoration-blue-400" {...props} />
     ),
