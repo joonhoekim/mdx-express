@@ -41,14 +41,7 @@ import { Callout } from '@/components/writing-ui'
 ### 2. CodeBlock
 
 코드 블록을 표시하는 컴포넌트입니다. 복사 기능이 포함되어 있습니다.
-
-```tsx
-import { CodeBlock } from '@/components/writing-ui';
-
-<CodeBlock title='예시 코드' language='javascript' filename='app.js'>
-  const greeting = "Hello, World!" console.log(greeting)
-</CodeBlock>;
-```
+이 컴포넌트는 직접 호출하지 않습니다.기본 문법인 ``` 를 사용하면 렌더링 과정에서 사용됩니다.
 
 ### 3. Steps
 
