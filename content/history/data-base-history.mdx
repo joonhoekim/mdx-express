@@ -1,0 +1,204 @@
+---
+title: "데이터베이스의 역사"
+description: "계층형에서 분산 SQL, 그리고 벡터 DB까지 흐름과 쟁점을 한눈에"
+order: 1
+---
+
+import {
+  Callout,
+  Steps,
+  Step,
+  Tabs,
+  TabsList,
+  TabsTrigger,
+  TabsContent,
+  Blockquote,
+  Reference,
+  ReferenceList,
+  Card,
+  Badge,
+  CodeBlock,
+} from '@/components/writing-ui'
+
+# 데이터베이스의 역사: 파일에서 분산 트랜잭션까지
+
+데이터베이스(Database, DB)는 단순한 저장소가 아니라, 애플리케이션의 일관성, 성능, 확장성, 규정 준수를 떠받치는 기반 운영체제다. 지난 60여 년 동안 DB는 하드웨어의 발전, 네트워크 모델의 변화, 분산 시스템 이론의 성숙과 함께 끊임없이 진화해 왔다. 이 글은 그 여정을 핵심 사건과 개념 중심으로 빠르게 훑는다.
+
+## 한눈에 보는 타임라인
+
+<Steps>
+  <Step title="1960s: 계층형·네트워크형 모델의 시대">
+    IBM IMS로 대표되는 계층형(hierarchical)과 CODASYL 네트워크 모델이 주류였다. 하드웨어 제약에 최적화된 구조였지만, 스키마 변경과 질의 유연성이 약했다.
+  </Step>
+  <Step title="1970s: 관계형 모델의 탄생">
+    E. F. Codd가 관계형 모델과 정규화를 제시했다. 선언적 질의 언어(SQL)의 토대가 마련되며 데이터 독립성과 이론적 기반이 확립됐다.
+  </Step>
+  <Step title="1980s: 상용 RDBMS의 부상">
+    Oracle, IBM DB2, Informix가 상용화되며 트랜잭션 처리와 동시성 제어가 성숙했다. ANSI SQL 표준(86/89/92)로 상호운용성의 기반이 만들어졌다.
+  </Step>
+  <Step title="1990s: OLTP·OLAP, 복제와 고가용성">
+    인터넷 보급과 함께 온라인 트랜잭션 처리(OLTP)가 폭발적으로 증가했다. 리플리케이션, 페일오버, 데이터 웨어하우징과 OLAP 큐브가 도입됐다.
+  </Step>
+  <Step title="2000s: 웹 규모와 NoSQL의 등장">
+    Google, Amazon 같은 빅테크의 규모 문제로 키-값, 문서, 컬럼 패밀리, 그래프 등 다양한 NoSQL이 등장했다. CAP 정리와 BASE 철학이 실무로 파고들었다.
+  </Step>
+  <Step title="2010s: NewSQL·분산 SQL과 클라우드 네이티브">
+    Google Spanner, CockroachDB 등 분산 트랜잭션과 글로벌 일관성을 표방한 시스템이 등장했다. 매니지드 서비스와 자동화 오퍼레이션이 표준이 됐다.
+  </Step>
+  <Step title="2020s: 서버리스·HTAP·벡터 DB">
+    서버리스 확장, OLTP와 OLAP을 통합하려는 HTAP, 임베딩을 저장·검색하는 벡터 DB가 부상했다. AI/검색과 DB의 경계가 흐려지고 있다.
+  </Step>
+</Steps>
+
+<Callout type="info" title="핵심 개념 요약">
+  - **데이터 독립성(Data Independence)**: 애플리케이션과 저장 구조를 분리해 유지보수성을 높인다.
+  - **정규화(Normalization)**: 중복을 줄이고 이상(anomaly)을 방지하는 이론적 설계 원칙.
+  - **동시성 제어(Concurrency Control)**: 여러 트랜잭션이 충돌 없이 안전하게 동작하도록 보장한다.
+</Callout>
+
+## 관계형 vs. 비관계형: 언제 무엇을 선택할까?
+
+<Tabs defaultValue="relational">
+  <TabsList>
+    <TabsTrigger value="relational">Relational</TabsTrigger>
+    <TabsTrigger value="document">Document</TabsTrigger>
+    <TabsTrigger value="keyvalue">Key-Value</TabsTrigger>
+    <TabsTrigger value="column">Column-Family</TabsTrigger>
+    <TabsTrigger value="graph">Graph</TabsTrigger>
+  </TabsList>
+
+  <TabsContent value="relational">
+    관계형은 스키마 엄격성, 조인, ACID를 바탕으로 금융·결제·재고 같은 핵심 시스템을 지탱한다. 복잡한 질의를 짧은 SQL로 표현할 수 있다.
+
+    <CodeBlock language="sql" title="상품별 월간 매출 Top 5">
+      {`SELECT p.id, p.name, SUM(oi.quantity * oi.price) AS revenue
+FROM orders o
+JOIN order_items oi ON o.id = oi.order_id
+JOIN products p ON p.id = oi.product_id
+WHERE o.paid = TRUE AND o.created_at >= DATE_TRUNC('month', NOW())
+GROUP BY 1,2
+ORDER BY revenue DESC
+LIMIT 5;`}
+    </CodeBlock>
+
+  </TabsContent>
+
+  <TabsContent value="document">
+    문서형은 유연한 스키마와 중첩 구조에 강하다. 콘텐츠·프로필·이벤트 페이로드처럼 스키마가 자주 변하는 도메인에서 생산성이 높다. 그러나 다중 문서 트랜잭션과 글로벌 일관성은 제품별로 제약이 다르다.
+  </TabsContent>
+
+  <TabsContent value="keyvalue">
+    키-값 저장소는 초저지연 캐시, 세션, 카운터에 최적화되어 있다. 데이터 모델이 단순한 대신, 범위 질의와 조인은 애플리케이션 레벨에서 해결해야 한다.
+  </TabsContent>
+
+  <TabsContent value="column">
+    컬럼 패밀리는 거대한 시계열·로그·센서 데이터를 고밀도로 압축하고 수평 확장한다. 파티셔닝 키 설계가 성능의 생명선이며, 잘못 설계하면 핫샤드 문제가 발생한다.
+  </TabsContent>
+
+  <TabsContent value="graph">
+    그래프 DB는 관계 자체가 1급 시민인 모델로, 추천·사기 탐지·권한 그래프에 강력하다. 깊은 탐색과 패턴 매칭에서 다른 모델 대비 높은 표현력을 가진다.
+  </TabsContent>
+</Tabs>
+
+<Callout type="success" title="ACID: 신뢰의 최소 단위">
+  - **Atomicity**: 트랜잭션은 전부 수행되거나 전혀 수행되지 않는다.
+  - **Consistency**: 트랜잭션 전·후로 제약조건이 유지된다.
+  - **Isolation**: 동시 실행이 직렬 실행과 동일한 결과를 보장한다.
+  - **Durability**: 커밋된 변경은 장애 이후에도 남는다.
+</Callout>
+
+<Callout type="warning" title="CAP 정리: 분산 시스템의 선택지">
+  하나의 네트워크 파티션이 발생하면, 분산 시스템은 **일관성(Consistency)**과 **가용성(Availability)** 사이에서 하나를 희생해야 한다. 현실의 시스템은 요구사항에 맞춰 강한 일관성(예: 분산 트랜잭션) 또는 결과적 일관성(예: 대규모 가용성) 쪽으로 설계 트레이드오프를 선택한다.
+</Callout>
+
+## 실무에서 자주 쓰는 오늘의 도구들
+
+<div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 my-4">
+  <Card title="PostgreSQL" description="표준을 잘 구현한 범용 RDBMS, 강력한 확장성" href="https://www.postgresql.org">
+    <div className="mt-2 flex gap-2">
+      <Badge variant="success">ACID</Badge>
+      <Badge variant="outline">Extensions</Badge>
+    </div>
+  </Card>
+  <Card title="MySQL" description="웹 워크로드에 최적화된 대중적 RDBMS" href="https://www.mysql.com" />
+  <Card title="MongoDB" description="유연한 스키마의 문서 지향 DB" href="https://www.mongodb.com" />
+  <Card title="Redis" description="인메모리 키-값, 캐시·세션·스트림" href="https://redis.io" />
+  <Card title="Cassandra" description="선형 확장 가능한 컬럼 패밀리" href="https://cassandra.apache.org/_/index.html" />
+  <Card title="Neo4j" description="관계 중심 그래프 데이터베이스" href="https://neo4j.com" />
+  <Card title="Google Spanner" description="글로벌 분산 트랜잭션·강한 일관성" href="https://cloud.google.com/spanner" />
+  <Card title="CockroachDB" description="Postgres 호환 분산 SQL" href="https://www.cockroachlabs.com" />
+</div>
+
+## 빅데이터, 클라우드, 그리고 분산 SQL
+
+2000년대 중반, 대용량 배치 처리의 표준으로 Hadoop/MapReduce가 떠올랐고, Google의 Bigtable·GFS 논문은 HBase·Cassandra의 영감을 제공했다. 2010년대 들어 클라우드 매니지드 서비스가 기본 선택지가 되며 운영 복잡도가 크게 낮아졌다. 분산 합의와 물리적 시간원을 결합한 Spanner 류 시스템은 **전 지구 규모 일관성**이라는 새로운 기준을 세웠다.
+
+<Blockquote author="E. F. Codd" cite="A Relational Model of Data for Large Shared Data Banks, 1970">
+  A simple relational model of data for large shared data banks.
+</Blockquote>
+
+## 지금, 그리고 다음
+
+- **HTAP**: 트랜잭션과 분석을 하나의 시스템으로 통합하려는 시도.
+- **서버리스 DB**: 사용량 기반 과금과 자동 확장(예: PlanetScale, Aurora Serverless).
+- **벡터 검색**: 임베딩 기반 유사도 검색으로 AI 애플리케이션을 가속.
+- **엣지·오프라인 동기화**: CRDT와 로컬 우선 전략으로 사용자 경험을 개선.
+
+<Callout type="note" title="실전 선택 가이드">
+  - 강한 무결성과 스키마 중심 도메인: 먼저 PostgreSQL을 고려하자.
+  - 낮은 지연의 캐싱·세션: Redis로 외부화하고 만료전략을 명확히.
+  - 스키마가 자주 변하는 컨텐츠·이벤트: 문서형을 검토하되 트랜잭션 범위를 체크.
+  - 선형 확장·타임시리즈: 파티셔닝 키 전략을 먼저 설계한 뒤 컬럼 패밀리.
+</Callout>
+
+## 참고자료
+
+<ReferenceList title="원 논문과 문서">
+  <Reference
+    title="A Relational Model of Data for Large Shared Data Banks"
+    description="관계형 모델의 출발점이 된 Codd의 1970년 논문"
+    href="https://dl.acm.org/doi/10.1145/362384.362685"
+    type="article"
+    author="E. F. Codd"
+    date="1970"
+  />
+  <Reference
+    title="Brewer’s CAP Theorem (keynote)"
+    description="CAP 정리의 기원"
+    href="https://www.cs.berkeley.edu/~brewer/cs262b-2004/PODC-keynote.pdf"
+    type="reference"
+    author="Eric A. Brewer"
+  />
+  <Reference
+    title="Bigtable: A Distributed Storage System for Structured Data"
+    description="컬럼 패밀리 설계의 고전"
+    href="https://research.google/pubs/pub27898/"
+    type="documentation"
+    author="Google"
+    date="2006"
+  />
+  <Reference
+    title="Dynamo: Amazon’s Highly Available Key-value Store"
+    description="결과적 일관성과 파티셔닝 전략의 고전"
+    href="https://www.allthingsdistributed.com/files/amazon-dynamo-sosp2007.pdf"
+    type="article"
+    author="Amazon"
+    date="2007"
+  />
+  <Reference
+    title="Spanner: Google’s Globally-Distributed Database"
+    description="TrueTime을 이용한 글로벌 트랜잭션"
+    href="https://research.google/pubs/pub39966/"
+    type="documentation"
+    author="Google"
+    date="2012"
+  />
+  <Reference
+    title="PostgreSQL Documentation"
+    description="현대 RDBMS의 사실상 표준 레퍼런스"
+    href="https://www.postgresql.org/docs/"
+    type="documentation"
+  />
+</ReferenceList>
+
+
