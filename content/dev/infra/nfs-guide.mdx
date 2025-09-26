@@ -1,0 +1,345 @@
+# NFS 마운트 업무 가이드
+
+## 개요
+
+이 문서는 RHEL9 서버에서 NFS(Network File System)를 마운트하는 업무 절차를 안내합니다. 네트워크를 통해 원격 파일 시스템에 접근하여 로컬 디렉토리처럼 사용할 수 있습니다.
+
+---
+
+## NFS 프로토콜 배경지식
+
+### NFS란?
+
+NFS(Network File System)는 네트워크를 통해 원격 서버의 파일 시스템을 로컬 시스템에 마운트하여 사용할 수 있게 해주는 분산 파일 시스템 프로토콜입니다.
+
+### 주요 특징
+
+- **투명성**: 원격 파일을 로컬 파일처럼 사용
+- **플랫폼 독립성**: 다양한 운영체제 간 호환
+- **성능**: 네트워크 최적화된 파일 전송
+- **확장성**: 다중 클라이언트 동시 접속 지원
+
+### NFS 버전별 특징
+
+| 버전        | 주요 특징                         | 보안      | 권장 용도     |
+| ----------- | --------------------------------- | --------- | ------------- |
+| NFSv3       | 무상태, UDP/TCP 지원              | 기본적    | 레거시 시스템 |
+| NFSv4       | 상태유지, TCP 전용, 통합 프로토콜 | 강화됨    | **권장**      |
+| NFSv4.1/4.2 | 성능 향상, 멀티패스 지원          | 최고 수준 | 최신 환경     |
+
+### 포트 구조 이해
+
+#### 포트 111 (RPC 포트매퍼)
+
+- **역할**: 서비스 위치 정보 제공
+- **프로토콜**: TCP/UDP
+- **기능**: "NFS가 어느 포트에서 실행되는지" 알려주는 전화번호부 역할
+
+#### 포트 2049 (NFS 데이터)
+
+- **역할**: 실제 파일 데이터 전송
+- **프로토콜**: TCP (NFSv4), TCP/UDP (NFSv3)
+- **기능**: 파일 읽기/쓰기, 디렉토리 탐색 등 모든 파일 시스템 작업
+
+#### 연결 순서
+
+1. 클라이언트 → 서버:111 "NFS 서비스 포트가 뭔가요?"
+2. 서버 → 클라이언트 "포트 2049입니다"
+3. 클라이언트 → 서버:2049 실제 파일 작업 수행
+
+---
+
+## 사전 요구사항
+
+### 네트워크 접근성
+
+- 서버 IP: `12.34.56.78`에 접근 가능
+- 포트 111(TCP/UDP), 2049(TCP) 방화벽 개방
+
+### 권한
+
+- 클라이언트 서버의 root 또는 sudo 권한
+- NFS 서버에서 해당 IP의 접근 허용
+
+---
+
+## 작업 절차
+
+### 1단계: 환경 준비
+
+#### NFS 클라이언트 패키지 설치
+
+```bash
+# NFS 유틸리티 설치
+sudo dnf install nfs-utils -y
+
+# 관련 서비스 활성화 및 시작
+sudo systemctl enable rpcbind nfs-client.target
+sudo systemctl start rpcbind
+```
+
+#### 방화벽 설정 (필요시)
+
+```bash
+# NFS 관련 서비스 허용
+sudo firewall-cmd --permanent --add-service=nfs
+sudo firewall-cmd --permanent --add-service=rpc-bind
+sudo firewall-cmd --reload
+```
+
+### 2단계: 연결 확인
+
+#### 서버 연결성 테스트
+
+```bash
+# 기본 네트워크 연결 확인
+ping -c 3 12.34.56.78
+
+# RPC 서비스 확인
+rpcinfo -p 12.34.56.78
+
+# NFS 공유 목록 확인
+showmount -e 12.34.56.78
+```
+
+#### 포트별 접근성 확인
+
+```bash
+# RPC 포트 (111) 확인
+nc -zv 12.34.56.78 111
+
+# NFS 포트 (2049) 확인
+nc -zv 12.34.56.78 2049
+```
+
+### 3단계: 마운트 포인트 준비
+
+```bash
+# 마운트 디렉토리 생성
+sudo mkdir -p /mnt/nfs-download
+
+# 권한 확인 (선택사항)
+ls -ld /mnt/nfs-download
+```
+
+### 4단계: NFS 마운트
+
+#### 임시 마운트 (테스트용)
+
+```bash
+# 기본 마운트
+sudo mount -t nfs 12.34.56.78:/Download /mnt/nfs-download
+
+# NFSv4 명시적 사용 (권장)
+sudo mount -t nfs -o vers=4 12.34.56.78:/Download /mnt/nfs-download
+
+# 성능 최적화 옵션 포함
+sudo mount -t nfs -o vers=4,rsize=65536,wsize=65536,hard,intr 12.34.56.78:/Download /mnt/nfs-download
+```
+
+#### 영구 마운트 설정
+
+```bash
+# /etc/fstab 파일 편집
+sudo vi /etc/fstab
+
+# 다음 라인 추가
+12.34.56.78:/Download /mnt/nfs-download nfs defaults,vers=4,rsize=65536,wsize=65536,hard,intr 0 0
+
+# 설정 테스트
+sudo mount -a
+```
+
+### 5단계: 마운트 검증
+
+```bash
+# 마운트 상태 확인
+df -h | grep nfs
+mount | grep nfs
+
+# 파일 시스템 접근 테스트
+ls -la /mnt/nfs-download
+
+# NFS 통계 정보 확인
+nfsstat -c
+```
+
+---
+
+## 마운트 옵션 참조
+
+### 필수 옵션
+
+- `vers=4`: NFSv4 사용 (보안 및 성능 향상)
+- `hard`: 네트워크 장애 시 재시도 (데이터 무결성 보장)
+
+### 성능 옵션
+
+- `rsize=65536`: 읽기 블록 크기 (64KB)
+- `wsize=65536`: 쓰기 블록 크기 (64KB)
+- `timeo=600`: 타임아웃 60초 (0.1초 단위)
+
+### 안전성 옵션
+
+- `intr`: 사용자 인터럽트 허용
+- `soft`: 타임아웃 시 포기 (주의: 데이터 손실 위험)
+
+### 예제 조합
+
+```bash
+# 일반 용도 (균형잡힌 설정)
+-o vers=4,rsize=32768,wsize=32768,hard,intr,timeo=600
+
+# 고성능 필요시
+-o vers=4,rsize=131072,wsize=131072,hard,intr,timeo=300
+
+# 안정성 최우선
+-o vers=4,hard,intr,timeo=1200,retrans=3
+```
+
+---
+
+## 문제 해결 가이드
+
+### 연결 실패 시
+
+1. **네트워크 확인**
+
+   ```bash
+   ping 12.34.56.78
+   traceroute 12.34.56.78
+   ```
+
+2. **포트 접근성 확인**
+
+   ```bash
+   telnet 12.34.56.78 111
+   telnet 12.34.56.78 2049
+   ```
+
+3. **방화벽 확인**
+   ```bash
+   sudo firewall-cmd --list-services
+   sudo firewall-cmd --list-ports
+   ```
+
+### 성능 문제 시
+
+1. **마운트 옵션 조정**
+
+   - rsize/wsize 값 증가 (네트워크 대역폭에 맞게)
+   - timeo 값 조정
+
+2. **네트워크 상태 확인**
+   ```bash
+   nfsiostat 1  # NFS I/O 통계
+   sar -n DEV 1  # 네트워크 인터페이스 통계
+   ```
+
+### 권한 문제 시
+
+1. **서버 측 export 설정 확인 요청**
+2. **클라이언트 IP 허용 여부 확인 요청**
+3. **UID/GID 매핑 확인**
+
+---
+
+## 마운트 해제
+
+### 일반적인 언마운트
+
+```bash
+sudo umount /mnt/nfs-download
+```
+
+### 강제 언마운트 (비상시)
+
+```bash
+# 사용 중인 프로세스가 있을 때
+sudo fuser -km /mnt/nfs-download
+sudo umount -f /mnt/nfs-download
+
+# 또는 lazy unmount
+sudo umount -l /mnt/nfs-download
+```
+
+---
+
+## 모니터링 및 유지보수
+
+### 상태 모니터링
+
+```bash
+# NFS 클라이언트 통계
+nfsstat -c
+
+# 마운트 상태 확인
+findmnt -t nfs
+
+# 네트워크 연결 상태
+ss -tn | grep :2049
+```
+
+### 로그 확인
+
+```bash
+# 시스템 로그에서 NFS 관련 메시지 확인
+sudo journalctl -u nfs-client.target
+sudo tail -f /var/log/messages | grep -i nfs
+```
+
+---
+
+## 보안 고려사항
+
+### 권장 사항
+
+- NFSv4 사용 (NFSv3 대비 보안 강화)
+- Kerberos 인증 고려 (높은 보안 요구시)
+- 방화벽을 통한 접근 제한
+- 정기적인 마운트 상태 점검
+
+### 주의 사항
+
+- root_squash 설정 확인 (서버 측)
+- 중요 데이터의 경우 백업 정책 수립
+- 네트워크 장애 시 애플리케이션 동작 검토
+
+---
+
+## 체크리스트
+
+### 설치 전 확인사항
+
+- [ ] 서버 IP 접근 가능
+- [ ] 포트 111, 2049 개방 확인
+- [ ] sudo 권한 확보
+- [ ] 마운트 포인트 계획 수립
+
+### 설치 후 확인사항
+
+- [ ] 마운트 상태 정상 확인
+- [ ] 파일 읽기/쓰기 테스트
+- [ ] 재부팅 후 자동 마운트 확인 (영구 마운트 시)
+- [ ] 모니터링 설정
+
+### 운영 시 주기적 확인사항
+
+- [ ] 마운트 상태 정상 여부
+- [ ] NFS 성능 지표 확인
+- [ ] 네트워크 연결 상태
+- [ ] 디스크 사용량 모니터링
+
+---
+
+## 연락처 및 에스컬레이션
+
+문제 발생 시 다음 순서로 대응:
+
+1. 본 가이드의 문제 해결 섹션 참조
+2. 시스템 관리자에게 문의
+3. NFS 서버 관리자에게 문의 (서버 측 문제 의심시)
+
+---
+
+_본 문서는 RHEL9 환경 기준으로 작성되었으며, 다른 Linux 배포판에서는 일부 명령어나 설정이 다를 수 있습니다._
