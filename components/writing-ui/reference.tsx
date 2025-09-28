@@ -43,8 +43,8 @@ export function Reference({
     date,
     className
 }: ReferenceProps) {
-    const Icon = referenceIcons[type]
-    const colorClasses = referenceColors[type]
+    const Icon = referenceIcons[type] || Link2
+    const colorClasses = referenceColors[type] || referenceColors.link
 
     const content = (
         <div className={cn(
