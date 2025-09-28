@@ -1,0 +1,467 @@
+# Episode 3: "깃의 탄생: 리누스의 두 번째 혁명"
+
+_2주 만에 만든 도구가 협업의 패러다임을 바꾸다_
+
+import {
+  Callout,
+  Steps,
+  Step,
+  Blockquote,
+  Badge,
+  Card,
+  Reference,
+  ReferenceList,
+} from '@/components/writing-ui';
+
+---
+
+## 프롤로그: 리누스의 두 번째 도전
+
+리누스 토발즈가 Linux 커널로 세상을 한 번 뒤흔든 것도 모자라, 2005년에 또 다른 혁명을 일으켰습니다. 단 2주 만에 만든 버전 관리 시스템 Git이 바로 그것입니다.
+
+하지만 이 이야기는 단순한 기술 개발기가 아닙니다. 이것은 오기와 철학, 그리고 협업에 대한 근본적 사고의 전환을 다룬 이야기입니다.
+
+<Callout type='note' title='이 글에서 다룰 내용'>
+  - BitKeeper와의 갑작스러운 결별 사건
+  - "내가 직접 만들겠다"는 리누스의 결단
+  - 분산 vs 중앙집중: 협업 철학의 혁명
+  - GitHub이 Git을 SNS로 만든 마법
+</Callout>
+
+---
+
+## Chapter 1: BitKeeper 사건 - 갑작스러운 이별
+
+### 2005년 이전: 버전 관리의 암흑기
+
+Linux 커널 개발이 시작된 1990년대 초반, 버전 관리는 정말 원시적이었습니다. 개발자들은 **tarball**과 **patch 파일**로 코드를 주고받았죠. 마치 편지로만 소통하는 시대와 같았습니다.
+
+<Card title="Linux 초기 개발 방식" description="Git 이전의 협업 지옥">
+
+```bash
+# 전형적인 1990년대 협업 방식
+$ cp linux-2.4.1.tar.gz linux-2.4.1-backup.tar.gz
+$ tar -xzf patch-someone-feature.tar.gz
+$ patch -p1 < someone-feature.patch
+$ # 충돌 발생... 수동으로 병합
+$ # 누가 언제 무엇을 바꿨는지 추적 불가
+```
+
+</Card>
+
+이런 상황에서 **CVS**(Concurrent Versions System)와 **SVN**(Subversion)이 등장했지만, 이들은 모두 **중앙집중식**이었습니다. 마치 모든 편지가 중앙 우체국을 거쳐야만 배달되는 시스템과 같았죠.
+
+### BitKeeper: 떠오르는 구세주
+
+1999년, BitMover사의 **BitKeeper**가 등장했습니다. 이는 최초의 상용 **분산 버전 관리 시스템**이었고, Linux 커널 개발에 딱 맞는 도구처럼 보였습니다.
+
+<Blockquote author='리누스 토발즈' cite='2002년 BitKeeper 도입 당시'>
+  "BitKeeper는 우리가 필요로 했던 바로 그것이다. 분산된 개발, 빠른 브랜칭, 강력한 병합 기능까지. 이보다 완벽할 수 없다."
+</Blockquote>
+
+BitMover는 Linux 커널 개발을 위해 **무료 라이선스**를 제공했습니다. 하지만 여기에는 조건이 있었습니다:
+
+<Steps>
+<Step title="무료 사용 조건">
+BitKeeper와 경쟁하는 도구를 개발하지 않을 것
+</Step>
+
+<Step title="상업적 제약">BitKeeper 소스코드에 접근할 수 없음</Step>
+
+<Step title="라이선스 종료 가능">언제든 라이선스를 철회할 수 있음</Step>
+</Steps>
+
+### 2005년 4월: 폭탄 선언
+
+그런데 2005년 4월, BitMover는 갑자기 **무료 라이선스를 철회**한다고 발표했습니다. 이유는 일부 Linux 개발자들이 BitKeeper의 프로토콜을 리버스 엔지니어링했다는 것이었습니다.
+
+<Callout type='error' title='BitMover의 최후통첩'>
+  "2005년 7월부터 Linux 커널 개발에 BitKeeper 무료 사용을 중단합니다. 계속 사용하려면 년간 $3,000의 라이선스를 구매하세요."
+</Callout>
+
+Linux 커널 개발진에게는 재앙이었습니다. 갑자기 **수백 명의 개발자가 사용하던 도구를 포기**해야 하는 상황이 된 것입니다.
+
+---
+
+## Chapter 2: "내가 직접 만들겠다" - 리누스의 오기
+
+### 리누스의 3가지 선택지
+
+2005년 4월, 리누스 앞에는 세 가지 선택지가 있었습니다:
+
+1. **돈을 내고 BitKeeper 계속 사용** (년간 수십만 달러)
+2. **기존 오픈소스 도구 사용** (CVS, SVN 등)
+3. **직접 새로운 도구 만들기** (미지의 영역)
+
+대부분의 사람들은 2번을 선택했을 것입니다. 하지만 리누스는 달랐습니다.
+
+<Blockquote author='리누스 토발즈' cite='Git 개발 시작 발표'>
+  "기존 도구들은 모두 형편없다. 분산 개발을 제대로 지원하지 못하고, 성능도 엉망이다. 차라리 내가 직접 만들겠다."
+</Blockquote>
+
+### 2주간의 광기: Git 탄생
+
+2005년 4월 3일, 리누스는 Git 개발을 시작했습니다. 목표는 명확했습니다:
+
+<Card title="Git의 설계 목표" description="리누스가 설정한 Git의 핵심 원칙들">
+
+- **분산 개발**: 중앙 서버 없이도 완전한 개발 가능
+- **대규모 프로젝트**: Linux 커널 급 규모 지원
+- **빠른 성능**: 모든 작업이 즉시 완료
+- **데이터 무결성**: 모든 변경사항 추적 및 검증
+- **브랜칭**: 쉽고 빠른 브랜치 생성/병합
+
+</Card>
+
+그리고 놀랍게도, **단 2주 만에** Git의 기본 기능이 완성되었습니다:
+
+```bash
+# 2005년 4월 17일, 최초의 Git 커밋
+$ git log --oneline | tail -1
+e83c516 Initial revision of "git", the information manager from hell
+```
+
+<Callout type='success' title='2주간의 기적'>
+  4월 3일 개발 시작부터 4월 18일 첫 번째 Git으로 Linux 커널 관리까지, 단 15일 만에 완성된 버전 관리 시스템. 이는 소프트웨어 역사상 가장 빠른 개발 기록 중 하나입니다.
+</Callout>
+
+### "정보 관리자 from Hell"
+
+리누스는 Git의 초기 이름을 **"the information manager from hell"**이라고 불렀습니다. 그만큼 기존 도구들과는 완전히 다른 철학으로 만들어진 것이었죠.
+
+Git의 핵심은 **"분산 해시 테이블"**이었습니다. 모든 파일, 모든 커밋, 모든 변경사항이 **SHA-1 해시**로 식별되고, 이를 통해 데이터 무결성을 보장했습니다.
+
+```bash
+# Git의 핵심: 모든 것이 해시로 관리됨
+$ git log --oneline
+a1b2c3d (HEAD -> main) Fix critical bug
+e4f5g6h Add new feature
+i7j8k9l Initial commit
+
+$ git cat-file -p a1b2c3d
+tree f1e2d3c4b5a6...
+parent e4f5g6h1i2j3...
+author Linus Torvalds <torvalds@example.com>
+committer Linus Torvalds <torvalds@example.com>
+
+Fix critical bug
+```
+
+---
+
+## Chapter 3: 분산 vs 중앙집중 - 협업 철학의 대전환
+
+### 기존 중앙집중식의 한계
+
+Git 이전의 버전 관리 시스템들은 모두 **중앙집중식**이었습니다. 이는 마치 **모든 도서가 하나의 중앙 도서관에만 있는 것**과 같았죠.
+
+<Card title="중앙집중식 버전 관리의 문제점" description="CVS, SVN 시대의 한계들">
+
+**단일 장애점 (Single Point of Failure)**
+- 중앙 서버가 다운되면 모든 개발 중단
+- 네트워크 연결 없이는 버전 관리 불가
+
+**병목 현상**
+- 모든 작업이 중앙 서버를 거쳐야 함
+- 커밋, 브랜치, 히스토리 조회 모두 네트워크 의존
+
+**권한 집중화**
+- 중앙 서버 관리자에게 모든 권한 집중
+- 복잡한 권한 관리 시스템 필요
+
+</Card>
+
+### Git의 분산 철학
+
+Git은 이런 중앙집중의 한계를 완전히 뒤집었습니다. **모든 개발자가 전체 히스토리를 가진 완전한 저장소**를 보유하게 된 것입니다.
+
+<Steps>
+<Step title="완전한 자율성">
+각 개발자의 로컬 저장소가 완전한 버전 관리 시스템
+</Step>
+
+<Step title="오프라인 작업">
+네트워크 연결 없이도 모든 Git 기능 사용 가능
+</Step>
+
+<Step title="자유로운 워크플로우">
+중앙 서버 없이도 다양한 협업 방식 지원
+</Step>
+
+<Step title="데이터 안전성">
+모든 개발자가 전체 백업을 보유
+</Step>
+</Steps>
+
+### 워크플로우의 혁신
+
+Git의 분산 구조는 새로운 협업 패턴을 만들어냈습니다:
+
+```bash
+# 기존 중앙집중식: 선형적 협업
+Developer A → Central Server → Developer B
+
+# Git 분산식: 다양한 협업 패턴
+Developer A ←→ Developer B
+     ↓            ↓
+Integration Repository
+     ↓
+Main Repository
+```
+
+<Badge variant='success'>Linux 커널 스타일</Badge>: 계층적 통합 방식
+<Badge variant='success'>GitHub Flow</Badge>: Pull Request 기반 협업
+<Badge variant='success'>GitFlow</Badge>: 브랜치 전략 기반 릴리즈 관리
+
+### 브랜칭의 혁명
+
+Git 이전에는 브랜칭이 **"무거운 작업"**이었습니다. SVN에서 브랜치를 만드는 것은 마치 **집 전체를 복사하는 것**과 같았죠.
+
+```bash
+# SVN: 브랜칭이 느리고 무거움
+$ svn copy trunk branches/feature-branch
+# 전체 프로젝트 복사... 시간과 공간 소모
+
+# Git: 브랜칭이 즉시 완료
+$ git checkout -b feature-branch
+# 단순한 포인터 생성... 즉시 완료
+```
+
+Git에서 브랜치는 단순한 **40바이트 파일**에 불과합니다. 이로 인해 **"브랜치 공포증"**이 사라지고, 개발자들이 자유롭게 실험할 수 있게 되었습니다.
+
+<Callout type='info' title='브랜칭 패러다임의 변화'>
+  Git 이전: "브랜치는 신중하게, 꼭 필요할 때만"
+  Git 이후: "브랜치는 자유롭게, 언제든지 마음껏"
+  
+  이 변화가 현대적인 개발 방법론(Feature Branch, GitFlow 등)의 토대가 되었습니다.
+</Callout>
+
+---
+
+## Chapter 4: GitHub - Git을 SNS로 만든 마법
+
+### 2008년: Git의 대중화
+
+Git은 강력했지만, 여전히 **명령줄 도구**였습니다. 일반 개발자들에게는 진입장벽이 높았죠. 그러던 2008년, **GitHub**이 등장했습니다.
+
+GitHub의 창립자들이 발견한 것은 단순했습니다: **"Git + 웹 인터페이스 + 소셜 기능 = 혁명"**
+
+<Card title="GitHub의 혁신적 아이디어" description="Git을 소셜 네트워크로 만든 발상">
+
+**코드 호스팅을 넘어선 소셜 플랫폼**
+- 개발자 프로필과 활동 피드
+- 프로젝트 팔로우와 스타 기능
+- Issue와 Discussion 시스템
+
+**Pull Request: 협업의 새로운 표준**
+- 코드 리뷰의 표준화
+- 비동기적 토론과 협업
+- 컨트리뷰션의 민주화
+
+</Card>
+
+### Pull Request의 발명
+
+GitHub이 만든 가장 중요한 혁신은 **Pull Request**였습니다. 이는 Git의 기본 기능이 아니라, GitHub이 만든 **워크플로우**였습니다.
+
+<Steps>
+<Step title="Fork">
+원본 저장소를 자신의 계정으로 복사
+</Step>
+
+<Step title="Clone & Branch">
+로컬에서 새로운 기능 개발
+</Step>
+
+<Step title="Push">
+자신의 Fork에 변경사항 업로드
+</Step>
+
+<Step title="Pull Request">
+원본 저장소에 병합 요청
+</Step>
+
+<Step title="Code Review">
+커뮤니티의 검토와 토론
+</Step>
+
+<Step title="Merge">
+검토 완료 후 원본에 병합
+</Step>
+</Steps>
+
+이 과정은 **오픈소스 기여의 민주화**를 가져왔습니다. 이제 누구나 큰 프로젝트에 기여할 수 있게 되었죠.
+
+### 오픈소스 생태계의 폭발
+
+GitHub의 등장은 오픈소스 세계에 **캄브리아기 대폭발**을 일으켰습니다:
+
+<Badge variant='success'>2008년</Badge>: GitHub 출시
+<Badge variant='success'>2011년</Badge>: 100만 저장소 돌파
+<Badge variant='success'>2013년</Badge>: 1000만 저장소 돌파
+<Badge variant='success'>2018년</Badge>: 1억 저장소 돌파
+<Badge variant='success'>2024년</Badge>: 4억 저장소 넘어
+
+### 개발 문화의 변화
+
+GitHub은 단순한 도구를 넘어서 **개발 문화 자체를 바꿨습니다**:
+
+<Blockquote author='톰 프레스턴-워너' cite='GitHub 공동창립자'>
+  "우리는 단순히 Git 호스팅 서비스를 만든 게 아니다. 개발자들이 협력하는 방식 자체를 바꾼 것이다."
+</Blockquote>
+
+**이전의 개발 문화:**
+- 폐쇄적 개발 환경
+- 복잡한 기여 절차
+- 소수 정예 개발자 중심
+
+**GitHub 이후의 개발 문화:**
+- 투명하고 개방적인 개발
+- 누구나 참여할 수 있는 기여 시스템
+- 전 세계 개발자들의 협업
+
+### 마이크로소프트의 항복
+
+가장 상징적인 변화는 **마이크로소프트의 태도 변화**였습니다:
+
+<Card title="마이크로소프트와 GitHub" description="적에서 동반자로">
+
+**2001년**: "오픈소스는 지적재산권의 적"
+**2012년**: GitHub에 첫 번째 공식 저장소 생성
+**2016년**: "Microsoft ❤️ Linux" 선언
+**2018년**: **GitHub을 75억 달러에 인수**
+**2019년**: Windows Terminal, PowerShell 등을 오픈소스로 공개
+
+</Card>
+
+<Callout type='note' title='역사의 아이러니'>
+  한때 오픈소스를 "암(cancer)"이라고 불렀던 마이크로소프트가 세계 최대 오픈소스 플랫폼의 소유주가 되었습니다. Git이 만든 패러다임 변화의 상징적 사건입니다.
+</Callout>
+
+---
+
+## Chapter 5: Git의 현재와 미래
+
+### 개발 도구의 표준
+
+오늘날 Git은 사실상 **버전 관리의 표준**이 되었습니다:
+
+- **GitHub**: 4억 개 이상의 저장소
+- **GitLab**: 수천만 개의 프로젝트
+- **Bitbucket**: 아틀라시안 생태계의 핵심
+- **기업 내부 Git 서버**: 거의 모든 IT 기업이 사용
+
+### Git이 바꾼 것들
+
+Git의 영향은 버전 관리를 넘어섰습니다:
+
+<Steps>
+<Step title="DevOps 혁명">
+CI/CD 파이프라인의 시작점이 되는 Git 저장소
+</Step>
+
+<Step title="코드 리뷰 문화">
+Pull Request 기반 코드 리뷰의 표준화
+</Step>
+
+<Step title="오픈소스 민주화">
+누구나 큰 프로젝트에 기여할 수 있는 환경
+</Step>
+
+<Step title="협업 방식 혁신">
+비동기적, 분산적 협업의 새로운 표준
+</Step>
+</Steps>
+
+### 새로운 도전과 진화
+
+Git도 계속 진화하고 있습니다:
+
+- **Git LFS** (Large File Storage): 대용량 파일 관리
+- **Partial Clone**: 거대한 저장소의 부분 복제
+- **Scalar**: 초대형 저장소 성능 최적화
+- **GitHub Codespaces**: 클라우드 기반 개발 환경
+
+<Callout type='warning' title='여전한 한계들'>
+  Git도 완벽하지 않습니다. 바이너리 파일 관리, 거대한 저장소 성능, 복잡한 학습 곡선 등은 여전히 해결해야 할 과제들입니다.
+</Callout>
+
+---
+
+## 에필로그: 오기가 만든 혁명
+
+### 2주가 바꾼 세상
+
+리누스 토발즈의 2주간의 오기가 전 세계 소프트웨어 개발 방식을 바꿨습니다. BitKeeper와의 갑작스러운 이별이 없었다면, 우리는 여전히 중앙집중식 버전 관리에 갇혀 있었을지도 모릅니다.
+
+### Git이 가져온 진정한 혁신
+
+Git의 진정한 혁신은 기술적 우수성만이 아니었습니다:
+
+<Card title="Git이 바꾼 세상" description="기술을 넘어선 패러다임의 변화">
+
+**기술적 혁신**
+- 분산 버전 관리
+- 빠른 브랜칭과 병합
+- 데이터 무결성 보장
+
+**문화적 혁신**
+- 오픈소스 협업의 민주화
+- 투명한 개발 프로세스
+- 전 세계적 개발자 네트워킹
+
+**산업적 혁신**
+- DevOps 문화의 기반
+- 애자일 개발 방법론 활성화
+- 스타트업 개발 문화 확산
+
+</Card>
+
+### 미래를 향해
+
+Git은 여전히 진화하고 있습니다. 클라우드 네이티브 개발, AI 기반 코드 생성, 분산 팀 협업 등 새로운 도전들이 기다리고 있죠.
+
+<Blockquote author='리누스 토발즈' cite='Git 20주년 인터뷰'>
+  "Git을 만든 이유는 단순했다. 기존 도구들이 형편없었으니까. 하지만 Git이 이렇게 큰 변화를 만들어낼 줄은 몰랐다."
+</Blockquote>
+
+2005년 4월, 화가 난 한 프로그래머의 2주간의 작업이 전 세계 수천만 개발자들의 일상을 바꿨습니다. 이것이 바로 좋은 도구가 가진 힘입니다.
+
+때로는 기존 시스템에 대한 불만과 오기가 세상을 바꾸는 혁신의 시작이 되기도 합니다. Git이 바로 그런 이야기입니다.
+
+---
+
+<ReferenceList title='참고자료'>
+  <Reference
+    title='Git Documentation'
+    description='Git의 공식 문서와 역사'
+    href='https://git-scm.com/doc'
+    type='documentation'
+    author='Git Community'
+  />
+  <Reference
+    title='The Git Parable'
+    description='Git의 철학을 이해하기 쉽게 설명한 문서'
+    href='http://tom.preston-werner.com/2009/05/19/the-git-parable.html'
+    type='article'
+    author='Tom Preston-Werner'
+  />
+  <Reference
+    title='Tech Talk: Linus Torvalds on Git'
+    description='리누스 토발즈의 Git 설명 동영상'
+    href='https://www.youtube.com/watch?v=4XpnKHJAok8'
+    type='video'
+    author='Linus Torvalds'
+  />
+  <Reference
+    title='GitHub Universe'
+    description='GitHub의 발전사와 영향'
+    href='https://github.com/about'
+    type='documentation'
+    author='GitHub Team'
+  />
+</ReferenceList>
+
+---
+
+_다음 에피소드에서는 "오픈소스의 승리: GPL에서 MIT까지"를 다룰 예정입니다. 코드 공유의 철학이 어떻게 전체 소프트웨어 산업을 바꿨는지 살펴보겠습니다._
