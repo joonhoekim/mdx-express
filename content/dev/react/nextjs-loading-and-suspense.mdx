@@ -1,0 +1,914 @@
+# Next.js App Router: loading.js와 Suspense로 완벽한 로딩 경험 만들기
+
+Next.js 13의 App Router는 React의 Suspense를 기반으로 한 혁신적인 로딩 시스템을 제공합니다. 기존 React 애플리케이션과 달리, Next.js는 **loading.js** 파일과 **Streaming**을 통해 더욱 세밀하고 사용자 친화적인 로딩 경험을 구현할 수 있습니다.
+
+## Next.js App Router의 로딩 시스템 이해하기
+
+### 기존 Pages Router vs App Router
+
+**Pages Router (기존 방식)**
+```javascript
+// pages/dashboard.js
+import { useState, useEffect } from 'react';
+
+export default function Dashboard() {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchData().then(data => {
+      setData(data);
+      setLoading(false);
+    });
+  }, []);
+
+  if (loading) return <div>로딩 중...</div>;
+  return <div>{/* 데이터 렌더링 */}</div>;
+}
+```
+
+**App Router (새로운 방식)**
+```javascript
+// app/dashboard/page.js
+async function Dashboard() {
+  const data = await fetchData(); // 서버에서 직접 데이터 페치
+  return <div>{/* 데이터 렌더링 */}</div>;
+}
+
+export default Dashboard;
+```
+
+```javascript
+// app/dashboard/loading.js
+export default function Loading() {
+  return <div>대시보드 로딩 중...</div>;
+}
+```
+
+### loading.js의 핵심 개념
+
+`loading.js` 파일은 해당 경로와 하위 경로에서 **자동으로 Suspense 경계**를 생성합니다:
+
+```
+app/
+├── dashboard/
+│   ├── loading.js          # /dashboard 경로의 로딩 UI
+│   ├── page.js             # 실제 페이지 컴포넌트
+│   └── analytics/
+│       ├── loading.js      # /dashboard/analytics 경로의 로딩 UI
+│       └── page.js
+```
+
+## loading.js 파일 활용하기
+
+### 1. 기본 loading.js 구현
+
+```javascript
+// app/dashboard/loading.js
+export default function DashboardLoading() {
+  return (
+    <div className="dashboard-loading">
+      <div className="loading-header">
+        <div className="skeleton-box h-8 w-48"></div>
+        <div className="skeleton-box h-6 w-32"></div>
+      </div>
+      
+      <div className="loading-grid">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div key={i} className="loading-card">
+            <div className="skeleton-box h-40 w-full"></div>
+            <div className="skeleton-box h-4 w-3/4 mt-4"></div>
+            <div className="skeleton-box h-4 w-1/2 mt-2"></div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+```
+
+### 2. 중첩된 로딩 상태
+
+```javascript
+// app/dashboard/layout.js
+export default function DashboardLayout({ children }) {
+  return (
+    <div className="dashboard-layout">
+      <nav className="dashboard-nav">
+        {/* 네비게이션은 즉시 표시 */}
+      </nav>
+      <main className="dashboard-main">
+        {children} {/* 여기서 loading.js가 적용됨 */}
+      </main>
+    </div>
+  );
+}
+```
+
+```javascript
+// app/dashboard/loading.js
+export default function DashboardLoading() {
+  return (
+    <div className="dashboard-content-loading">
+      {/* 네비게이션은 유지되고 메인 콘텐츠만 로딩 상태 */}
+      <div className="content-skeleton">
+        <div className="skeleton-header"></div>
+        <div className="skeleton-body"></div>
+      </div>
+    </div>
+  );
+}
+```
+
+### 3. 동적 로딩 상태
+
+```javascript
+// app/products/[category]/loading.js
+export default function CategoryLoading() {
+  return (
+    <div className="category-loading">
+      <div className="breadcrumb-skeleton">
+        <div className="skeleton-box h-4 w-20"></div>
+        <span>/</span>
+        <div className="skeleton-box h-4 w-24"></div>
+      </div>
+      
+      <div className="category-header-skeleton">
+        <div className="skeleton-box h-10 w-48"></div>
+        <div className="skeleton-box h-6 w-64"></div>
+      </div>
+      
+      <div className="products-grid-skeleton">
+        {Array.from({ length: 12 }).map((_, i) => (
+          <ProductCardSkeleton key={i} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ProductCardSkeleton() {
+  return (
+    <div className="product-card-skeleton">
+      <div className="skeleton-box aspect-square w-full"></div>
+      <div className="skeleton-box h-4 w-3/4 mt-2"></div>
+      <div className="skeleton-box h-4 w-1/2 mt-1"></div>
+      <div className="skeleton-box h-6 w-16 mt-2"></div>
+    </div>
+  );
+}
+```
+
+## Server Components와 Suspense 조합
+
+### 1. 부분적 렌더링 (Partial Rendering)
+
+```javascript
+// app/dashboard/page.js
+import { Suspense } from 'react';
+import UserProfile from './components/UserProfile';
+import RecentActivity from './components/RecentActivity';
+import Analytics from './components/Analytics';
+
+export default function Dashboard() {
+  return (
+    <div className="dashboard">
+      {/* 즉시 렌더링되는 정적 콘텐츠 */}
+      <h1>대시보드</h1>
+      
+      {/* 각 섹션별로 독립적인 로딩 */}
+      <div className="dashboard-grid">
+        <Suspense fallback={<UserProfileSkeleton />}>
+          <UserProfile />
+        </Suspense>
+        
+        <Suspense fallback={<ActivitySkeleton />}>
+          <RecentActivity />
+        </Suspense>
+        
+        <Suspense fallback={<AnalyticsSkeleton />}>
+          <Analytics />
+        </Suspense>
+      </div>
+    </div>
+  );
+}
+```
+
+```javascript
+// app/dashboard/components/UserProfile.js
+async function UserProfile() {
+  // 빠른 API 호출
+  const user = await fetchUser();
+  
+  return (
+    <div className="user-profile">
+      <img src={user.avatar} alt={user.name} />
+      <h2>{user.name}</h2>
+      <p>{user.email}</p>
+    </div>
+  );
+}
+
+export default UserProfile;
+```
+
+```javascript
+// app/dashboard/components/Analytics.js
+async function Analytics() {
+  // 느린 API 호출 (복잡한 계산 필요)
+  const analytics = await fetchAnalytics();
+  
+  return (
+    <div className="analytics">
+      <h3>분석 데이터</h3>
+      <Chart data={analytics.chartData} />
+      <Metrics data={analytics.metrics} />
+    </div>
+  );
+}
+
+export default Analytics;
+```
+
+### 2. Streaming과 Progressive Enhancement
+
+```javascript
+// app/blog/[slug]/page.js
+import { Suspense } from 'react';
+
+async function BlogPost({ params }) {
+  return (
+    <article className="blog-post">
+      {/* 즉시 표시되는 기본 구조 */}
+      <header className="blog-header">
+        <h1>블로그 포스트</h1>
+        <div className="blog-meta">
+          <span>작성 중...</span>
+        </div>
+      </header>
+      
+      {/* 점진적으로 로드되는 콘텐츠 */}
+      <Suspense fallback={<ContentSkeleton />}>
+        <BlogContent slug={params.slug} />
+      </Suspense>
+      
+      <aside className="blog-sidebar">
+        <Suspense fallback={<RelatedPostsSkeleton />}>
+          <RelatedPosts slug={params.slug} />
+        </Suspense>
+        
+        <Suspense fallback={<CommentsSkeleton />}>
+          <Comments slug={params.slug} />
+        </Suspense>
+      </aside>
+    </article>
+  );
+}
+
+export default BlogPost;
+```
+
+## 실제 프로젝트 패턴
+
+### 1. E-commerce 상품 페이지
+
+```javascript
+// app/products/[id]/page.js
+import { Suspense } from 'react';
+
+export default async function ProductPage({ params }) {
+  return (
+    <div className="product-page">
+      {/* 즉시 표시되는 레이아웃 */}
+      <nav className="breadcrumb">
+        <Suspense fallback={<BreadcrumbSkeleton />}>
+          <ProductBreadcrumb productId={params.id} />
+        </Suspense>
+      </nav>
+      
+      <div className="product-layout">
+        <div className="product-images">
+          <Suspense fallback={<ImageGallerySkeleton />}>
+            <ProductImages productId={params.id} />
+          </Suspense>
+        </div>
+        
+        <div className="product-info">
+          <Suspense fallback={<ProductInfoSkeleton />}>
+            <ProductInfo productId={params.id} />
+          </Suspense>
+        </div>
+      </div>
+      
+      <div className="product-details">
+        <Suspense fallback={<ReviewsSkeleton />}>
+          <ProductReviews productId={params.id} />
+        </Suspense>
+        
+        <Suspense fallback={<RecommendationsSkeleton />}>
+          <RelatedProducts productId={params.id} />
+        </Suspense>
+      </div>
+    </div>
+  );
+}
+```
+
+```javascript
+// app/products/[id]/loading.js
+export default function ProductLoading() {
+  return (
+    <div className="product-page-loading">
+      <div className="breadcrumb-skeleton">
+        <div className="skeleton-box h-4 w-16"></div>
+        <span>/</span>
+        <div className="skeleton-box h-4 w-20"></div>
+        <span>/</span>
+        <div className="skeleton-box h-4 w-24"></div>
+      </div>
+      
+      <div className="product-layout-skeleton">
+        <div className="product-images-skeleton">
+          <div className="skeleton-box aspect-square w-full"></div>
+          <div className="thumbnail-grid">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="skeleton-box aspect-square"></div>
+            ))}
+          </div>
+        </div>
+        
+        <div className="product-info-skeleton">
+          <div className="skeleton-box h-8 w-3/4"></div>
+          <div className="skeleton-box h-6 w-1/2 mt-2"></div>
+          <div className="skeleton-box h-10 w-24 mt-4"></div>
+          <div className="skeleton-box h-12 w-32 mt-6"></div>
+        </div>
+      </div>
+    </div>
+  );
+}
+```
+
+### 2. 대시보드 애플리케이션
+
+```javascript
+// app/admin/dashboard/page.js
+import { Suspense } from 'react';
+
+export default function AdminDashboard() {
+  return (
+    <div className="admin-dashboard">
+      <header className="dashboard-header">
+        <h1>관리자 대시보드</h1>
+        <div className="header-actions">
+          {/* 즉시 표시되는 액션 버튼들 */}
+          <button>새로고침</button>
+          <button>설정</button>
+        </div>
+      </header>
+      
+      {/* 핵심 지표는 빠르게 로드 */}
+      <div className="metrics-grid">
+        <Suspense fallback={<MetricCardSkeleton />}>
+          <TotalUsers />
+        </Suspense>
+        <Suspense fallback={<MetricCardSkeleton />}>
+          <Revenue />
+        </Suspense>
+        <Suspense fallback={<MetricCardSkeleton />}>
+          <Orders />
+        </Suspense>
+        <Suspense fallback={<MetricCardSkeleton />}>
+          <Conversion />
+        </Suspense>
+      </div>
+      
+      {/* 복잡한 차트는 나중에 로드 */}
+      <div className="charts-section">
+        <Suspense fallback={<ChartSkeleton />}>
+          <SalesChart />
+        </Suspense>
+        <Suspense fallback={<ChartSkeleton />}>
+          <UserActivityChart />
+        </Suspense>
+      </div>
+      
+      {/* 테이블 데이터는 가장 나중에 로드 */}
+      <div className="tables-section">
+        <Suspense fallback={<TableSkeleton />}>
+          <RecentOrders />
+        </Suspense>
+        <Suspense fallback={<TableSkeleton />}>
+          <TopProducts />
+        </Suspense>
+      </div>
+    </div>
+  );
+}
+```
+
+## 에러 처리와 error.js 연동
+
+### 1. 에러 경계와 로딩 상태
+
+```javascript
+// app/dashboard/error.js
+'use client';
+
+export default function DashboardError({ error, reset }) {
+  return (
+    <div className="dashboard-error">
+      <h2>대시보드 로딩 중 오류가 발생했습니다</h2>
+      <p>{error.message}</p>
+      <button onClick={reset}>다시 시도</button>
+    </div>
+  );
+}
+```
+
+```javascript
+// app/dashboard/loading.js
+export default function DashboardLoading() {
+  return (
+    <div className="dashboard-loading">
+      <div className="loading-header">
+        <div className="skeleton-box h-8 w-48"></div>
+      </div>
+      <div className="loading-message">
+        <p>대시보드 데이터를 불러오는 중입니다...</p>
+        <div className="loading-spinner"></div>
+      </div>
+    </div>
+  );
+}
+```
+
+### 2. 컴포넌트별 에러 처리
+
+```javascript
+// app/dashboard/components/ErrorBoundary.js
+'use client';
+
+import { Component } from 'react';
+
+class ComponentErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true };
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="component-error">
+          <p>이 섹션을 로드할 수 없습니다.</p>
+          <button onClick={() => this.setState({ hasError: false })}>
+            다시 시도
+          </button>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
+export default ComponentErrorBoundary;
+```
+
+```javascript
+// app/dashboard/page.js
+import { Suspense } from 'react';
+import ComponentErrorBoundary from './components/ErrorBoundary';
+
+export default function Dashboard() {
+  return (
+    <div className="dashboard">
+      <ComponentErrorBoundary>
+        <Suspense fallback={<AnalyticsSkeleton />}>
+          <Analytics />
+        </Suspense>
+      </ComponentErrorBoundary>
+      
+      <ComponentErrorBoundary>
+        <Suspense fallback={<UserListSkeleton />}>
+          <UserList />
+        </Suspense>
+      </ComponentErrorBoundary>
+    </div>
+  );
+}
+```
+
+## 성능 최적화 기법
+
+### 1. 데이터 페칭 최적화
+
+```javascript
+// lib/data-fetching.js
+import { cache } from 'react';
+
+// React의 cache를 사용하여 중복 요청 방지
+export const getUser = cache(async (userId) => {
+  const response = await fetch(`/api/users/${userId}`);
+  return response.json();
+});
+
+export const getAnalytics = cache(async () => {
+  const response = await fetch('/api/analytics');
+  return response.json();
+});
+```
+
+```javascript
+// app/dashboard/components/UserProfile.js
+import { getUser } from '@/lib/data-fetching';
+
+async function UserProfile({ userId }) {
+  const user = await getUser(userId); // 캐시된 요청
+  
+  return (
+    <div className="user-profile">
+      <h2>{user.name}</h2>
+      <p>{user.email}</p>
+    </div>
+  );
+}
+
+export default UserProfile;
+```
+
+### 2. 병렬 데이터 로딩
+
+```javascript
+// app/dashboard/page.js
+import { Suspense } from 'react';
+
+// 데이터를 병렬로 시작
+async function Dashboard() {
+  // 모든 데이터 페칭을 동시에 시작
+  const userPromise = getUser();
+  const analyticsPromise = getAnalytics();
+  const ordersPromise = getRecentOrders();
+
+  return (
+    <div className="dashboard">
+      <Suspense fallback={<UserSkeleton />}>
+        <UserSection userPromise={userPromise} />
+      </Suspense>
+      
+      <Suspense fallback={<AnalyticsSkeleton />}>
+        <AnalyticsSection analyticsPromise={analyticsPromise} />
+      </Suspense>
+      
+      <Suspense fallback={<OrdersSkeleton />}>
+        <OrdersSection ordersPromise={ordersPromise} />
+      </Suspense>
+    </div>
+  );
+}
+
+async function UserSection({ userPromise }) {
+  const user = await userPromise;
+  return <div>{/* 사용자 정보 렌더링 */}</div>;
+}
+
+async function AnalyticsSection({ analyticsPromise }) {
+  const analytics = await analyticsPromise;
+  return <div>{/* 분석 데이터 렌더링 */}</div>;
+}
+
+async function OrdersSection({ ordersPromise }) {
+  const orders = await ordersPromise;
+  return <div>{/* 주문 데이터 렌더링 */}</div>;
+}
+```
+
+### 3. 조건부 로딩
+
+```javascript
+// app/dashboard/page.js
+import { Suspense } from 'react';
+import { getCurrentUser } from '@/lib/auth';
+
+export default async function Dashboard() {
+  const user = await getCurrentUser();
+  
+  return (
+    <div className="dashboard">
+      <h1>안녕하세요, {user.name}님!</h1>
+      
+      {/* 기본 콘텐츠는 모든 사용자에게 표시 */}
+      <Suspense fallback={<BasicDashboardSkeleton />}>
+        <BasicDashboard userId={user.id} />
+      </Suspense>
+      
+      {/* 관리자 전용 콘텐츠 */}
+      {user.role === 'admin' && (
+        <Suspense fallback={<AdminPanelSkeleton />}>
+          <AdminPanel />
+        </Suspense>
+      )}
+      
+      {/* 프리미엄 사용자 전용 기능 */}
+      {user.plan === 'premium' && (
+        <Suspense fallback={<PremiumFeaturesSkeleton />}>
+          <PremiumFeatures />
+        </Suspense>
+      )}
+    </div>
+  );
+}
+```
+
+## 사용자 경험 개선
+
+### 1. 스켈레톤 UI 디자인 시스템
+
+```javascript
+// components/ui/Skeleton.js
+export function Skeleton({ className, ...props }) {
+  return (
+    <div
+      className={`animate-pulse rounded-md bg-gray-200 ${className}`}
+      {...props}
+    />
+  );
+}
+
+export function CardSkeleton() {
+  return (
+    <div className="card-skeleton">
+      <Skeleton className="h-4 w-3/4" />
+      <Skeleton className="h-4 w-1/2 mt-2" />
+      <Skeleton className="h-20 w-full mt-4" />
+    </div>
+  );
+}
+
+export function TableSkeleton({ rows = 5 }) {
+  return (
+    <div className="table-skeleton">
+      <div className="table-header">
+        <Skeleton className="h-4 w-24" />
+        <Skeleton className="h-4 w-32" />
+        <Skeleton className="h-4 w-20" />
+      </div>
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} className="table-row">
+          <Skeleton className="h-4 w-20" />
+          <Skeleton className="h-4 w-28" />
+          <Skeleton className="h-4 w-16" />
+        </div>
+      ))}
+    </div>
+  );
+}
+```
+
+### 2. 로딩 상태 피드백
+
+```javascript
+// app/search/loading.js
+export default function SearchLoading() {
+  return (
+    <div className="search-loading">
+      <div className="search-header">
+        <Skeleton className="h-8 w-48" />
+        <div className="search-filters">
+          <Skeleton className="h-10 w-32" />
+          <Skeleton className="h-10 w-24" />
+          <Skeleton className="h-10 w-28" />
+        </div>
+      </div>
+      
+      <div className="search-results">
+        <div className="results-info">
+          <Skeleton className="h-4 w-40" />
+        </div>
+        
+        <div className="results-grid">
+          {Array.from({ length: 12 }).map((_, i) => (
+            <SearchResultSkeleton key={i} />
+          ))}
+        </div>
+      </div>
+      
+      {/* 로딩 중임을 명확히 알려주는 메시지 */}
+      <div className="loading-indicator">
+        <div className="spinner"></div>
+        <p>검색 결과를 찾고 있습니다...</p>
+      </div>
+    </div>
+  );
+}
+```
+
+### 3. 점진적 향상
+
+```javascript
+// app/blog/page.js
+import { Suspense } from 'react';
+
+export default function BlogPage() {
+  return (
+    <div className="blog-page">
+      {/* 즉시 표시되는 기본 구조 */}
+      <header className="blog-header">
+        <h1>블로그</h1>
+        <nav className="blog-nav">
+          <a href="/blog/tech">기술</a>
+          <a href="/blog/design">디자인</a>
+          <a href="/blog/business">비즈니스</a>
+        </nav>
+      </header>
+      
+      {/* 핵심 콘텐츠 먼저 로드 */}
+      <main className="blog-main">
+        <Suspense fallback={<FeaturedPostsSkeleton />}>
+          <FeaturedPosts />
+        </Suspense>
+        
+        <Suspense fallback={<RecentPostsSkeleton />}>
+          <RecentPosts />
+        </Suspense>
+      </main>
+      
+      {/* 부가 기능은 나중에 로드 */}
+      <aside className="blog-sidebar">
+        <Suspense fallback={<NewsletterSkeleton />}>
+          <NewsletterSignup />
+        </Suspense>
+        
+        <Suspense fallback={<PopularTagsSkeleton />}>
+          <PopularTags />
+        </Suspense>
+        
+        <Suspense fallback={<ArchiveSkeleton />}>
+          <BlogArchive />
+        </Suspense>
+      </aside>
+    </div>
+  );
+}
+```
+
+## 모니터링 및 성능 측정
+
+### 1. 로딩 시간 추적
+
+```javascript
+// lib/performance.js
+export function trackLoadingTime(componentName, startTime) {
+  const endTime = performance.now();
+  const loadTime = endTime - startTime;
+  
+  // 성능 데이터 전송
+  if (typeof window !== 'undefined' && window.gtag) {
+    window.gtag('event', 'component_load_time', {
+      event_category: 'performance',
+      event_label: componentName,
+      value: Math.round(loadTime)
+    });
+  }
+  
+  console.log(`${componentName} loaded in ${loadTime}ms`);
+}
+```
+
+```javascript
+// app/dashboard/components/Analytics.js
+import { trackLoadingTime } from '@/lib/performance';
+
+async function Analytics() {
+  const startTime = performance.now();
+  
+  try {
+    const data = await fetchAnalytics();
+    trackLoadingTime('Analytics', startTime);
+    
+    return (
+      <div className="analytics">
+        {/* 분석 데이터 렌더링 */}
+      </div>
+    );
+  } catch (error) {
+    trackLoadingTime('Analytics_Error', startTime);
+    throw error;
+  }
+}
+
+export default Analytics;
+```
+
+### 2. 사용자 행동 분석
+
+```javascript
+// hooks/useLoadingAnalytics.js
+'use client';
+
+import { useEffect } from 'react';
+
+export function useLoadingAnalytics(componentName) {
+  useEffect(() => {
+    const startTime = Date.now();
+    
+    // 컴포넌트가 마운트되면 로딩 완료로 간주
+    const endTime = Date.now();
+    const loadTime = endTime - startTime;
+    
+    // 사용자가 로딩을 얼마나 기다렸는지 추적
+    if (window.gtag) {
+      window.gtag('event', 'loading_experience', {
+        event_category: 'ux',
+        event_label: componentName,
+        value: loadTime
+      });
+    }
+  }, [componentName]);
+}
+```
+
+## 모범 사례 및 주의사항
+
+### 권장사항
+
+1. **의미있는 로딩 상태**: 단순한 스피너보다는 실제 콘텐츠 구조를 반영한 스켈레톤 UI 사용
+2. **계층적 로딩**: 중요한 콘텐츠부터 순차적으로 로드
+3. **에러 처리**: 로딩 실패 시 사용자에게 명확한 피드백 제공
+4. **성능 모니터링**: 실제 로딩 시간을 측정하고 개선
+
+### 피해야 할 패턴
+
+```javascript
+// ❌ 너무 많은 중첩된 Suspense
+function BadExample() {
+  return (
+    <Suspense fallback={<Loading />}>
+      <Suspense fallback={<Loading />}>
+        <Suspense fallback={<Loading />}>
+          <Component />
+        </Suspense>
+      </Suspense>
+    </Suspense>
+  );
+}
+
+// ❌ 의미없는 로딩 상태
+function BadLoading() {
+  return <div>Loading...</div>; // 사용자에게 도움이 되지 않음
+}
+
+// ❌ 에러 처리 없음
+function BadComponent() {
+  return (
+    <Suspense fallback={<Loading />}>
+      <DataComponent /> {/* 에러 발생 시 처리 방법 없음 */}
+    </Suspense>
+  );
+}
+```
+
+```javascript
+// ✅ 적절한 구조와 에러 처리
+function GoodExample() {
+  return (
+    <ErrorBoundary fallback={<ErrorComponent />}>
+      <Suspense fallback={<MeaningfulSkeleton />}>
+        <DataComponent />
+      </Suspense>
+    </ErrorBoundary>
+  );
+}
+
+// ✅ 의미있는 로딩 상태
+function GoodLoading() {
+  return (
+    <div className="product-loading">
+      <div className="product-image-skeleton"></div>
+      <div className="product-info-skeleton">
+        <div className="title-skeleton"></div>
+        <div className="price-skeleton"></div>
+        <div className="description-skeleton"></div>
+      </div>
+    </div>
+  );
+}
+```
+
+## 마무리
+
+Next.js App Router의 loading.js와 Suspense를 활용하면 기존 React 애플리케이션보다 훨씬 세밀하고 사용자 친화적인 로딩 경험을 구현할 수 있습니다. 
+
+핵심은:
+- **파일 기반 라우팅**으로 자동 Suspense 경계 생성
+- **Server Components**와 **Streaming**을 통한 점진적 렌더링
+- **의미있는 스켈레톤 UI**로 사용자 경험 개선
+- **적절한 에러 처리**로 안정성 확보
+
+이러한 기법들을 적절히 조합하면 사용자가 기다림을 느끼지 않는 매끄러운 웹 애플리케이션을 만들 수 있습니다. 무엇보다 실제 사용자의 행동 패턴을 분석하고 지속적으로 개선해 나가는 것이 중요합니다.
