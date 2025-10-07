@@ -7,11 +7,13 @@ import { MDXRemote } from 'next-mdx-remote/rsc';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
 import remarkMdx from 'remark-mdx';
+import { cn } from '@/lib/utils';
 
 // Writing UI 컴포넌트들 import
 import {
   Callout,
   CodeBlock,
+  Mermaid,
   Steps,
   Step,
   Tabs,
@@ -38,6 +40,7 @@ export function MDXRenderer({ content }: MDXRendererProps) {
     // Writing UI 컴포넌트들
     Callout,
     CodeBlock,
+    Mermaid,
     Steps,
     Step,
     Tabs,
@@ -121,6 +124,12 @@ export function MDXRenderer({ content }: MDXRendererProps) {
       );
     },
     pre: (props: any) => {
+      // Mermaid 다이어그램인 경우
+      if (props.children?.props?.className?.includes('language-mermaid')) {
+        const codeContent = props.children.props.children;
+        return <Mermaid>{codeContent}</Mermaid>;
+      }
+
       // 코드 블록인 경우 writing-ui CodeBlock 컴포넌트 사용
       if (props.children?.props?.className?.includes('language-')) {
         const language = props.children.props.className.replace('language-', '');

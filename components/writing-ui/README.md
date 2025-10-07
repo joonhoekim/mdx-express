@@ -41,9 +41,70 @@ import { Callout } from '@/components/writing-ui'
 ### 2. CodeBlock
 
 코드 블록을 표시하는 컴포넌트입니다. 복사 기능이 포함되어 있습니다.
-이 컴포넌트는 직접 호출하지 않습니다.기본 문법인 ``` 를 사용하면 렌더링 과정에서 사용됩니다.
+이 컴포넌트는 직접 호출하지 않습니다. 기본 문법인 ``` 를 사용하면 렌더링 과정에서 사용됩니다.
 
-### 3. Steps
+**Syntax Highlighting 지원**
+
+모든 코드 블록은 자동으로 언어별 syntax highlighting이 적용됩니다. 100개 이상의 프로그래밍 언어를 지원합니다.
+
+````mdx
+```javascript
+const greeting = 'Hello, World!';
+console.log(greeting);
+```
+
+```python
+def greet(name):
+    print(f"Hello, {name}!")
+```
+
+```typescript
+interface User {
+  name: string;
+  age: number;
+}
+```
+````
+
+### 3. Mermaid
+
+Mermaid 다이어그램을 렌더링하는 컴포넌트입니다. 플로우차트, 시퀀스 다이어그램, 간트 차트 등 다양한 다이어그램을 지원합니다.
+
+````mdx
+```mermaid
+graph TD
+    A[시작] --> B{조건 확인}
+    B -->|예| C[작업 수행]
+    B -->|아니오| D[종료]
+    C --> D
+```
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Server
+    participant Database
+
+    Client->>Server: 요청
+    Server->>Database: 쿼리
+    Database-->>Server: 결과
+    Server-->>Client: 응답
+```
+````
+
+**지원되는 다이어그램 유형:**
+
+- Flowchart (graph)
+- Sequence Diagram (sequenceDiagram)
+- Class Diagram (classDiagram)
+- State Diagram (stateDiagram)
+- Entity Relationship Diagram (erDiagram)
+- Gantt Chart (gantt)
+- Pie Chart (pie)
+- Git Graph (gitGraph)
+- 그 외 다수
+
+### 4. Steps
 
 단계별 가이드를 표시하는 컴포넌트입니다.
 
@@ -57,7 +118,7 @@ import { Steps, Step } from '@/components/writing-ui';
 </Steps>;
 ```
 
-### 4. Tabs
+### 5. Tabs
 
 탭 인터페이스를 만드는 컴포넌트입니다.
 
@@ -79,7 +140,7 @@ import {
 </Tabs>;
 ```
 
-### 5. Card
+### 6. Card
 
 카드 형태의 컨테이너 컴포넌트입니다.
 
@@ -97,7 +158,7 @@ import { Star } from 'lucide-react';
 </Card>;
 ```
 
-### 6. Blockquote
+### 7. Blockquote
 
 인용문을 표시하는 컴포넌트입니다.
 
@@ -109,7 +170,7 @@ import { Blockquote } from '@/components/writing-ui';
 </Blockquote>;
 ```
 
-### 7. Badge
+### 8. Badge
 
 뱃지/라벨을 표시하는 컴포넌트입니다.
 
@@ -121,7 +182,7 @@ import { Badge } from '@/components/writing-ui'
 <Badge variant="warning" size="lg">경고</Badge>
 ```
 
-### 8. Reference
+### 9. Reference
 
 참고자료를 표시하는 컴포넌트입니다.
 

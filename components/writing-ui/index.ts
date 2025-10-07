@@ -1,5 +1,6 @@
 export { Callout } from './callout';
 export { CodeBlock } from './code-block';
+export { Mermaid } from './mermaid';
 export { Steps, Step } from './steps';
 export { Tabs, TabsList, TabsTrigger, TabsContent } from './tabs';
 export { Card } from './card';

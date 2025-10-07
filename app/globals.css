@@ -1,5 +1,5 @@
-@import "tailwindcss";
-@import "tw-animate-css";
+@import 'tailwindcss';
+@import 'tw-animate-css';
 
 @custom-variant dark (&:is(.dark *));
 
@@ -118,5 +118,12 @@
   }
   body {
     @apply bg-background text-foreground;
+  }
+}
+
+/* Mermaid 다이어그램 스타일 */
+@layer components {
+  .mermaid-diagram svg {
+    @apply max-w-full h-auto;
   }
 }
