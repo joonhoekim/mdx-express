@@ -45,7 +45,7 @@ import { Callout } from '@/components/writing-ui'
 
 **Syntax Highlighting 지원**
 
-모든 코드 블록은 자동으로 언어별 syntax highlighting이 적용됩니다. 100개 이상의 프로그래밍 언어를 지원합니다.
+모든 코드 블록은 자동으로 언어별 syntax highlighting이 적용됩니다. [highlight.js](https://highlightjs.org/)를 사용하여 190개 이상의 프로그래밍 언어를 지원합니다.
 
 ````mdx
 ```javascript

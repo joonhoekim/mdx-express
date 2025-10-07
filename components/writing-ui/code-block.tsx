@@ -1,9 +1,10 @@
 "use client";
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { Copy, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { codeToHtml } from 'shiki';
+import hljs from 'highlight.js';
+import 'highlight.js/styles/github-dark.css';
 
 interface CodeBlockProps {
     children: React.ReactNode;
@@ -23,8 +24,7 @@ export function CodeBlock({
     showCopy = true
 }: CodeBlockProps) {
     const [copied, setCopied] = useState(false);
-    const [highlightedCode, setHighlightedCode] = useState<string>('');
-    const [isLoading, setIsLoading] = useState(true);
+    const codeRef = useRef<HTMLElement>(null);
 
     // children을 문자열로 변환하는 함수
     const getCodeString = (children: React.ReactNode): string => {
@@ -47,28 +47,17 @@ export function CodeBlock({
     const codeString = getCodeString(children);
 
     useEffect(() => {
-        const highlightCode = async () => {
-            try {
-                setIsLoading(true);
-                const html = await codeToHtml(codeString, {
-                    lang: language,
-                    themes: {
-                        light: 'github-light',
-                        dark: 'github-dark',
-                    },
-                    defaultColor: false,
-                });
-                setHighlightedCode(html);
-            } catch (error) {
-                console.error('Syntax highlighting error:', error);
-                // 하이라이팅 실패 시 일반 코드로 표시
-                setHighlightedCode(`<pre><code>${codeString}</code></pre>`);
-            } finally {
-                setIsLoading(false);
-            }
-        };
+        if (codeRef.current) {
+            // 기존 하이라이팅 클래스 제거
+            codeRef.current.removeAttribute('data-highlighted');
 
-        highlightCode();
+            // 하이라이팅 적용
+            try {
+                hljs.highlightElement(codeRef.current);
+            } catch (error) {
+                console.error('Highlight error:', error);
+            }
+        }
     }, [codeString, language]);
 
     const copyToClipboard = async () => {
@@ -117,19 +106,11 @@ export function CodeBlock({
                     )}
                 </div>
             )}
-            <div className="overflow-x-auto">
-                {isLoading ? (
-                    <div className="p-4">
-                        <pre className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed">
-                            <code>{codeString}</code>
-                        </pre>
-                    </div>
-                ) : (
-                    <div
-                        className="shiki-wrapper [&_pre]:p-4 [&_pre]:m-0 [&_pre]:bg-transparent [&_pre]:overflow-x-auto [&_code]:text-sm [&_code]:leading-relaxed"
-                        dangerouslySetInnerHTML={{ __html: highlightedCode }}
-                    />
-                )}
+            <div className="overflow-x-auto bg-[#0d1117]">
+                <pre className="p-4 m-0 !bg-transparent"><code
+                    ref={codeRef}
+                    className={`language-${language} text-sm leading-relaxed !bg-transparent`}
+                >{codeString}</code></pre>
             </div>
         </div>
     );
