@@ -7,3 +7,4 @@ export { Card } from './card';
 export { Blockquote } from './blockquote';
 export { Badge } from './badge';
 export { Reference, ReferenceList } from './reference';
+export { Icon } from './icon';

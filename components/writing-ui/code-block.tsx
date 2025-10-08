@@ -46,6 +46,19 @@ export function CodeBlock({
 
     const codeString = getCodeString(children);
 
+    // 언어 매핑 (지원하지 않는 언어를 비슷한 언어로 매핑)
+    const getLanguageAlias = (lang: string): string => {
+        const aliases: Record<string, string> = {
+            'mdx': 'markdown',
+            'md': 'markdown',
+            'vue': 'html',
+            'svelte': 'html',
+        };
+        return aliases[lang.toLowerCase()] || lang;
+    };
+
+    const effectiveLanguage = getLanguageAlias(language);
+
     useEffect(() => {
         if (codeRef.current) {
             // 기존 하이라이팅 클래스 제거
@@ -53,12 +66,25 @@ export function CodeBlock({
 
             // 하이라이팅 적용
             try {
-                hljs.highlightElement(codeRef.current);
+                // 언어가 지원되는지 확인
+                const languageSubset = hljs.getLanguage(effectiveLanguage);
+
+                if (languageSubset) {
+                    hljs.highlightElement(codeRef.current);
+                } else {
+                    // 지원하지 않는 언어면 plaintext로 하이라이팅
+                    codeRef.current.className = `language-plaintext text-sm leading-relaxed !bg-transparent`;
+                    hljs.highlightElement(codeRef.current);
+                }
             } catch (error) {
-                console.error('Highlight error:', error);
+                console.warn(`Highlight.js error for language "${effectiveLanguage}":`, error);
+                // 에러 발생 시 plaintext로 fallback
+                if (codeRef.current) {
+                    codeRef.current.className = `language-plaintext text-sm leading-relaxed !bg-transparent`;
+                }
             }
         }
-    }, [codeString, language]);
+    }, [codeString, effectiveLanguage]);
 
     const copyToClipboard = async () => {
         try {
@@ -109,7 +135,8 @@ export function CodeBlock({
             <div className="overflow-x-auto bg-[#0d1117]">
                 <pre className="p-4 m-0 !bg-transparent"><code
                     ref={codeRef}
-                    className={`language-${language} text-sm leading-relaxed !bg-transparent`}
+                    className={`language-${effectiveLanguage} text-sm leading-relaxed !bg-transparent text-slate-200`}
+                    style={{ color: '#e6edf3' }}
                 >{codeString}</code></pre>
             </div>
         </div>

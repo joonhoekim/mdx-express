@@ -3,23 +3,6 @@ title: 'Writing UI 컴포넌트 쇼케이스'
 description: 'MDX에서 사용할 수 있는 아름다운 UI 컴포넌트들을 살펴보세요'
 ---
 
-import {
-  Callout,
-  CodeBlock,
-  Steps,
-  Step,
-  Tabs,
-  TabsList,
-  TabsTrigger,
-  TabsContent,
-  Card,
-  Blockquote,
-  Badge,
-  Reference,
-  ReferenceList,
-} from '@/components/writing-ui';
-import { Star, Code, Palette, Zap } from 'lucide-react';
-
 # Writing UI 컴포넌트 쇼케이스
 
 MDX 문서 작성을 위한 아름다운 UI 컴포넌트들을 소개합니다. 이 페이지에서는 각 컴포넌트의 실제 사용 예시를 확인할 수 있습니다.
@@ -55,79 +38,73 @@ MDX 문서 작성을 위한 아름다운 UI 컴포넌트들을 소개합니다. 
 
 ## 2. CodeBlock 컴포넌트
 
-코드를 아름답게 표시하고 복사 기능을 제공합니다.
+코드를 아름답게 표시하고 복사 기능을 제공합니다. **일반 마크다운 코드 블록(\`\`\`)** 을 사용하면 자동으로 CodeBlock 컴포넌트로 렌더링됩니다.
 
-<CodeBlock title="React 컴포넌트 예시" language="tsx" filename="Button.tsx">
-{`import React from 'react'
+```tsx
+import React from 'react';
 
 interface ButtonProps {
-children: React.ReactNode
-onClick?: () => void
-variant?: 'primary' | 'secondary'
+  children: React.ReactNode;
+  onClick?: () => void;
+  variant?: 'primary' | 'secondary';
 }
 
-export function Button({ children, onClick, variant = 'primary' }: ButtonProps) {
+export function Button({
+  children,
+  onClick,
+  variant = 'primary',
+}: ButtonProps) {
   return (
     <button
       onClick={onClick}
-      className={\`px-4 py-2 rounded \${
-        variant === 'primary' 
-          ? 'bg-blue-500 text-white' 
+      className={`px-4 py-2 rounded ${
+        variant === 'primary'
+          ? 'bg-blue-500 text-white'
           : 'bg-gray-200 text-gray-800'
-      }\`}
+      }`}
     >
       {children}
     </button>
-  )
-}`}
-</CodeBlock>
+  );
+}
+```
 
-<CodeBlock title='설치 명령어' language='bash'>
-  {`npm install @/components/writing-ui
+```bash
+npm install @/components/writing-ui
 # 또는
-yarn add @/components/writing-ui`}
-</CodeBlock>
+yarn add @/components/writing-ui
+```
 
 ## 3. Steps 컴포넌트
 
 단계별 가이드를 만들 때 사용합니다.
 
 <Steps>
-  <Step title="프로젝트 초기화">
-    새로운 Next.js 프로젝트를 생성합니다.
-    
-    <CodeBlock language="bash">
-      {`npx create-next-app@latest my-project`}
-    </CodeBlock>
+  <Step title='프로젝트 초기화'>
+    새로운 Next.js 프로젝트를 생성합니다. ```bash npx create-next-app@latest
+    my-project ```
   </Step>
-  
-  <Step title="의존성 설치">
-    필요한 패키지들을 설치합니다.
-    
-    <CodeBlock language="bash">
-      {`cd my-project
-npm install lucide-react`}
-    </CodeBlock>
-  </Step>
-  
-  <Step title="컴포넌트 설정">
-    writing-ui 컴포넌트를 프로젝트에 복사합니다.
-    
-    <Callout type="info" title="팁">
-      components/writing-ui 폴더를 프로젝트 루트의 components 폴더에 복사하세요.
-    </Callout>
-  </Step>
-  
-  <Step title="사용 시작">
-    이제 MDX 파일에서 컴포넌트를 사용할 수 있습니다!
-    
-    <CodeBlock language="mdx">
-      {`import { Callout } from '@/components/writing-ui'
 
-<Callout type="success" title="완료!">
-  설정이 완료되었습니다.
-</Callout>`}
-    </CodeBlock>
+{' '}
+<Step title='의존성 설치'>
+  필요한 패키지들을 설치합니다. ```bash cd my-project npm install lucide-react
+  ```
+</Step>
+
+{' '}
+<Step title='컴포넌트 설정'>
+  writing-ui 컴포넌트를 프로젝트에 복사합니다.
+  <Callout type='info' title='팁'>
+    components/writing-ui 폴더를 프로젝트 루트의 components 폴더에 복사하세요.
+  </Callout>
+</Step>
+
+  <Step title='사용 시작'>
+    이제 MDX 파일에서 컴포넌트를 Import 없이 사용할 수 있습니다! ```mdx
+    <Callout type='success' title='완료!'>
+      설정이 완료되었습니다.
+    </Callout>
+    ```
   </Step>
 </Steps>
 
@@ -143,65 +120,64 @@ npm install lucide-react`}
   </TabsList>
   
   <TabsContent value="react">
-    <CodeBlock title="React 예시" language="tsx">
-      {`import React from 'react'
+    ```tsx
+    import React from 'react'
 
-function App() {
-return (
+    function App() {
+      return (
+        <div>
+          <h1>Hello React!</h1>
+          <button onClick={() => alert('Hello!')}>클릭하세요</button>
+        </div>
+      )
+    }
 
-<div>
-  <h1>Hello React!</h1>
-  <button onClick={() => alert('Hello!')}>클릭하세요</button>
-</div>
-) }
+    export default App
+    ```
 
-export default App`}
-    </CodeBlock>
   </TabsContent>
   
   <TabsContent value="vue">
-    <CodeBlock title="Vue 예시" language="vue">
-      {`<template>
-  <div>
-    <h1>Hello Vue!</h1>
-    <button @click="sayHello">클릭하세요</button>
-  </div>
-</template>
+    ```vue
+    <template>
+      <div>
+        <h1>Hello Vue!</h1>
+        <button @click="sayHello">클릭하세요</button>
+      </div>
+    </template>
 
-<script>
-export default {
-  methods: {
-    sayHello() {
-      alert('Hello!')
+    <script>
+    export default {
+      methods: {
+        sayHello() {
+          alert('Hello!')
+        }
+      }
     }
-  }
-}
-</script>`}
-
-    </CodeBlock>
+    </script>
+    ```
 
   </TabsContent>
   
   <TabsContent value="angular">
-    <CodeBlock title="Angular 예시" language="typescript">
-      {`import { Component } from '@angular/core';
+    ```typescript
+    import { Component } from '@angular/core';
 
-@Component({
-selector: 'app-root',
-template: \`
-
-<div>
-<h1>Hello Angular!</h1>
-<button (click)="sayHello()">클릭하세요</button>
-</div>
-\`
-})
-export class AppComponent {
-sayHello() {
-alert('Hello!')
-}
-}`}
-</CodeBlock>
+    @Component({
+      selector: 'app-root',
+      template: `
+        <div>
+          <h1>Hello Angular!</h1>
+          <button (click)="sayHello()">클릭하세요</button>
+        </div>
+      `
+    })
+    export class AppComponent {
+      sayHello() {
+        alert('Hello!')
+      }
+    }
+    ```
 
   </TabsContent>
 </Tabs>
@@ -326,9 +302,11 @@ alert('Hello!')
     <Steps>
       <Step title='API 키 설정'>
         먼저 환경 변수에 API 키를 설정합니다.
-        <CodeBlock language='bash' filename='.env.local'>
-          {`NEXT_PUBLIC_API_KEY=your_api_key_here`}
-        </CodeBlock>
+        
+        ```bash
+        NEXT_PUBLIC_API_KEY=your_api_key_here
+        ```
+        
         <Callout type='warning' title='보안 주의사항'>
           API 키는 절대 클라이언트 사이드에 노출되어서는 안 됩니다.
         </Callout>
@@ -336,17 +314,16 @@ alert('Hello!')
 
       <Step title='API 호출'>
         다음 코드를 사용해서 API를 호출합니다.
-        <CodeBlock language='typescript' filename='api.ts'>
-          {`const response = await fetch('/api/data', {
 
-headers: {
-'Authorization': 'Bearer ' + process.env.API_KEY
-}
-})`}
-
-</CodeBlock>
-</Step>
-</Steps>
+        ```typescript
+        const response = await fetch('/api/data', {
+          headers: {
+            'Authorization': 'Bearer ' + process.env.API_KEY
+          }
+        })
+        ```
+      </Step>
+    </Steps>
 
   </TabsContent>
 

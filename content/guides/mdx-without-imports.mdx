@@ -1,0 +1,396 @@
+---
+title: 'Import 없이 MDX 작성하기'
+description: 'MDX 파일에서 import 없이 모든 컴포넌트를 사용하는 방법을 알아봅니다'
+order: 3
+---
+
+# Import 없이 MDX 작성하기
+
+이 프로젝트의 MDX 렌더러는 모든 컴포넌트를 자동으로 제공하므로, **import 구문 없이** 바로 사용할 수 있습니다!
+
+<Callout type='info' title='핵심 포인트'>
+  MDX 파일 상단에 `import` 구문을 작성할 필요가 없습니다. 모든 컴포넌트는
+  렌더러에서 자동으로 제공됩니다.
+</Callout>
+
+## 기존 방식 vs 새로운 방식
+
+### ❌ 기존 방식 (Import 필요)
+
+다른 프로젝트에서는 이렇게 작성해야 했습니다:
+
+```mdx
+---
+title: '제목'
+---
+
+import { Callout, Steps, Step, Card } from '@/components/writing-ui';
+import { Star, Code, Zap } from 'lucide-react';
+
+# 제목
+
+<Callout type='info'>내용</Callout>
+```
+
+### ✅ 새로운 방식 (Import 불필요)
+
+이제는 이렇게 간단하게 작성할 수 있습니다:
+
+```mdx
+---
+title: '제목'
+---
+
+# 제목
+
+<Callout type='info'>내용</Callout>
+```
+
+<Callout type='success' title='장점'>
+  - 코드가 깔끔해집니다 - 타이핑 실수가 줄어듭니다 - 어떤 컴포넌트가
+  import되었는지 고민할 필요가 없습니다
+</Callout>
+
+## 사용 가능한 컴포넌트
+
+<Steps>
+  <Step title="Writing UI 컴포넌트">
+    모든 커스텀 컴포넌트를 바로 사용할 수 있습니다.
+    
+    - `Callout` - 알림 박스
+    - `CodeBlock` - 코드 블록 (자동 렌더링)
+    - `Mermaid` - 다이어그램
+    - `Steps`, `Step` - 단계별 가이드
+    - `Tabs`, `TabsList`, `TabsTrigger`, `TabsContent` - 탭
+    - `Card` - 카드
+    - `Blockquote` - 인용구
+    - `Badge` - 뱃지
+    - `Reference`, `ReferenceList` - 참고자료
+    - `Icon` - 동적 아이콘 로더
+  </Step>
+  
+  <Step title="Lucide 아이콘 (자주 사용)">
+    약 80개의 자주 사용하는 아이콘을 직접 사용할 수 있습니다.
+    
+    <div className="grid grid-cols-4 gap-4 my-4">
+      <div className="flex items-center gap-2">
+        <Star className="h-5 w-5 text-yellow-500" />
+        <code>Star</code>
+      </div>
+      <div className="flex items-center gap-2">
+        <Code className="h-5 w-5 text-blue-500" />
+        <code>Code</code>
+      </div>
+      <div className="flex items-center gap-2">
+        <Zap className="h-5 w-5 text-yellow-400" />
+        <code>Zap</code>
+      </div>
+      <div className="flex items-center gap-2">
+        <Rocket className="h-5 w-5 text-purple-500" />
+        <code>Rocket</code>
+      </div>
+      <div className="flex items-center gap-2">
+        <CheckCircle className="h-5 w-5 text-green-500" />
+        <code>CheckCircle</code>
+      </div>
+      <div className="flex items-center gap-2">
+        <AlertTriangle className="h-5 w-5 text-orange-500" />
+        <code>AlertTriangle</code>
+      </div>
+      <div className="flex items-center gap-2">
+        <Info className="h-5 w-5 text-blue-400" />
+        <code>Info</code>
+      </div>
+      <div className="flex items-center gap-2">
+        <Lightbulb className="h-5 w-5 text-yellow-300" />
+        <code>Lightbulb</code>
+      </div>
+    </div>
+    
+    <Callout type="note" title="전체 목록">
+      자주 사용하는 아이콘의 전체 목록은 `components/writing-ui/README.md`를 참고하세요.
+    </Callout>
+  </Step>
+  
+  <Step title="동적 아이콘 (모든 Lucide 아이콘)">
+    `Icon` 컴포넌트를 사용하면 1,000개 이상의 모든 Lucide 아이콘을 사용할 수 있습니다!
+    
+    <div className="grid grid-cols-4 gap-4 my-4">
+      <div className="flex items-center gap-2">
+        <Icon name="Rocket" className="h-5 w-5 text-purple-500" />
+        <code>Rocket</code>
+      </div>
+      <div className="flex items-center gap-2">
+        <Icon name="Sparkles" className="h-5 w-5 text-pink-500" />
+        <code>Sparkles</code>
+      </div>
+      <div className="flex items-center gap-2">
+        <Icon name="Heart" className="h-5 w-5 text-red-500" />
+        <code>Heart</code>
+      </div>
+      <div className="flex items-center gap-2">
+        <Icon name="Coffee" className="h-5 w-5 text-brown-500" />
+        <code>Coffee</code>
+      </div>
+      <div className="flex items-center gap-2">
+        <Icon name="Flame" className="h-5 w-5 text-orange-500" />
+        <code>Flame</code>
+      </div>
+      <div className="flex items-center gap-2">
+        <Icon name="Award" className="h-5 w-5 text-yellow-500" />
+        <code>Award</code>
+      </div>
+      <div className="flex items-center gap-2">
+        <Icon name="Smile" className="h-5 w-5 text-green-500" />
+        <code>Smile</code>
+      </div>
+      <div className="flex items-center gap-2">
+        <Icon name="Glasses" className="h-5 w-5 text-gray-500" />
+        <code>Glasses</code>
+      </div>
+    </div>
+    
+    ```mdx
+    <!-- 사용 예시 -->
+    <Icon name="Rocket" className="h-6 w-6 text-purple-500" />
+    <Icon name="Sparkles" size={32} color="pink" />
+    ```
+  </Step>
+  
+  <Step title="Shadcn UI 컴포넌트">
+    일부 Shadcn UI 컴포넌트도 사용할 수 있습니다.
+    
+    - `Button`
+    - `ShadcnCard`, `CardContent`, `CardHeader`, `CardTitle`
+    - `ShadcnBadge`
+    - `Alert`, `AlertDescription`, `AlertTitle`
+    - `Separator`
+    
+    <div className="flex gap-2 my-4">
+      <Button variant="default">기본 버튼</Button>
+      <Button variant="outline">외곽선 버튼</Button>
+      <Button variant="ghost">고스트 버튼</Button>
+    </div>
+  </Step>
+</Steps>
+
+## 실전 예시
+
+### 1. 튜토리얼 페이지
+
+<Tabs defaultValue='example'>
+  <TabsList>
+    <TabsTrigger value='example'>결과</TabsTrigger>
+    <TabsTrigger value='code'>코드</TabsTrigger>
+  </TabsList>
+
+  <TabsContent value='example'>
+    <Callout type='info' title='시작하기'>
+      Next.js 프로젝트를 시작해봅시다!
+    </Callout>
+
+    <Steps>
+      <Step title='프로젝트 생성'>
+        ```bash npx create-next-app@latest my-app ```
+      </Step>
+
+      <Step title='개발 서버 실행'>```bash cd my-app bun dev ```</Step>
+    </Steps>
+
+    <Callout type='success' title='완료!'>
+      이제 브라우저에서 `http://localhost:3000`을 열어보세요.
+    </Callout>
+  </TabsContent>
+
+  <TabsContent value='code'>
+    ```mdx
+    <Callout type='info' title='시작하기'>
+      Next.js 프로젝트를 시작해봅시다!
+    </Callout>
+    <Steps>
+      <Step title='프로젝트 생성'>
+        \`\`\`bash npx create-next-app@latest my-app \`\`\`
+      </Step>
+
+      <Step title='개발 서버 실행'>\`\`\`bash cd my-app bun dev \`\`\`</Step>
+    </Steps>
+    <Callout type='success' title='완료!'>
+      이제 브라우저에서 `http://localhost:3000`을 열어보세요.
+    </Callout>
+    ```
+  </TabsContent>
+</Tabs>
+
+### 2. 카드 그리드
+
+<div className='grid grid-cols-1 md:grid-cols-3 gap-4 my-8'>
+  <Card
+    title='빠른 성능'
+    description='Next.js의 최적화된 성능을 경험하세요'
+    icon={<Zap className='h-5 w-5 text-yellow-500' />}
+  />
+
+  <Card
+    title='타입 안전'
+    description='TypeScript로 안전한 개발을 하세요'
+    icon={<Shield className='h-5 w-5 text-blue-500' />}
+  />
+
+  <Card
+    title='아름다운 UI'
+    description='Tailwind CSS로 스타일링하세요'
+    icon={<Palette className='h-5 w-5 text-purple-500' />}
+  />
+</div>
+
+```mdx
+<div className='grid grid-cols-1 md:grid-cols-3 gap-4'>
+  <Card
+    title='빠른 성능'
+    description='Next.js의 최적화된 성능을 경험하세요'
+    icon={<Zap className='h-5 w-5 text-yellow-500' />}
+  />
+
+  <Card
+    title='타입 안전'
+    description='TypeScript로 안전한 개발을 하세요'
+    icon={<Shield className='h-5 w-5 text-blue-500' />}
+  />
+
+  <Card
+    title='아름다운 UI'
+    description='Tailwind CSS로 스타일링하세요'
+    icon={<Palette className='h-5 w-5 text-purple-500' />}
+  />
+</div>
+```
+
+### 3. 알림 메시지
+
+<div className='space-y-4 my-8'>
+  <Callout type='info' title='정보'>
+    이것은 정보성 메시지입니다.
+  </Callout>
+
+  <Callout type='warning' title='주의'>
+    이 작업은 되돌릴 수 없습니다.
+  </Callout>
+
+  <Callout type='error' title='오류'>
+    문제가 발생했습니다. 다시 시도해주세요.
+  </Callout>
+
+  <Callout type='success' title='성공'>
+    작업이 성공적으로 완료되었습니다!
+  </Callout>
+</div>
+
+## 기술적 배경
+
+<Callout type='note' title='어떻게 작동하나요?'>
+  `components/mdx-renderer.tsx` 파일에서 `MDXRemote` 컴포넌트의 `components`
+  prop으로 모든 컴포넌트를 전달하고 있습니다. 이를 통해 MDX 파일에서 import 없이
+  컴포넌트를 사용할 수 있습니다.
+</Callout>
+
+### 장점
+
+<div className='grid grid-cols-1 md:grid-cols-2 gap-4 my-4'>
+  <div className='p-4 border rounded-lg'>
+    <div className='flex items-center gap-2 mb-2'>
+      <CheckCircle className='h-5 w-5 text-green-500' />
+      <h3 className='font-semibold'>코드 간결성</h3>
+    </div>
+    <p className='text-sm text-gray-600 dark:text-gray-400'>
+      import 구문이 없어서 코드가 깔끔합니다
+    </p>
+  </div>
+
+  <div className='p-4 border rounded-lg'>
+    <div className='flex items-center gap-2 mb-2'>
+      <CheckCircle className='h-5 w-5 text-green-500' />
+      <h3 className='font-semibold'>일관성</h3>
+    </div>
+    <p className='text-sm text-gray-600 dark:text-gray-400'>
+      모든 MDX 파일에서 동일한 컴포넌트 사용
+    </p>
+  </div>
+
+  <div className='p-4 border rounded-lg'>
+    <div className='flex items-center gap-2 mb-2'>
+      <CheckCircle className='h-5 w-5 text-green-500' />
+      <h3 className='font-semibold'>번들 최적화</h3>
+    </div>
+    <p className='text-sm text-gray-600 dark:text-gray-400'>
+      사용한 컴포넌트만 번들에 포함됩니다
+    </p>
+  </div>
+
+  <div className='p-4 border rounded-lg'>
+    <div className='flex items-center gap-2 mb-2'>
+      <CheckCircle className='h-5 w-5 text-green-500' />
+      <h3 className='font-semibold'>타입 안전성</h3>
+    </div>
+    <p className='text-sm text-gray-600 dark:text-gray-400'>
+      TypeScript가 컴포넌트 props를 검증합니다
+    </p>
+  </div>
+</div>
+
+### Icon 동적 로딩의 이점
+
+Icon 컴포넌트는 특별히 동적 로딩을 사용합니다:
+
+```tsx
+// 내부 구현 (참고용)
+const IconComponent = lazy(() =>
+  import('lucide-react').then((mod) => ({ default: mod[name] }))
+);
+```
+
+<Steps>
+  <Step title='번들 크기 최적화'>
+    사용한 아이콘만 번들에 포함되므로, 전체 lucide-react 패키지를 import하지
+    않습니다.
+  </Step>
+
+  <Step title='지연 로딩'>
+    아이콘이 실제로 필요할 때만 로드되므로 초기 로딩이 빠릅니다.
+  </Step>
+
+  <Step title='에러 처리'>
+    존재하지 않는 아이콘 이름을 사용하면 폴백 아이콘(HelpCircle)을 표시합니다.
+  </Step>
+</Steps>
+
+## 참고자료
+
+<ReferenceList title='더 알아보기'>
+  <Reference
+    title='Writing UI Components 가이드'
+    description='모든 컴포넌트의 상세한 사용법'
+    href='/docs/guides/writing-ui-showcase'
+    type='documentation'
+  />
+
+  <Reference
+    title='Lucide Icons'
+    description='1,000개 이상의 아이콘 목록'
+    href='https://lucide.dev/icons/'
+    type='documentation'
+    author='Lucide Team'
+  />
+
+  <Reference
+    title='MDX 공식 문서'
+    description='MDX의 기본 사용법과 고급 기능'
+    href='https://mdxjs.com'
+    type='documentation'
+    author='MDX Team'
+  />
+</ReferenceList>
+
+<Callout type='success' title='시작하세요!'>
+  이제 import 없이 자유롭게 MDX를 작성할 수 있습니다. 즐거운 문서 작성 되세요!{' '}
+  <Icon name='Sparkles' className='inline h-5 w-5 text-yellow-500' />
+</Callout>

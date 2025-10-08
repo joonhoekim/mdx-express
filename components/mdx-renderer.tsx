@@ -24,11 +24,28 @@ import {
   Blockquote,
   Badge as WritingBadge,
   Reference,
-  ReferenceList
+  ReferenceList,
+  Icon
 } from '@/components/writing-ui';
 
-// Lucide 아이콘들 import
-import { Star, Code, Palette, Zap, FileText, ArrowRight, Info, AlertTriangle, CheckCircle, XCircle, Lightbulb } from 'lucide-react';
+// Lucide 아이콘들 - 자주 사용하는 아이콘만 직접 import (트리 쉐이킹)
+import {
+  Star, Code, Palette, Zap, FileText, ArrowRight,
+  Info, AlertTriangle, CheckCircle, XCircle, Lightbulb,
+  HelpCircle, ExternalLink, Copy, Check, ChevronRight,
+  ChevronLeft, ChevronDown, ChevronUp, X, Menu, Search,
+  Home, Settings, User, Mail, Github, Twitter, Linkedin,
+  Youtube, Book, BookOpen, Bookmark, Calendar, Clock,
+  Download, Upload, Eye, EyeOff, Heart, MessageCircle,
+  Share2, ThumbsUp, TrendingUp, Trash2, Edit, Plus,
+  Minus, Save, Send, Filter, SortAsc, SortDesc,
+  RefreshCw, Loader2, AlertCircle, Lock, Unlock, Key,
+  Shield, Bell, BellOff, Globe, Link2, MapPin, Phone,
+  Tag, Folder, File, Image, Video, Music, Archive,
+  Database, Server, Terminal, Package as PackageIcon, Cpu,
+  HardDrive, Wifi, WifiOff, Battery, Power, Sun, Moon,
+  Cloud, CloudRain, Sunrise, Sunset, Rocket
+} from 'lucide-react';
 
 interface MDXRendererProps {
   content: string;
@@ -52,19 +69,24 @@ export function MDXRenderer({ content }: MDXRendererProps) {
     Badge: WritingBadge,
     Reference,
     ReferenceList,
+    Icon, // 동적 Icon 컴포넌트
 
-    // Lucide 아이콘들
-    Star,
-    Code,
-    Palette,
-    Zap,
-    FileText,
-    ArrowRight,
-    Info,
-    AlertTriangle,
-    CheckCircle,
-    XCircle,
-    Lightbulb,
+    // Lucide 아이콘들 - 자주 사용하는 것들만 직접 노출
+    Star, Code, Palette, Zap, FileText, ArrowRight,
+    Info, AlertTriangle, CheckCircle, XCircle, Lightbulb,
+    HelpCircle, ExternalLink, Copy, Check, ChevronRight,
+    ChevronLeft, ChevronDown, ChevronUp, X, Menu, Search,
+    Home, Settings, User, Mail, Github, Twitter, Linkedin,
+    Youtube, Book, BookOpen, Bookmark, Calendar, Clock,
+    Download, Upload, Eye, EyeOff, Heart, MessageCircle,
+    Share2, ThumbsUp, TrendingUp, Trash2, Edit, Plus,
+    Minus, Save, Send, Filter, SortAsc, SortDesc,
+    RefreshCw, Loader2, AlertCircle, Lock, Unlock, Key,
+    Shield, Bell, BellOff, Globe, Link2, MapPin, Phone,
+    Tag, Folder, File, Image, Video, Music, Archive,
+    Database, Server, Terminal, PackageIcon, Cpu,
+    HardDrive, Wifi, WifiOff, Battery, Power, Sun, Moon,
+    Cloud, CloudRain, Sunrise, Sunset, Rocket,
 
     // Shadcn UI 컴포넌트들
     Button,
@@ -132,19 +154,29 @@ export function MDXRenderer({ content }: MDXRendererProps) {
 
       // 코드 블록인 경우 writing-ui CodeBlock 컴포넌트 사용
       if (props.children?.props?.className?.includes('language-')) {
-        const language = props.children.props.className.replace('language-', '');
+        const className = props.children.props.className;
+        const language = className.replace('language-', '');
         const codeContent = props.children.props.children;
 
+        // 언어 매핑 (지원하지 않는 언어를 비슷한 언어로 매핑)
+        const languageAliases: Record<string, string> = {
+          'mdx': 'markdown',
+          'md': 'markdown',
+          'vue': 'html',
+          'svelte': 'html',
+        };
+        const effectiveLanguage = languageAliases[language.toLowerCase()] || language;
+
         return (
-          <CodeBlock language={language}>
+          <CodeBlock language={effectiveLanguage}>
             {codeContent}
           </CodeBlock>
         );
       }
 
-      // 일반 pre 태그인 경우 기존 스타일 사용
+      // 일반 pre 태그인 경우 기본 텍스트 색상 추가
       return (
-        <pre className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-6 font-mono text-sm my-8 shadow-sm" {...props} />
+        <pre className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-6 font-mono text-sm my-8 shadow-sm text-slate-700 dark:text-slate-300" {...props} />
       );
     },
     a: (props: any) => (
@@ -184,11 +216,18 @@ export function MDXRenderer({ content }: MDXRendererProps) {
           mdxOptions: {
             remarkPlugins: [remarkGfm, remarkMdx],
             rehypePlugins: [
-              [rehypeRaw, { passThrough: ['mdxJsxFlowElement', 'mdxJsxTextElement'] }]
+              [rehypeRaw, {
+                passThrough: [
+                  'mdxFlowExpression',
+                  'mdxJsxFlowElement',
+                  'mdxJsxTextElement',
+                  'mdxTextExpression',
+                  'mdxjsEsm'
+                ]
+              }]
             ],
             development: false,
             format: 'mdx',
-            jsxImportSource: undefined, // JSX 파싱 비활성화
           },
         }}
       />
