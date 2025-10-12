@@ -26,6 +26,13 @@ export function Mermaid({ children, className, title }: MermaidProps) {
                     theme: 'default',
                     securityLevel: 'loose',
                     fontFamily: 'ui-sans-serif, system-ui, sans-serif',
+                    flowchart: {
+                        useMaxWidth: true,
+                        htmlLabels: true,
+                    },
+                    themeVariables: {
+                        fontSize: '14px',
+                    },
                 });
 
                 // 고유 ID 생성
@@ -63,7 +70,7 @@ export function Mermaid({ children, className, title }: MermaidProps) {
     }
 
     return (
-        <div className={cn('rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-6 my-6', className)}>
+        <div className={cn('w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-6 my-6', className)}>
             {title && (
                 <div className="font-medium text-slate-900 dark:text-slate-100 mb-4 pb-2 border-b border-slate-200 dark:border-slate-700">
                     {title}
@@ -71,8 +78,13 @@ export function Mermaid({ children, className, title }: MermaidProps) {
             )}
             <div
                 ref={ref}
-                className="flex items-center justify-center mermaid-diagram"
-                dangerouslySetInnerHTML={{ __html: svgContent }}
+                className="overflow-x-auto mermaid-diagram"
+                dangerouslySetInnerHTML={{
+                    __html: svgContent.replace(
+                        '<svg',
+                        '<svg style="width: 100%; height: auto; min-width: 100%;"'
+                    )
+                }}
             />
         </div>
     );

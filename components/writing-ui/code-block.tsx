@@ -72,8 +72,9 @@ export function CodeBlock({
                 if (languageSubset) {
                     hljs.highlightElement(codeRef.current);
                 } else {
-                    // 지원하지 않는 언어면 plaintext로 하이라이팅
+                    // 지원하지 않는 언어면 plaintext로 하이라이팅하되 동일한 스타일 적용
                     codeRef.current.className = `language-plaintext text-sm leading-relaxed !bg-transparent`;
+                    codeRef.current.style.color = '#e6edf3';
                     hljs.highlightElement(codeRef.current);
                 }
             } catch (error) {
@@ -81,6 +82,7 @@ export function CodeBlock({
                 // 에러 발생 시 plaintext로 fallback
                 if (codeRef.current) {
                     codeRef.current.className = `language-plaintext text-sm leading-relaxed !bg-transparent`;
+                    codeRef.current.style.color = '#e6edf3';
                 }
             }
         }
@@ -97,7 +99,7 @@ export function CodeBlock({
     };
 
     return (
-        <div className={cn('rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 my-6 overflow-hidden', className)}>
+        <div className={cn('w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 my-6 overflow-hidden', className)}>
             {(title || filename || language) && (
                 <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800">
                     <div className="flex items-center gap-2">
