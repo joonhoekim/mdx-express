@@ -1,0 +1,720 @@
+# Episode 5: "jQuery에서 React까지: 프론트엔드 왕조의 흥망성쇠"
+
+_DOM 조작의 고통에서 컴포넌트 천국까지_
+
+import {
+  Callout,
+  Steps,
+  Step,
+  Blockquote,
+  Badge,
+  Card,
+  Reference,
+  ReferenceList,
+} from '@/components/writing-ui';
+
+---
+
+## 프롤로그: 프론트엔드 전쟁의 서막
+
+2000년대 초반, 웹 개발자들은 마치 **중세 시대의 농부**와 같았습니다. 매일 같은 고된 노동을 반복해야 했죠. `document.getElementById`를 수십 번 타이핑하고, 브라우저마다 다른 API를 외우고, DOM 조작 하나 하려면 수십 줄의 코드를 작성해야 했습니다.
+
+그런데 15년이 지난 지금, 프론트엔드 개발자들은 **현대적인 공장의 엔지니어**가 되었습니다. 컴포넌트라는 부품을 조립하고, 상태 관리 도구로 데이터 흐름을 제어하며, 빌드 도구가 모든 것을 자동화해줍니다.
+
+이 놀라운 변화는 어떻게 일어났을까요? 이것은 jQuery, AngularJS, React, Vue.js라는 네 개의 왕조가 차례로 프론트엔드 세계를 지배하며 벌인 혁명의 이야기입니다.
+
+<Callout type='note' title='이 글에서 다룰 내용'>
+  - jQuery: DOM 조작의 민주화와 그 한계
+  - AngularJS: MVC 패턴의 웹 진출과 복잡성의 함정  
+  - React: 가상 DOM과 컴포넌트 혁명
+  - Vue.js: 점진적 프레임워크의 철학
+</Callout>
+
+---
+
+## Chapter 1: jQuery 시대 - "Write Less, Do More"의 달콤한 거짓말
+
+### 2006년, DOM 지옥에서의 구원
+
+2006년 이전의 웹 개발은 정말 고통스러웠습니다. 간단한 버튼 클릭 이벤트 하나 만들려면:
+
+```javascript
+// 2005년의 현실: 브라우저별로 다른 코드
+function addClickEvent() {
+  var button = document.getElementById('myButton');
+  
+  if (button.addEventListener) {
+    // Firefox, Safari, Opera
+    button.addEventListener('click', handleClick, false);
+  } else if (button.attachEvent) {
+    // Internet Explorer
+    button.attachEvent('onclick', handleClick);
+  } else {
+    // 구형 브라우저
+    button.onclick = handleClick;
+  }
+}
+
+function handleClick() {
+  var element = document.getElementById('content');
+  if (element.style.display === 'none') {
+    element.style.display = 'block';
+  } else {
+    element.style.display = 'none';
+  }
+}
+```
+
+이런 코드를 매번 작성해야 했습니다. 마치 **매번 바퀴를 다시 발명하는 것**과 같았죠.
+
+### 존 레식의 혁명적 아이디어
+
+2006년 1월, 존 레식(John Resig)이라는 젊은 개발자가 BarCamp NYC에서 jQuery를 발표했습니다. 그의 슬로건은 명확했습니다:
+
+<Badge variant='success'>Write Less, Do More</Badge>
+
+같은 기능을 jQuery로 구현하면:
+
+```javascript
+// jQuery의 마법: 한 줄로 끝
+$('#myButton').click(function() {
+  $('#content').toggle();
+});
+```
+
+이것은 단순한 문법 개선이 아니었습니다. **패러다임의 전환**이었죠.
+
+<Card title="jQuery가 해결한 문제들" description="2006년 웹 개발의 고질적 문제들">
+
+**크로스 브라우저 호환성:**
+- IE6부터 최신 브라우저까지 동일한 API
+
+**DOM 조작의 복잡성:**
+- CSS 선택자로 직관적인 요소 선택
+- 메서드 체이닝으로 연속적인 조작
+
+**이벤트 처리:**
+- 통일된 이벤트 모델
+- 간편한 이벤트 바인딩
+
+</Card>
+
+### jQuery의 황금시대
+
+jQuery는 순식간에 웹 개발의 표준이 되었습니다. 2010년경에는 **전체 웹사이트의 80% 이상**이 jQuery를 사용했습니다.
+
+<Steps>
+<Step title="2006-2008: 혁신의 시기">
+초기 버전들이 연이어 출시되며 핵심 기능 확립
+</Step>
+
+<Step title="2009-2012: 생태계 폭발">
+수천 개의 플러그인이 만들어지며 거대한 생태계 형성
+</Step>
+
+<Step title="2013-2015: 절정기">
+jQuery UI, jQuery Mobile 등으로 영역 확장
+</Step>
+</Steps>
+
+jQuery 플러그인들은 마치 **레고 블록**과 같았습니다:
+
+```javascript
+// 슬라이더 추가
+$('.slider').bxSlider();
+
+// 날짜 선택기 추가  
+$('.datepicker').datepicker();
+
+// 모달 창 추가
+$('.modal-trigger').fancybox();
+
+// 폼 검증 추가
+$('#myForm').validate();
+```
+
+### 달콤한 거짓말의 정체
+
+하지만 jQuery의 "Write Less, Do More"는 **달콤한 거짓말**이었습니다. 작은 프로젝트에서는 정말 적게 쓰고 많이 할 수 있었지만, 프로젝트가 커질수록 문제가 드러났습니다.
+
+<Callout type='warning' title='jQuery의 한계들'>
+- **스파게티 코드**: 이벤트 핸들러가 DOM 전체에 흩어짐
+- **상태 관리 부재**: 데이터와 UI의 동기화 문제
+- **성능 이슈**: 빈번한 DOM 조작으로 인한 성능 저하
+- **테스트의 어려움**: DOM에 강하게 결합된 코드
+</Callout>
+
+실제 대규모 jQuery 애플리케이션은 이런 모습이었습니다:
+
+```javascript
+// 실제 jQuery 프로젝트의 모습 (2012년경)
+$(document).ready(function() {
+  // 1000줄의 초기화 코드...
+  
+  $('#button1').click(function() {
+    // 100줄의 비즈니스 로직...
+    updateUI();
+    validateForm();
+    sendAjaxRequest();
+  });
+  
+  $('#button2').click(function() {
+    // 또 다른 100줄의 로직...
+    // 어디서 뭐가 변경되는지 추적 불가능
+  });
+  
+  // 수백 개의 이벤트 핸들러들...
+});
+
+function updateUI() {
+  // DOM 조작 코드 200줄...
+  // 어떤 데이터가 어떤 UI를 업데이트하는지 불분명
+}
+```
+
+---
+
+## Chapter 2: AngularJS - 구글의 야심찬 실험
+
+### 2010년, 미스코 헤베리의 불만
+
+구글의 개발자 미스코 헤베리(Miško Hevery)는 jQuery로 만든 거대한 웹 애플리케이션을 보며 좌절했습니다. **17,000줄의 코드**가 얽히고설켜서 새로운 기능 하나 추가하는 데 몇 주가 걸렸습니다.
+
+그는 생각했습니다: "웹 애플리케이션을 **데스크톱 애플리케이션처럼** 만들 수는 없을까?"
+
+<Blockquote author='미스코 헤베리' cite='AngularJS 초기 발표'>
+"HTML은 정적 문서를 위해 만들어졌다. 우리는 HTML을 애플리케이션을 위한 언어로 확장해야 한다."
+</Blockquote>
+
+### MVC 패턴의 웹 진출
+
+AngularJS는 **Model-View-Controller** 패턴을 웹에 도입했습니다. 이는 마치 **무질서한 시장을 체계적인 백화점으로 바꾸는 것**과 같았습니다.
+
+```javascript
+// jQuery 방식: 모든 것이 뒤섞임
+$('#saveButton').click(function() {
+  var name = $('#nameInput').val();
+  var email = $('#emailInput').val();
+  
+  // 검증 로직
+  if (!name || !email) {
+    $('#error').show();
+    return;
+  }
+  
+  // AJAX 요청
+  $.post('/api/users', {name: name, email: email})
+    .done(function() {
+      $('#success').show();
+      $('#userList').append('<li>' + name + '</li>');
+    });
+});
+
+// AngularJS 방식: 관심사의 분리
+angular.module('myApp', [])
+  .controller('UserController', function($scope, UserService) {
+    $scope.user = {};
+    
+    $scope.saveUser = function() {
+      UserService.save($scope.user)
+        .then(function() {
+          $scope.message = '저장되었습니다';
+          $scope.users.push($scope.user);
+          $scope.user = {};
+        });
+    };
+  })
+  .service('UserService', function($http) {
+    return {
+      save: function(user) {
+        return $http.post('/api/users', user);
+      }
+    };
+  });
+```
+
+### 양방향 데이터 바인딩의 마법
+
+AngularJS의 가장 혁신적인 기능은 **양방향 데이터 바인딩**이었습니다:
+
+```html
+<!-- 마법 같은 동기화 -->
+<input ng-model="user.name" />
+<h1>안녕하세요, {{user.name}}님!</h1>
+
+<!-- 입력하면 즉시 화면에 반영됨 -->
+```
+
+이는 개발자들에게 **마법**처럼 느껴졌습니다. jQuery에서는 수십 줄의 코드가 필요했던 일이 한 줄로 해결되었으니까요.
+
+<Card title="AngularJS의 혁신들" description="웹 개발 패러다임을 바꾼 기능들">
+
+**양방향 데이터 바인딩:**
+- 모델과 뷰의 자동 동기화
+
+**의존성 주입:**
+- 테스트 가능한 코드 구조
+
+**디렉티브:**
+- HTML을 확장하는 사용자 정의 태그
+
+**라우팅:**
+- SPA(Single Page Application) 지원
+
+</Card>
+
+### 복잡성의 함정
+
+하지만 AngularJS는 **복잡성의 함정**에 빠졌습니다. 간단한 애플리케이션에는 과도하게 복잡했고, 복잡한 애플리케이션에는 성능 문제가 있었습니다.
+
+<Callout type='error' title='AngularJS의 문제점들'>
+- **가파른 학습 곡선**: 수많은 개념들 (스코프, 디렉티브, 서비스, 팩토리...)
+- **성능 이슈**: Digest Cycle로 인한 성능 저하
+- **복잡한 디버깅**: 마법 같은 동작의 이면에 숨은 복잡성
+- **SEO 문제**: 클라이언트 사이드 렌더링의 한계
+</Callout>
+
+실제 AngularJS 프로젝트는 이런 모습이었습니다:
+
+```javascript
+// AngularJS 프로젝트의 현실 (2014년경)
+angular.module('myApp', ['ngRoute', 'ngAnimate', 'ui.bootstrap'])
+  .config(function($routeProvider, $locationProvider) {
+    // 복잡한 라우팅 설정...
+  })
+  .controller('MainController', function($scope, $rootScope, $timeout, 
+    UserService, AuthService, NotificationService, $q) {
+    
+    // 수십 개의 의존성들...
+    // $scope의 프로퍼티들이 어디서 변경되는지 추적 불가능
+    
+    $scope.$watch('user.name', function(newVal, oldVal) {
+      // 무한 루프 위험성...
+    });
+    
+    // Digest cycle 성능 문제로 인한 $timeout 남용
+    $timeout(function() {
+      $scope.$apply();
+    });
+  });
+```
+
+---
+
+## Chapter 3: React - 페이스북이 던진 혁명의 돌
+
+### 2013년, 페이스북의 문제
+
+페이스북은 거대한 문제에 직면했습니다. 뉴스피드 하나만 해도 수백 개의 컴포넌트가 복잡하게 얽혀있었고, 하나의 상태 변경이 예상치 못한 곳에서 버그를 일으켰습니다.
+
+조던 워크(Jordan Walke)와 페이스북 팀은 **근본적으로 다른 접근법**을 시도했습니다: "매번 전체를 다시 그리면 어떨까?"
+
+<Blockquote author='조던 워크' cite='React 초기 발표'>
+"우리는 데이터가 변경될 때마다 전체 앱을 다시 렌더링하고 싶었다. 하지만 그것은 너무 느릴 것이다. 그래서 가상 DOM을 만들었다."
+</Blockquote>
+
+### 가상 DOM: 혁명의 핵심
+
+React의 핵심 아이디어는 **가상 DOM**이었습니다. 이는 마치 **건축가가 실제 건물을 짓기 전에 모형을 만드는 것**과 같았습니다.
+
+```javascript
+// React의 혁신적 접근법
+function TodoApp() {
+  const [todos, setTodos] = useState([]);
+  
+  // 상태가 변경되면 전체를 다시 "그린다"
+  // 하지만 실제로는 변경된 부분만 업데이트됨
+  return (
+    <div>
+      {todos.map(todo => (
+        <TodoItem 
+          key={todo.id} 
+          todo={todo} 
+          onToggle={() => toggleTodo(todo.id)}
+        />
+      ))}
+    </div>
+  );
+}
+```
+
+<Steps>
+<Step title="상태 변경 감지">
+사용자가 버튼을 클릭하거나 데이터가 변경됨
+</Step>
+
+<Step title="가상 DOM 생성">
+새로운 상태를 바탕으로 가상 DOM 트리 생성
+</Step>
+
+<Step title="Diff 알고리즘">
+이전 가상 DOM과 새로운 가상 DOM을 비교
+</Step>
+
+<Step title="최소한의 업데이트">
+실제로 변경된 부분만 실제 DOM에 반영
+</Step>
+</Steps>
+
+### 컴포넌트 혁명
+
+React는 **컴포넌트**라는 개념을 대중화했습니다. 이는 마치 **레고 블록을 조립하는 것**과 같았습니다.
+
+```jsx
+// 재사용 가능한 컴포넌트
+function Button({ children, onClick, variant = 'primary' }) {
+  return (
+    <button 
+      className={`btn btn-${variant}`}
+      onClick={onClick}
+    >
+      {children}
+    </button>
+  );
+}
+
+// 컴포넌트 조합
+function App() {
+  return (
+    <div>
+      <Button onClick={handleSave}>저장</Button>
+      <Button onClick={handleCancel} variant="secondary">취소</Button>
+    </div>
+  );
+}
+```
+
+<Card title="React의 철학" description="선언적 프로그래밍의 승리">
+
+**선언적 vs 명령적:**
+- jQuery: "이 요소를 찾아서, 이 속성을 변경하고, 저 이벤트를 추가해라" (명령적)
+- React: "이 상태일 때는 이렇게 보여줘" (선언적)
+
+**단방향 데이터 흐름:**
+- 데이터는 위에서 아래로만 흐름
+- 예측 가능한 상태 관리
+
+</Card>
+
+### 생태계의 폭발
+
+React는 단순한 라이브러리였지만, 거대한 생태계를 만들어냈습니다:
+
+```javascript
+// React 생태계의 조합 (2016년경)
+import React from 'react';
+import { BrowserRouter, Route } from 'react-router-dom';
+import { Provider } from 'react-redux';
+import { createStore } from 'redux';
+import styled from 'styled-components';
+
+const StyledButton = styled.button`
+  background: ${props => props.primary ? 'blue' : 'white'};
+  color: ${props => props.primary ? 'white' : 'blue'};
+`;
+
+function App() {
+  return (
+    <Provider store={store}>
+      <BrowserRouter>
+        <Route path="/" component={Home} />
+        <Route path="/about" component={About} />
+      </BrowserRouter>
+    </Provider>
+  );
+}
+```
+
+---
+
+## Chapter 4: Vue.js - 개인 개발자의 반란
+
+### 2014년, 에반 유의 불만
+
+구글에서 일하던 에반 유(Evan You)는 AngularJS를 사용하면서 불만을 느꼈습니다: "AngularJS의 좋은 부분만 가져와서 더 간단하게 만들 수는 없을까?"
+
+그는 **개인 프로젝트**로 Vue.js를 시작했습니다. 거대한 기업의 지원 없이, 순수한 개발자의 필요에 의해 만들어진 프레임워크였죠.
+
+<Blockquote author='에반 유' cite='Vue.js 초기 발표'>
+"나는 AngularJS의 데이터 바인딩과 React의 컴포넌트 시스템을 좋아했다. 하지만 둘 다 너무 복잡했다. 더 간단한 것을 만들고 싶었다."
+</Blockquote>
+
+### 점진적 프레임워크의 철학
+
+Vue.js의 가장 큰 특징은 **점진적(Progressive)**이라는 철학이었습니다:
+
+<Steps>
+<Step title="1단계: 기존 프로젝트에 추가">
+jQuery처럼 스크립트 태그 하나로 시작
+</Step>
+
+<Step title="2단계: 컴포넌트 도입">
+필요한 부분만 컴포넌트로 전환
+</Step>
+
+<Step title="3단계: SPA 구축">
+라우터와 상태 관리 추가
+</Step>
+
+<Step title="4단계: 풀스택 프레임워크">
+Nuxt.js로 서버사이드 렌더링까지
+</Step>
+</Steps>
+
+```html
+<!-- 1단계: 기존 HTML에 Vue 추가 -->
+<div id="app">
+  <h1>{{ message }}</h1>
+  <button @click="changeMessage">클릭</button>
+</div>
+
+<script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+<script>
+  Vue.createApp({
+    data() {
+      return {
+        message: '안녕하세요!'
+      }
+    },
+    methods: {
+      changeMessage() {
+        this.message = '버튼이 클릭되었습니다!';
+      }
+    }
+  }).mount('#app');
+</script>
+```
+
+### 개발자 경험의 혁신
+
+Vue.js는 **개발자 경험(Developer Experience)**에 집중했습니다:
+
+<Card title="Vue.js의 개발자 친화적 특징들" description="배우기 쉽고 사용하기 편한 설계">
+
+**직관적인 템플릿 문법:**
+- HTML과 거의 동일한 문법
+- 디자이너도 쉽게 이해 가능
+
+**뛰어난 개발 도구:**
+- Vue DevTools로 상태 추적
+- 핫 리로드로 빠른 개발
+
+**훌륭한 문서:**
+- 초보자부터 전문가까지 체계적인 가이드
+
+</Card>
+
+```vue
+<!-- Vue.js의 직관적인 문법 -->
+<template>
+  <div class="todo-app">
+    <h1>할 일 목록</h1>
+    
+    <input 
+      v-model="newTodo" 
+      @keyup.enter="addTodo"
+      placeholder="새로운 할 일을 입력하세요"
+    />
+    
+    <ul>
+      <li 
+        v-for="todo in todos" 
+        :key="todo.id"
+        :class="{ completed: todo.done }"
+        @click="toggle(todo)"
+      >
+        {{ todo.text }}
+      </li>
+    </ul>
+  </div>
+</template>
+
+<script>
+export default {
+  data() {
+    return {
+      newTodo: '',
+      todos: []
+    }
+  },
+  methods: {
+    addTodo() {
+      if (this.newTodo.trim()) {
+        this.todos.push({
+          id: Date.now(),
+          text: this.newTodo,
+          done: false
+        });
+        this.newTodo = '';
+      }
+    },
+    toggle(todo) {
+      todo.done = !todo.done;
+    }
+  }
+}
+</script>
+
+<style scoped>
+.completed {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+</style>
+```
+
+### 커뮤니티 중심의 성장
+
+Vue.js는 **커뮤니티의 힘**으로 성장했습니다. 거대 기업의 마케팅 없이도 순수한 개발자들의 입소문으로 퍼져나갔죠.
+
+<Callout type='success' title='Vue.js의 성장 동력'>
+- **낮은 진입 장벽**: HTML, CSS, JS만 알면 시작 가능
+- **점진적 도입**: 기존 프로젝트에 부분적으로 적용 가능  
+- **균형 잡힌 설계**: React의 컴포넌트 + Angular의 템플릿
+- **활발한 커뮤니티**: 중국을 중심으로 한 강력한 생태계
+</Callout>
+
+---
+
+## Chapter 5: 현재와 미래 - 프론트엔드 왕조의 공존
+
+### 2024년, 세 왕조의 공존
+
+흥미롭게도 현재는 **세 왕조가 공존**하는 시대입니다:
+
+<Card title="현재 프론트엔드 생태계" description="각자의 영역에서 최적화된 선택지들">
+
+**React 생태계:**
+- Next.js, Gatsby로 풀스택 프레임워크 진화
+- 기업용 대규모 애플리케이션의 표준
+
+**Vue.js 생태계:**  
+- Nuxt.js로 완성도 높은 풀스택 솔루션
+- 중소규모 프로젝트와 아시아 시장 강세
+
+**새로운 도전자들:**
+- Svelte: 컴파일 타임 최적화
+- Solid.js: 세밀한 반응성 시스템
+
+</Card>
+
+### 메타 프레임워크의 시대
+
+현재는 **메타 프레임워크**의 시대입니다. 단순한 라이브러리를 넘어서 전체 개발 경험을 제공하는 도구들이 등장했습니다:
+
+```javascript
+// Next.js 13+ App Router
+// 파일 시스템 기반 라우팅 + 서버 컴포넌트
+export default async function Page({ params }) {
+  // 서버에서 실행되는 컴포넌트
+  const data = await fetch(`/api/posts/${params.id}`);
+  const post = await data.json();
+  
+  return (
+    <div>
+      <h1>{post.title}</h1>
+      <ClientComponent data={post} />
+    </div>
+  );
+}
+```
+
+### 새로운 패러다임들
+
+<Steps>
+<Step title="서버 컴포넌트">
+React Server Components로 서버-클라이언트 경계 재정의
+</Step>
+
+<Step title="Islands Architecture">
+Astro, Fresh 등에서 필요한 부분만 hydration
+</Step>
+
+<Step title="Edge Computing">
+Vercel Edge Functions, Cloudflare Workers 활용
+</Step>
+
+<Step title="타입 안전성">
+TypeScript가 거의 필수가 된 현재
+</Step>
+</Steps>
+
+---
+
+## 에필로그: 혁명은 계속된다
+
+### 15년간의 여정을 돌아보며
+
+2006년 jQuery부터 2024년 현재까지, 프론트엔드 개발은 **완전히 다른 세상**이 되었습니다:
+
+<Callout type='info' title='프론트엔드 개발의 진화'>
+- **2006년**: DOM 조작의 고통 → jQuery로 해결
+- **2010년**: 애플리케이션 구조의 필요성 → AngularJS로 해결  
+- **2013년**: 성능과 예측 가능성 → React로 해결
+- **2014년**: 복잡성과 학습 곡선 → Vue.js로 해결
+- **2024년**: 풀스택 개발 경험 → 메타 프레임워크로 해결
+</Callout>
+
+### 변하지 않는 것과 변하는 것
+
+**변하지 않는 것:**
+- 사용자 경험을 개선하려는 노력
+- 개발자 경험을 향상시키려는 시도  
+- 복잡성을 관리하려는 욕구
+
+**계속 변하는 것:**
+- 도구와 프레임워크
+- 성능 최적화 기법
+- 개발 패러다임
+
+<Blockquote author='댄 아브라모프' cite='React 핵심 개발자'>
+"우리는 완벽한 프레임워크를 만들려는 것이 아니다. 더 나은 개발자 경험과 사용자 경험을 만들려는 것이다. 그 과정에서 도구는 계속 진화할 것이다."
+</Blockquote>
+
+### 다음은 무엇일까?
+
+프론트엔드의 미래는 여전히 흥미진진합니다:
+
+- **WebAssembly**: 브라우저에서 네이티브급 성능
+- **AI 기반 개발**: GitHub Copilot 같은 도구들의 진화
+- **No-Code/Low-Code**: 개발의 민주화
+- **Web3**: 탈중앙화 웹의 새로운 패러다임
+
+하지만 한 가지는 확실합니다. **혁명은 계속될 것**이고, 우리는 그 중심에서 더 나은 웹을 만들어갈 것입니다.
+
+---
+
+<ReferenceList title='참고자료'>
+  <Reference
+    title='jQuery: Write Less, Do More'
+    description='jQuery 공식 문서와 역사'
+    href='https://jquery.com/'
+    type='documentation'
+    author='John Resig'
+  />
+  <Reference
+    title='AngularJS Developer Guide'
+    description='AngularJS의 철학과 설계 원칙'
+    href='https://docs.angularjs.org/guide'
+    type='documentation'
+    author='Google Angular Team'
+  />
+  <Reference
+    title='React: A JavaScript Library for Building User Interfaces'
+    description='React 공식 문서'
+    href='https://react.dev/'
+    type='documentation'
+    author='Meta React Team'
+  />
+  <Reference
+    title='Vue.js: The Progressive JavaScript Framework'
+    description='Vue.js 공식 가이드'
+    href='https://vuejs.org/'
+    type='documentation'
+    author='Evan You'
+  />
+</ReferenceList>
+
+---
+
+_다음 에피소드에서는 "웹팩과 번들링 지옥: 모듈 시스템의 혼돈"을 다룰 예정입니다. 간단한 HTML 파일에서 복잡한 빌드 시스템까지, 모듈 시스템이 어떻게 진화했는지 살펴보겠습니다._
