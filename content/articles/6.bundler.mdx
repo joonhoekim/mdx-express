@@ -1,0 +1,1526 @@
+# Episode 6: "웹팩과 번들링 지옥: 모듈 시스템의 혼돈"
+
+_간단한 HTML 파일에서 복잡한 빌드 시스템까지_
+
+import {
+  Callout,
+  Steps,
+  Step,
+  Blockquote,
+  Badge,
+  Card,
+  Reference,
+  ReferenceList,
+} from '@/components/writing-ui';
+
+---
+
+## 프롤로그: 스크립트 태그의 악몽
+
+2010년, 어느 웹 개발자의 HTML 파일을 열어보면 이런 광경을 볼 수 있었습니다:
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <script src="jquery.js"></script>
+  <script src="jquery-ui.js"></script>
+  <script src="underscore.js"></script>
+  <script src="backbone.js"></script>
+  <script src="utils.js"></script>
+  <script src="models.js"></script>
+  <script src="views.js"></script>
+  <script src="controllers.js"></script>
+  <script src="app.js"></script>
+  <script src="init.js"></script>
+</head>
+```
+
+개발자는 이 순서를 **절대로** 바꿔서는 안 됩니다. `utils.js`가 `models.js`보다 먼저 로드되어야 하고, `app.js`는 다른 모든 것이 준비된 후에 실행되어야 하니까요. 순서가 바뀌면? 에러 폭탄이 터집니다.
+
+이것은 마치 **카드로 집을 짓는 것**과 같았습니다. 하나라도 잘못되면 모든 것이 무너지죠.
+
+그로부터 10년 후인 2020년, 같은 프로젝트는 이렇게 변했습니다:
+
+```javascript
+// app.js - 단 하나의 진입점
+import React from 'react';
+import { createApp } from './utils';
+import { TodoModel } from './models';
+
+const app = createApp();
+```
+
+그리고 빌드 도구가 마법처럼 모든 것을 처리해줍니다. 무슨 일이 일어난 걸까요?
+
+<Callout type='note' title='이 글에서 다룰 내용'>
+  - 전역 변수의 무법천지: 모듈이 없던 시절
+  - CommonJS vs AMD: 두 진영의 대립
+  - ES6 모듈: 표준의 늦은 등장
+  - 번들러 전쟁: Webpack, Rollup, Vite의 춘추전국시대
+  - 현대의 선택: Next.js와 Expo의 번들링 전략
+</Callout>
+
+---
+
+## Chapter 1: 모듈이 없던 시절 - 전역 변수의 무법천지
+
+### 2000년대 초반, 변수명 전쟁
+
+초창기 JavaScript에는 **모듈 시스템이 없었습니다**. 모든 코드는 전역 스코프에서 실행되었죠.
+
+```javascript
+// utils.js
+var name = "Utils";
+function format(str) {
+  return str.trim();
+}
+
+// app.js
+var name = "App";  // 앗! utils.js의 name을 덮어썼다!
+function format(str) {  // 이것도 덮어쓰기!
+  return str.toUpperCase();
+}
+```
+
+이것은 **전쟁**이었습니다. 라이브러리들이 서로의 변수를 덮어쓰며 충돌했죠. 개발자들은 이름 짓기에 극도로 신경 써야 했습니다.
+
+<Card title="전역 네임스페이스 오염의 공포" description="초창기 JavaScript의 가장 큰 문제">
+
+**실제로 발생한 문제들:**
+- 라이브러리 A와 B가 같은 이름의 함수를 선언
+- 나중에 로드된 스크립트가 이전 것을 덮어씀
+- 디버깅 불가능한 버그들
+- "내 컴퓨터에선 되는데" 문제의 원조
+
+**개발자들의 고육책:**
+```javascript
+// jQuery의 해결책: $ 하나로 모든 것을 담기
+var jQuery = { /* 모든 기능 */ };
+var $ = jQuery;
+
+// 다른 라이브러리의 해결책: 긴 네임스페이스
+var MyCompany_MyLibrary_Utils = { /* ... */ };
+```
+
+</Card>
+
+### IIFE 패턴: 임시방편의 등장
+
+개발자들은 **즉시 실행 함수 표현식(IIFE)**이라는 패턴을 만들어냈습니다:
+
+```javascript
+// module.js
+(function() {
+  var privateVar = "외부에서 접근 불가";
+  
+  function privateFunction() {
+    console.log("이것도 비공개");
+  }
+  
+  // 전역 객체에 공개 API만 노출
+  window.MyModule = {
+    publicMethod: function() {
+      privateFunction();
+      return privateVar;
+    }
+  };
+})();
+```
+
+이것은 **영리한 해결책**이었지만, 여전히 한계가 있었습니다:
+
+- 의존성 관리가 불가능 (다른 모듈을 어떻게 가져오나?)
+- 전역 객체는 여전히 오염됨
+- 코드 분할과 재사용이 어려움
+
+우리에게는 **진짜 모듈 시스템**이 필요했습니다.
+
+---
+
+## Chapter 2: CommonJS vs AMD - 서버와 브라우저의 갈등
+
+### 2009년, Node.js의 등장과 CommonJS
+
+2009년 Ryan Dahl이 Node.js를 발표했을 때, 그는 한 가지 중요한 결정을 내렸습니다: **CommonJS 모듈 시스템을 채택**하기로 한 것이죠.
+
+```javascript
+// math.js - 모듈 정의
+function add(a, b) {
+  return a + b;
+}
+
+function subtract(a, b) {
+  return a - b;
+}
+
+// 내보내기
+module.exports = {
+  add: add,
+  subtract: subtract
+};
+
+// app.js - 모듈 사용
+const math = require('./math');
+console.log(math.add(2, 3));  // 5
+```
+
+이것은 **혁명적**이었습니다. 드디어 JavaScript에 진짜 모듈 시스템이 생긴 것이죠!
+
+<Steps>
+
+<Step title="CommonJS의 장점">
+
+**명확한 의존성:**
+- `require()`로 필요한 모듈만 가져오기
+- 파일 시스템 기반의 직관적인 구조
+
+**캡슐화:**
+- 기본적으로 모든 것이 비공개
+- `module.exports`로 명시적으로 공개
+
+**npm 생태계:**
+- 패키지 관리 시스템과 완벽한 호환
+- 수십만 개의 라이브러리 공유
+
+</Step>
+
+<Step title="그러나 브라우저에서는...">
+
+CommonJS는 **동기적(synchronous)**입니다. 서버에서는 문제없지만 브라우저에서는 재앙이죠:
+
+```javascript
+// 서버에서는 괜찮음 (파일이 로컬에 있음)
+const fs = require('fs');  // 즉시 로드
+
+// 브라우저에서는 문제 (네트워크로 가져와야 함)
+const module = require('./module');  // 로딩 중... 화면 멈춤!
+```
+
+네트워크 요청을 기다리는 동안 전체 페이지가 멈춰버립니다. 이것은 **용납할 수 없었죠**.
+
+</Step>
+
+</Steps>
+
+### AMD (Asynchronous Module Definition): 브라우저의 반격
+
+2009년 같은 해, **RequireJS**라는 라이브러리가 AMD라는 대안을 제시했습니다:
+
+```javascript
+// math.js - AMD 방식
+define([], function() {
+  return {
+    add: function(a, b) {
+      return a + b;
+    },
+    subtract: function(a, b) {
+      return a - b;
+    }
+  };
+});
+
+// app.js - 비동기 로딩
+require(['./math'], function(math) {
+  console.log(math.add(2, 3));  // 5
+  // math가 로드된 후에 실행됨
+});
+```
+
+AMD는 **비동기적**이었습니다. 모듈을 로드하는 동안 페이지가 멈추지 않았죠.
+
+<Card title="CommonJS vs AMD: 진영의 대립" description="2010년대 초반의 모듈 전쟁">
+
+**CommonJS 진영 (Node.js, 서버 사이드):**
+- 간결한 문법: `require()`, `module.exports`
+- 동기적 로딩 (서버에서는 빠름)
+- npm 생태계의 표준
+
+**AMD 진영 (RequireJS, 브라우저):**
+- 비동기 로딩 (브라우저에서 필수)
+- 복잡한 문법: `define()`, `require()`
+- 의존성 배열 명시
+
+**결과:**
+개발자들은 두 가지 시스템을 배워야 했고, 라이브러리는 둘 다 지원해야 했습니다. 이것은 **혼란**이었습니다.
+
+</Card>
+
+### UMD: 둘 다 지원하는 고통
+
+결국 **UMD (Universal Module Definition)**라는 패턴이 등장했습니다:
+
+```javascript
+(function (root, factory) {
+  if (typeof define === 'function' && define.amd) {
+    // AMD 환경
+    define(['jquery'], factory);
+  } else if (typeof module === 'object' && module.exports) {
+    // CommonJS 환경
+    module.exports = factory(require('jquery'));
+  } else {
+    // 브라우저 전역 변수
+    root.MyModule = factory(root.jQuery);
+  }
+}(typeof self !== 'undefined' ? self : this, function ($) {
+  // 실제 모듈 코드
+  return {
+    doSomething: function() {
+      // ...
+    }
+  };
+}));
+```
+
+이 코드를 보세요. **끔찍하지 않나요?** 실제 로직보다 환경 감지 코드가 더 깁니다.
+
+우리는 **표준**이 필요했습니다.
+
+---
+
+## Chapter 3: ES6 모듈 - 표준의 늦은 등장
+
+### 2015년, JavaScript에 공식 모듈 시스템이 오다
+
+ES6 (ECMAScript 2015)가 발표되면서, 드디어 JavaScript 언어 자체에 모듈 시스템이 추가되었습니다:
+
+```javascript
+// math.js - ES6 모듈
+export function add(a, b) {
+  return a + b;
+}
+
+export function subtract(a, b) {
+  return a - b;
+}
+
+// 또는
+export default {
+  add,
+  subtract
+};
+
+// app.js
+import { add, subtract } from './math.js';
+// 또는
+import math from './math.js';
+
+console.log(add(2, 3));  // 5
+```
+
+<Badge variant='success'>드디어 표준이 생겼다!</Badge>
+
+### ES6 모듈의 우아함
+
+ES Modules(ESM)은 이전 시스템들의 장점을 모두 가져왔습니다:
+
+<Card title="ESM의 특징" description="현대적 모듈 시스템의 완성">
+
+**정적 분석 가능:**
+```javascript
+// import는 항상 파일 최상단에
+import { something } from './module';
+
+// 조건부 import는 불가능
+if (condition) {
+  import { other } from './other';  // ❌ 에러!
+}
+```
+
+이것은 **제약**처럼 보이지만, 실제로는 엄청난 장점입니다. 빌드 도구가 코드를 분석하여 사용하지 않는 부분을 제거할 수 있거든요 (Tree Shaking).
+
+**Named Export vs Default Export:**
+```javascript
+// 명시적 export
+export const PI = 3.14159;
+export function circle(r) {
+  return PI * r * r;
+}
+
+// default export (파일당 하나만)
+export default class Calculator {
+  // ...
+}
+
+// 가져오기
+import Calculator from './calc';  // default
+import { PI, circle } from './math';  // named
+import Calculator, { PI } from './calc';  // 혼용 가능
+```
+
+**비동기 로딩 지원:**
+```javascript
+// 동적 import (ES2020)
+const module = await import('./module.js');
+// 또는
+import('./module.js').then(module => {
+  // 모듈 사용
+});
+```
+
+</Card>
+
+### 그러나 현실은...
+
+2015년에 표준이 나왔지만, 브라우저들이 이를 완전히 지원하기까지는 **수년**이 걸렸습니다:
+
+- Chrome: 2017년 (61버전)
+- Firefox: 2018년 (60버전)
+- Safari: 2017년 (10.1버전)
+- IE11: **절대 지원 안 함**
+
+2020년까지도 많은 프로젝트는 **트랜스파일러**를 사용해야 했습니다. ES6 모듈을 CommonJS로 변환해서 사용하는 아이러니한 상황이었죠.
+
+---
+
+## Chapter 4: 번들러 춘추전국시대
+
+### 문제: 수백 개의 파일을 어떻게 관리할까?
+
+모듈 시스템이 생기면서 새로운 문제가 발생했습니다. 프로젝트가 이렇게 구성되어 있다고 상상해보세요:
+
+```
+src/
+  ├── components/
+  │   ├── Button.js
+  │   ├── Input.js
+  │   ├── Modal.js
+  │   └── ... (100개의 컴포넌트)
+  ├── utils/
+  │   ├── format.js
+  │   ├── validate.js
+  │   └── ... (50개의 유틸)
+  ├── models/
+  │   └── ... (30개의 모델)
+  └── app.js
+```
+
+브라우저가 이 모든 파일을 **개별적으로 다운로드**해야 한다면?
+
+- 180개의 HTTP 요청
+- 각 요청마다 네트워크 오버헤드
+- 의존성 순서 관리의 악몽
+
+우리는 **번들러(Bundler)**가 필요했습니다. 모든 파일을 하나(또는 몇 개)로 합쳐주는 도구 말이죠.
+
+### Webpack: 번들러의 제왕 (2012-2020)
+
+2012년, Tobias Koppers가 만든 Webpack은 **게임 체인저**였습니다:
+
+```javascript
+// webpack.config.js
+module.exports = {
+  entry: './src/app.js',  // 시작점
+  output: {
+    filename: 'bundle.js',  // 결과물
+    path: __dirname + '/dist'
+  },
+  module: {
+    rules: [
+      {
+        test: /\.js$/,
+        use: 'babel-loader'  // ES6 → ES5 변환
+      },
+      {
+        test: /\.css$/,
+        use: ['style-loader', 'css-loader']  // CSS도 번들링!
+      },
+      {
+        test: /\.(png|jpg|gif)$/,
+        use: 'file-loader'  // 이미지도!
+      }
+    ]
+  }
+};
+```
+
+Webpack의 철학은 간단했습니다: **모든 것이 모듈이다**.
+
+<Card title="Webpack이 바꾼 것들" description="번들러의 혁명">
+
+**1. 모든 것을 import 가능:**
+```javascript
+import React from 'react';
+import './styles.css';  // CSS를 JavaScript로!
+import logo from './logo.png';  // 이미지도!
+import data from './data.json';  // JSON도!
+
+function App() {
+  return <img src={logo} />;
+}
+```
+
+**2. Code Splitting:**
+```javascript
+// 필요할 때만 로드
+import('./heavy-module.js').then(module => {
+  module.doSomething();
+});
+```
+
+**3. Tree Shaking:**
+```javascript
+// lodash 전체가 아닌 사용한 함수만 번들에 포함
+import { debounce } from 'lodash';
+```
+
+**4. 개발 서버와 HMR:**
+코드를 수정하면 **새로고침 없이** 화면에 즉시 반영
+
+</Card>
+
+하지만 Webpack은 **복잡했습니다**. 설정 파일이 수백 줄이 되는 것은 일상이었죠:
+
+```javascript
+// 실제 프로젝트의 webpack.config.js (일부)
+module.exports = {
+  entry: { /* ... */ },
+  output: { /* ... */ },
+  module: {
+    rules: [
+      { /* 10줄 */ },
+      { /* 15줄 */ },
+      // ... 20개의 rules
+    ]
+  },
+  plugins: [
+    new HtmlWebpackPlugin(/* ... */),
+    new MiniCssExtractPlugin(/* ... */),
+    new OptimizeCSSAssetsPlugin(/* ... */),
+    // ... 15개의 plugins
+  ],
+  optimization: { /* 50줄 */ },
+  devServer: { /* 30줄 */ },
+  // 총 300줄 이상...
+};
+```
+
+<Callout type='warning' title='Webpack Fatigue'>
+"Webpack 설정하는 데 3일, 실제 개발하는 데 2일" - 어느 개발자의 고백
+
+2016년경, **Webpack Fatigue**라는 용어까지 생겼습니다. 도구가 너무 복잡해서 진짜 일을 못 하는 상황이죠.
+</Callout>
+
+### Rollup: 라이브러리를 위한 선택 (2015)
+
+Rich Harris가 만든 Rollup은 다른 접근을 택했습니다:
+
+```javascript
+// rollup.config.js - 훨씬 간단
+export default {
+  input: 'src/main.js',
+  output: {
+    file: 'bundle.js',
+    format: 'esm'  // ES6 모듈로 출력
+  }
+};
+```
+
+Rollup의 특징:
+
+<Steps>
+
+<Step title="ES6 모듈만 지원">
+
+Webpack이 CommonJS와 AMD까지 지원하느라 복잡해진 반면, Rollup은 **ESM만** 지원했습니다. 이것은 제약이 아니라 **강점**이었죠:
+
+```javascript
+// Rollup은 이런 것만 이해함
+import { something } from './module';
+export { something };
+```
+
+결과적으로 더 작고 깨끗한 번들을 생성할 수 있었습니다.
+
+</Step>
+
+<Step title="뛰어난 Tree Shaking">
+
+Rollup의 Tree Shaking은 Webpack보다 **훨씬 공격적**이었습니다:
+
+```javascript
+// utils.js
+export function used() {
+  return 'I am used';
+}
+
+export function unused() {
+  console.log('나는 어디에도 import 되지 않음');
+  // 이 함수는 최종 번들에 포함되지 않음!
+}
+```
+
+</Step>
+
+<Step title="라이브러리 제작자들의 선택">
+
+Vue.js, React, D3.js 등 주요 라이브러리들이 Rollup으로 빌드됩니다:
+
+```javascript
+// React의 빌드 설정 (간단화)
+export default {
+  input: 'src/React.js',
+  output: [
+    { file: 'dist/react.js', format: 'umd' },
+    { file: 'dist/react.esm.js', format: 'esm' },
+    { file: 'dist/react.cjs.js', format: 'cjs' }
+  ]
+};
+```
+
+여러 포맷으로 동시에 출력할 수 있어서 라이브러리 배포에 이상적이었죠.
+
+</Step>
+
+</Steps>
+
+<Card title="Webpack vs Rollup: 용도가 다르다" description="도구의 선택">
+
+**Webpack을 선택하는 경우:**
+- 애플리케이션 개발
+- CSS, 이미지 등 다양한 asset 처리
+- Code Splitting과 동적 로딩 필요
+- 개발 서버와 HMR 필요
+
+**Rollup을 선택하는 경우:**
+- 라이브러리 개발
+- 최소 크기의 번들
+- 여러 포맷 (ESM, CommonJS, UMD) 출력
+- 순수한 JavaScript만 다룸
+
+</Card>
+
+### Parcel: Zero Config의 꿈 (2017)
+
+2017년, Devon Govett이 만든 Parcel은 설정 파일조차 필요 없었습니다:
+
+```bash
+# 설치
+npm install -g parcel-bundler
+
+# 실행 (설정 파일 없음!)
+parcel index.html
+
+# 빌드
+parcel build index.html
+```
+
+Parcel은 **자동으로** 모든 것을 감지합니다:
+
+```javascript
+// app.js
+import './styles.css';  // CSS 자동 처리
+import logo from './logo.png';  // 이미지 자동 처리
+import React from 'react';  // JSX 자동 변환
+
+// 설정 파일 불필요!
+```
+
+<Badge variant='info'>Zero Configuration</Badge>
+
+하지만 Parcel은 대규모 프로젝트에서 **커스터마이징의 어려움**이라는 문제가 있었습니다. 자동화의 대가였죠.
+
+---
+
+## Chapter 5: Vite의 등장 - 속도의 혁명 (2020)
+
+### 개발 서버가 너무 느려요!
+
+2020년, 프로젝트들은 점점 커졌습니다. 수천 개의 모듈을 가진 프로젝트에서 Webpack 개발 서버를 시작하면:
+
+```bash
+$ npm run dev
+Starting development server...
+⏳ Compiling...
+⏳ Still compiling... (30초 경과)
+⏳ Almost there... (60초 경과)
+✓ Compiled successfully! (90초 소요)
+```
+
+**1분 30초**를 기다려야 개발을 시작할 수 있었습니다. 코드를 수정하고 저장하면? 다시 몇 초씩 기다려야 했죠.
+
+### Evan You의 해답: Vite
+
+Vue.js 창시자 Evan You가 만든 Vite는 완전히 다른 접근을 택했습니다:
+
+```bash
+$ npm run dev
+  vite v2.0.0 dev server running at:
+  > Local: http://localhost:3000/
+  
+  ready in 300ms. 🚀
+```
+
+**300밀리초**. 거의 즉시 시작되는 수준이죠.
+
+<Card title="Vite가 빠른 이유" description="속도의 비밀">
+
+**1. Native ESM 활용:**
+
+Webpack은 개발 중에도 모든 것을 번들링합니다:
+
+```
+개발 시작 → 모든 파일 번들링 → 서버 시작
+(느림)          (매우 느림)        (빠름)
+```
+
+Vite는 브라우저의 Native ESM을 활용합니다:
+
+```
+개발 시작 → 서버 즉시 시작 → 필요한 파일만 로드
+(빠름)      (즉시)           (매우 빠름)
+```
+
+**2. esbuild 사용:**
+
+Vite는 Go 언어로 작성된 esbuild를 사용합니다:
+
+```javascript
+// 기존: Babel로 변환 (JavaScript)
+// 10초 소요
+
+// Vite: esbuild로 변환 (Go)
+// 0.3초 소요 (30배 이상 빠름)
+```
+
+**3. HMR이 실시간:**
+
+코드를 수정하면 **변경된 모듈만** 즉시 교체됩니다. 전체 번들을 다시 빌드하지 않죠.
+
+</Card>
+
+### Vite의 실제 사용
+
+```javascript
+// vite.config.js - 필요한 경우에만
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+
+export default defineConfig({
+  plugins: [react()],
+  // 이게 전부!
+});
+```
+
+```javascript
+// main.jsx - 그냥 사용
+import React from 'react';
+import ReactDOM from 'react-dom';
+import './index.css';
+import App from './App';
+
+ReactDOM.render(<App />, document.getElementById('root'));
+```
+
+개발 중에는 Native ESM으로 실행되고, 프로덕션 빌드 시에만 Rollup으로 번들링됩니다.
+
+<Callout type='success' title='Vite의 철학'>
+"개발 경험은 빠르게, 프로덕션 빌드는 최적화되게"
+
+Vite는 개발과 프로덕션을 다르게 처리합니다. 개발 중에는 속도가 중요하고, 프로덕션에서는 최적화가 중요하니까요.
+</Callout>
+
+---
+
+## Chapter 6: 현대의 선택 - Framework별 번들러 전략
+
+### Next.js: Webpack에서 Turbopack으로
+
+**Next.js 14 이전 (Webpack 기반):**
+
+Next.js는 오랫동안 Webpack을 사용했습니다. 하지만 대규모 프로젝트에서 속도 문제가 있었죠:
+
+```javascript
+// next.config.js (Webpack 커스터마이징)
+module.exports = {
+  webpack: (config, { dev, isServer }) => {
+    // Webpack 설정 수정
+    return config;
+  }
+};
+```
+
+**Next.js 13+ (Turbopack - 선택적):**
+
+Vercel은 Rust로 작성된 Turbopack을 개발했습니다:
+
+```bash
+# Turbopack 사용
+next dev --turbo
+
+# 기존 Webpack 사용
+next dev
+```
+
+<Card title="Next.js의 번들링 전략" description="프로덕션 최적화에 집중">
+
+**자동 Code Splitting:**
+```javascript
+// app/dashboard/page.tsx
+// 이 페이지는 자동으로 별도 청크로 분리됨
+export default function Dashboard() {
+  return <div>Dashboard</div>;
+}
+
+// app/profile/page.tsx
+// 이것도 별도 청크
+export default function Profile() {
+  return <div>Profile</div>;
+}
+```
+
+**Dynamic Import로 더 세밀한 제어:**
+```javascript
+// 필요할 때만 로드
+import dynamic from 'next/dynamic';
+
+const HeavyComponent = dynamic(() => import('./HeavyComponent'), {
+  loading: () => <p>Loading...</p>,
+  ssr: false  // 서버에서는 렌더링하지 않음
+});
+```
+
+**이미지 최적화:**
+```javascript
+import Image from 'next/image';
+
+// 자동으로 최적화되어 제공됨
+<Image src="/photo.jpg" width={500} height={300} alt="Photo" />
+```
+
+**서버 컴포넌트 (Next.js 13+):**
+```javascript
+// 기본적으로 서버 컴포넌트
+export default async function Page() {
+  const data = await fetch('...');
+  // 이 코드는 클라이언트 번들에 포함되지 않음!
+  return <div>{data}</div>;
+}
+```
+
+</Card>
+
+<Callout type='info' title='Next.js 15 현재 상태 (2024)'>
+**Turbopack은 개발 중:**
+- 개발 서버에서 사용 가능 (실험적)
+- 프로덕션 빌드는 여전히 Webpack
+- 점진적으로 안정화 중
+
+**권장사항:**
+- 대부분의 프로젝트: 기본 Webpack 사용
+- 대규모 프로젝트: Turbopack 시도해볼 만함
+- 설정 커스터마이징이 필요하면: Webpack
+</Callout>
+
+### React Native (Expo): Metro Bundler
+
+React Native는 **Metro**라는 자체 번들러를 사용합니다:
+
+```javascript
+// metro.config.js
+module.exports = {
+  transformer: {
+    getTransformOptions: async () => ({
+      transform: {
+        experimentalImportSupport: false,
+        inlineRequires: true,  // 성능 최적화
+      },
+    }),
+  },
+};
+```
+
+<Card title="Metro vs 웹 번들러" description="모바일 환경의 특수성">
+
+**Metro의 특징:**
+
+**1. 단일 번들:**
+```javascript
+// 웹과 달리 모바일은 code splitting이 제한적
+import React from 'react';
+import { View, Text } from 'react-native';
+
+// 모든 코드가 하나의 번들로
+```
+
+**2. Fast Refresh:**
+```javascript
+// 코드 변경 시 즉시 반영 (상태 유지)
+export default function App() {
+  const [count, setCount] = useState(0);
+  // 코드를 수정해도 count 값은 유지됨
+  return <Button onPress={() => setCount(c => c + 1)} />;
+}
+```
+
+**3. Asset 처리:**
+```javascript
+// 이미지는 특별하게 처리됨
+const logo = require('./logo.png');
+<Image source={logo} />
+
+// URL은 작동 안 함!
+<Image source="./logo.png" />  // ❌
+```
+
+</Card>
+
+**Expo의 개선사항:**
+
+Expo는 Metro 위에 추가 기능을 제공합니다:
+
+```javascript
+// app.json
+{
+  "expo": {
+    "plugins": [
+      // 자동 설정
+      "expo-router",  // 파일 기반 라우팅
+      "expo-font"     // 폰트 자동 로딩
+    ],
+    "web": {
+      "bundler": "metro"  // 웹도 Metro 사용 가능
+    }
+  }
+}
+```
+
+<Steps>
+
+<Step title="Expo의 편의성">
+
+```bash
+# 개발 시작
+npx expo start
+
+# 여러 플랫폼 동시 지원
+- Press i │ iOS 시뮬레이터
+- Press a │ Android 에뮬레이터
+- Press w │ 웹 브라우저
+```
+
+한 번의 명령으로 모든 플랫폼에서 테스트 가능합니다.
+
+</Step>
+
+<Step title="EAS Build로 클라우드 빌드">
+
+```bash
+# 로컬에서 빌드 설정 불필요
+eas build --platform all
+
+# Expo 서버에서 iOS/Android 앱 빌드
+```
+
+복잡한 네이티브 빌드 환경을 직접 구축할 필요가 없습니다.
+
+</Step>
+
+</Steps>
+
+<Callout type='success' title='Expo의 현재 권장사항 (2024)'>
+**Expo SDK 50+:**
+- Metro Bundler (기본)
+- Fast Refresh 지원
+- Web 빌드도 Metro 사용 가능 (통일된 경험)
+
+**성능 팁:**
+```javascript
+// Hermes 엔진 사용 (Android 성능 대폭 향상)
+{
+  "expo": {
+    "jsEngine": "hermes"
+  }
+}
+```
+</Callout>
+
+---
+
+## Chapter 7: CommonJS vs ESM - 2024년의 현주소
+
+### 여전히 혼재하는 두 시스템
+
+2024년 현재, CommonJS와 ESM은 **여전히 공존**합니다:
+
+```json
+// package.json
+{
+  "type": "module",  // 이 패키지는 ESM
+  "exports": {
+    ".": {
+      "import": "./dist/index.mjs",  // ESM 버전
+      "require": "./dist/index.cjs"  // CommonJS 버전
+    }
+  }
+}
+```
+
+### Node.js에서의 ESM 지원
+
+**Node.js 12+ (2019):**
+ESM 공식 지원 시작
+
+**Node.js 14+ (2020):**
+안정적인 ESM 지원
+
+**Node.js 20+ (2023):**
+ESM이 권장 방식
+
+```javascript
+// .mjs 확장자 또는 package.json에 "type": "module"
+
+// ESM 방식
+import fs from 'fs';
+import { readFile } from 'fs/promises';
+
+// Top-level await 사용 가능!
+const data = await readFile('./data.json');
+
+// __dirname이 없음! (대신 이렇게)
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+```
+
+<Card title="CommonJS와 ESM 비교" description="2024년 기준">
+
+**CommonJS (CJS):**
+
+장점:
+- 널리 사용됨 (npm의 대부분)
+- 동적 로딩 가능: `require(dynamicPath)`
+- 간단한 문법
+
+단점:
+- 정적 분석 불가능 (Tree Shaking 어려움)
+- 비동기 로딩 불가능
+- 브라우저에서 기본 지원 없음
+
+**ES Modules (ESM):**
+
+장점:
+- 공식 표준
+- 정적 분석 가능 (Tree Shaking)
+- 브라우저 네이티브 지원
+- Top-level await
+
+단점:
+- 일부 오래된 패키지와 호환 문제
+- CommonJS와 혼용 시 복잡함
+- `__dirname`, `__filename` 직접 지원 안 함
+
+</Card>
+
+### 실무에서의 선택
+
+<Steps>
+
+<Step title="신규 프로젝트: ESM 우선">
+
+```json
+// package.json
+{
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"  // .mjs 불필요
+  }
+}
+```
+
+```javascript
+// index.js
+import express from 'express';
+
+const app = express();
+
+app.listen(3000);
+```
+
+</Step>
+
+<Step title="레거시 프로젝트: 점진적 전환">
+
+```javascript
+// 1단계: CommonJS 유지
+const express = require('express');
+
+// 2단계: Dynamic Import로 ESM 사용
+async function loadModule() {
+  const { default: chalk } = await import('chalk');
+  console.log(chalk.blue('Hello'));
+}
+
+// 3단계: 완전한 ESM 전환
+```
+
+</Step>
+
+<Step title="라이브러리: 둘 다 지원">
+
+```json
+// package.json
+{
+  "exports": {
+    ".": {
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.cjs"
+    }
+  }
+}
+```
+
+빌드 도구(Rollup, tsup 등)로 두 포맷 동시 생성:
+
+```bash
+# tsup 사용 예시
+tsup src/index.ts --format cjs,esm
+```
+
+</Step>
+
+</Steps>
+
+<Callout type='warning' title='혼용 시 주의사항'>
+**ESM에서 CommonJS 가져오기: 가능**
+```javascript
+// ESM 파일에서
+import cjsModule from './commonjs-module.cjs';  // ✓ 작동
+```
+
+**CommonJS에서 ESM 가져오기: 복잡**
+```javascript
+// CommonJS 파일에서
+const esmModule = require('./esm-module.mjs');  // ✗ 에러!
+
+// 대신 Dynamic Import 사용
+async function load() {
+  const esmModule = await import('./esm-module.mjs');  // ✓ 작동
+}
+```
+</Callout>
+
+---
+
+## Chapter 8: 번들러의 미래
+
+### Rspack: Webpack의 Rust 재구현 (2023)
+
+ByteDance(틱톡 모회사)가 개발한 Rspack:
+
+```javascript
+// rspack.config.js - Webpack과 거의 동일
+module.exports = {
+  entry: './src/index.js',
+  module: {
+    rules: [
+      {
+        test: /\.jsx?$/,
+        use: 'builtin:swc-loader'  // Rust 기반 컴파일러
+      }
+    ]
+  }
+};
+```
+
+**목표:**
+- Webpack 호환 API
+- 10배 이상 빠른 속도
+- 점진적 마이그레이션 가능
+
+### Bun: All-in-One 런타임 (2023)
+
+Bun은 런타임, 번들러, 패키지 매니저를 **하나로** 통합:
+
+```bash
+# 설치 없이 즉시 실행
+bun run index.ts
+
+# 번들링
+bun build index.ts --outdir dist
+
+# 패키지 설치 (npm보다 20배 빠름)
+bun install
+```
+
+```javascript
+// Bun은 TypeScript를 기본 지원
+import { serve } from 'bun';
+
+serve({
+  port: 3000,
+  fetch(req) {
+    return new Response('Hello from Bun!');
+  }
+});
+
+// 별도 빌드 과정 불필요!
+```
+
+<Card title="차세대 도구들의 공통점" description="속도와 통합">
+
+**Rust/Go/Zig 같은 시스템 언어로 재작성:**
+- esbuild (Go): 10-100배 빠름
+- swc (Rust): Babel 대체, 20배 빠름
+- Turbopack (Rust): Webpack 대체 목표
+- Rspack (Rust): Webpack 호환
+
+**All-in-One 접근:**
+- Bun: 런타임 + 번들러 + 패키지 매니저
+- Deno: 런타임 + 린터 + 포매터 + 테스터
+
+**Zero Config 트렌드:**
+- 기본 설정만으로 대부분의 사용 사례 지원
+- 필요할 때만 커스터마이징
+
+</Card>
+
+### 2024년 권장 선택
+
+<Steps>
+
+<Step title="프로젝트 시작하기">
+
+**React SPA:**
+```bash
+# Vite 권장 (빠르고 간단)
+npm create vite@latest my-app -- --template react
+```
+
+**Next.js 앱:**
+```bash
+# Next.js CLI (자동 설정)
+npx create-next-app@latest
+# Turbopack 옵션은 아직 실험적
+```
+
+**React Native (Expo):**
+```bash
+# Expo CLI (Metro 자동 설정)
+npx create-expo-app my-app
+```
+
+**라이브러리 개발:**
+```bash
+# tsup (Rollup 기반, 설정 최소화)
+npm install -D tsup
+# 또는 Rollup 직접
+npm install -D rollup
+```
+
+</Step>
+
+<Step title="레거시 프로젝트">
+
+**Webpack 프로젝트:**
+- 잘 작동한다면 굳이 바꿀 필요 없음
+- 속도가 문제라면 Rspack 고려
+- 최신 Webpack 6 고려 (2024 예정)
+
+**CRA (Create React App):**
+```bash
+# CRA는 더 이상 권장되지 않음
+# Vite로 마이그레이션 고려
+npm install -g @vitejs/plugin-react-swc
+```
+
+</Step>
+
+<Step title="실험적 도구 시도">
+
+**Bun (프로덕션 준비 중):**
+```bash
+# 간단한 프로젝트나 스크립트에 적합
+bun create react my-app
+```
+
+**Turbopack (아직 실험적):**
+```bash
+# Next.js에서 개발 서버로만 사용
+next dev --turbo
+```
+
+</Step>
+
+</Steps>
+
+---
+
+## 에필로그: 번들링의 미래는?
+
+### 지난 15년의 여정
+
+2009년, 우리는 스크립트 태그 10개를 순서대로 나열했습니다.
+
+2024년, 우리는:
+- 수천 개의 모듈을 임포트하고
+- 번들러가 최적화된 청크로 분할하고
+- 밀리초 단위로 HMR이 작동하고
+- 사용하지 않는 코드는 자동으로 제거됩니다
+
+<Blockquote author="Rich Harris (Rollup, Svelte 창시자)">
+"10년 전, 우리는 자바스크립트 파일을 어떻게 합칠지 고민했습니다. 지금은 어떻게 나눌지 고민하죠."
+</Blockquote>
+
+### 여전히 진행 중인 혁명
+
+번들링은 **끝나지 않았습니다**. 앞으로 우리가 볼 것들:
+
+**1. 더 빠른 도구들:**
+- Rust, Go, Zig로 작성된 네이티브 속도
+- 병렬 처리와 캐싱 최적화
+- "즉시" 시작되는 개발 서버
+
+**2. 더 똑똑한 최적화:**
+```javascript
+// 미래: 번들러가 알아서 최적화
+import { heavyComponent } from './components';
+
+// 번들러가 자동으로:
+// 1. 사용 패턴 분석
+// 2. 적절한 시점에 프리로드
+// 3. 네트워크 상태 고려
+// 4. 사용자 디바이스에 맞춰 최적화
+```
+
+**3. Native ESM의 확산:**
+```html
+<!-- 미래: 번들러 없이도 작동? -->
+<script type="module">
+  import React from 'https://esm.sh/react@18';
+  import App from './App.js';
+  
+  // 브라우저가 직접 처리
+</script>
+```
+
+하지만 완전한 "번들러 없는" 세상은 오지 않을 것입니다. 최적화의 가치가 너무 크니까요.
+
+<Callout type='info' title='현실적인 미래'>
+**번들러는 사라지지 않습니다. 대신:**
+
+- 개발 중에는 Native ESM (빠른 시작)
+- 프로덕션에서는 최적화된 번들 (빠른 로딩)
+- 도구는 더 빨라지고 설정은 더 간단해짐
+- 개발자는 번들링을 **의식하지 않게** 됨
+
+"최고의 도구는 존재감이 없는 도구입니다."
+</Callout>
+
+### 우리가 배운 것
+
+이 긴 여정에서 우리가 얻은 교훈:
+
+<Steps>
+
+<Step title="표준의 중요성">
+
+CommonJS와 AMD의 분열은 몇 년의 혼란을 야기했습니다. ES6 모듈이라는 표준이 있었다면 훨씬 빨리 발전했을 거예요.
+
+교훈: 표준은 늦더라도 필요합니다.
+
+</Step>
+
+<Step title="복잡성과의 전쟁">
+
+Webpack은 강력했지만 너무 복잡했습니다. Vite와 Parcel은 단순함의 가치를 보여줬죠.
+
+교훈: 80%의 사용 사례를 간단하게 해결하는 것이 중요합니다.
+
+</Step>
+
+<Step title="성능은 경쟁력">
+
+esbuild가 등장하자 모든 번들러가 속도 경쟁을 시작했습니다.
+
+교훈: 10배 빠른 도구는 개발 경험을 완전히 바꿉니다.
+
+</Step>
+
+<Step title="진화는 계속된다">
+
+2009년부터 2024년까지 15년, 우리는 여섯 세대의 번들러를 봤습니다. 그리고 진화는 계속됩니다.
+
+교훈: 완벽한 도구는 없습니다. 항상 더 나은 방법을 찾으세요.
+
+</Step>
+
+</Steps>
+
+---
+
+## 부록: 실무 가이드
+
+### 내 프로젝트는 어떤 번들러를?
+
+```javascript
+// 의사결정 트리
+function chooseBundler(project) {
+  if (project.type === 'nextjs') {
+    return 'Next.js 내장 (Webpack/Turbopack)';
+  }
+  
+  if (project.type === 'react-native') {
+    return 'Metro (Expo 사용 권장)';
+  }
+  
+  if (project.type === 'react-spa') {
+    return project.needsLegacySupport 
+      ? 'Webpack (또는 Rspack)'
+      : 'Vite';
+  }
+  
+  if (project.type === 'library') {
+    return 'Rollup (또는 tsup)';
+  }
+  
+  if (project.isExperimental) {
+    return 'Bun (또는 esbuild)';
+  }
+  
+  return 'Vite';  // 일반적인 경우
+}
+```
+
+### 마이그레이션 가이드
+
+<Card title="CRA → Vite" description="가장 흔한 마이그레이션">
+
+```bash
+# 1. Vite 설치
+npm install -D vite @vitejs/plugin-react
+
+# 2. vite.config.js 생성
+cat > vite.config.js << EOF
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+
+export default defineConfig({
+  plugins: [react()],
+})
+EOF
+
+# 3. package.json 수정
+# "scripts": {
+#   "dev": "vite",
+#   "build": "vite build",
+#   "preview": "vite preview"
+# }
+
+# 4. index.html을 루트로 이동
+mv public/index.html .
+
+# 5. index.html에서 %PUBLIC_URL% 제거
+# 그리고 <script type="module" src="/src/main.jsx"></script> 추가
+```
+
+환경 변수:
+```javascript
+// CRA
+process.env.REACT_APP_API_URL
+
+// Vite
+import.meta.env.VITE_API_URL
+```
+
+</Card>
+
+<Card title="Webpack → Rspack" description="호환성 있는 전환">
+
+```javascript
+// 1. rspack 설치
+npm install -D @rspack/core @rspack/cli
+
+// 2. webpack.config.js → rspack.config.js
+// 대부분의 설정이 호환됨
+
+module.exports = {
+  entry: './src/index.js',
+  module: {
+    rules: [
+      {
+        test: /\.jsx?$/,
+        use: 'builtin:swc-loader',  // Webpack의 babel-loader 대체
+        exclude: /node_modules/
+      }
+    ]
+  }
+};
+
+// 3. package.json 수정
+// "scripts": {
+//   "dev": "rspack serve",
+//   "build": "rspack build"
+// }
+```
+
+</Card>
+
+### 성능 최적화 체크리스트
+
+```javascript
+// ✓ Tree Shaking 활성화
+// package.json
+{
+  "sideEffects": false  // 또는 부작용 있는 파일만 명시
+}
+
+// ✓ Dynamic Import 활용
+const Heavy = lazy(() => import('./HeavyComponent'));
+
+// ✓ 번들 크기 분석
+import { defineConfig } from 'vite';
+import { visualizer } from 'rollup-plugin-visualizer';
+
+export default defineConfig({
+  plugins: [
+    visualizer()  // 빌드 후 stats.html 생성
+  ]
+});
+
+// ✓ 의존성 최소화
+// lodash 전체 대신
+import debounce from 'lodash/debounce';
+// 또는 lodash-es 사용
+
+// ✓ Code Splitting 전략
+// 라우트별
+const About = lazy(() => import('./pages/About'));
+
+// 조건부 로딩
+if (isAdmin) {
+  const AdminPanel = await import('./AdminPanel');
+}
+```
+
+---
+
+**다음 에피소드 예고:**
+_Episode 7: "타입스크립트: 자바스크립트에게 날개를 달아주다"_
+
+동적 타입의 자유로움과 정적 타입의 안전함, 우리는 정말 둘 다 가질 수 있을까요?
+
+<ReferenceList>
+  <Reference 
+    title="Webpack Documentation" 
+    url="https://webpack.js.org/"
+    description="공식 문서"
+  />
+  <Reference 
+    title="Vite Documentation" 
+    url="https://vitejs.dev/"
+    description="차세대 빌드 도구"
+  />
+  <Reference 
+    title="ES Modules: A Cartoon Deep-Dive" 
+    url="https://hacks.mozilla.org/2018/03/es-modules-a-cartoon-deep-dive/"
+    description="Lin Clark의 명쾌한 설명"
+  />
+  <Reference 
+    title="Modern JavaScript Explained For Dinosaurs" 
+    url="https://peterxjang.com/blog/modern-javascript-explained-for-dinosaurs.html"
+    description="모던 JS 도구의 진화 과정"
+  />
+</ReferenceList>
+
