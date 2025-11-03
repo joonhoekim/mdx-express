@@ -1,0 +1,1029 @@
+# Episode 10: "WebAssembly: 웹 성능의 마지막 퍼즐"
+
+_브라우저 안에서도 네이티브급 성능을_
+
+import {
+  Callout,
+  Steps,
+  Step,
+  Blockquote,
+  Badge,
+  Card,
+  Reference,
+  ReferenceList,
+} from '@/components/writing-ui';
+
+---
+
+## 프롤로그: 웹의 성능 한계
+
+2010년, Adobe Flash는 죽어가고 있었습니다. Steve Jobs의 유명한 "Thoughts on Flash" 공개 서한 이후, 웹 개발자들은 고민에 빠졌습니다:
+
+_"Flash 없이 어떻게 고성능 웹 애플리케이션을 만들 수 있을까?"_
+
+```javascript
+// 2010년의 웹 개발자들이 직면한 현실
+
+// JavaScript로 게임 만들기
+function gameLoop() {
+  // 물리 엔진 계산
+  for (let i = 0; i < particles.length; i++) {
+    particles[i].x += particles[i].vx;
+    particles[i].y += particles[i].vy;
+    // 충돌 감지...
+  }
+  
+  // 렌더링
+  ctx.clearRect(0, 0, width, height);
+  for (let particle of particles) {
+    ctx.fillRect(particle.x, particle.y, 5, 5);
+  }
+  
+  requestAnimationFrame(gameLoop);
+}
+
+// 결과: 30 FPS도 힘들다
+// C++로 만든 네이티브 게임: 60 FPS 여유롭게
+// 격차가 너무 크다...
+```
+
+JavaScript는 웹의 유일한 언어였지만, **성능의 벽**이 명확했습니다:
+
+<Callout type='warning' title='JavaScript의 성능 한계 (2010년대 초)'>
+- **동적 타입**: 모든 연산에 타입 체크 필요
+- **인터프리터**: JIT가 있어도 네이티브보다 느림
+- **가비지 컬렉션**: 예측 불가능한 pause
+- **싱글 스레드**: CPU 코어를 제대로 활용 못함
+</Callout>
+
+웹은 **생산성 도구**로는 좋았지만, **고성능 애플리케이션**으로는 부족했습니다. 게임, 비디오 편집, 3D 모델링, 과학 계산... 이런 것들은 여전히 네이티브 앱의 영역이었습니다.
+
+하지만 2017년, 모든 것이 바뀝니다. **WebAssembly**의 등장으로.
+
+<Callout type='note' title='이 글에서 다룰 내용'>
+  - Flash의 몰락과 성능에 대한 갈증
+  - asm.js: JavaScript 부집합의 실험
+  - WebAssembly의 등장: 모든 언어를 웹으로
+  - 게임부터 비트코인 마이닝까지: 새로운 가능성들
+</Callout>
+
+---
+
+## Chapter 1: Flash의 몰락과 성능에 대한 갈증
+
+### Flash의 황금기 (1996-2010)
+
+90년대 후반부터 2000년대까지, Flash는 **웹의 멀티미디어 표준**이었습니다:
+
+<Card title="Flash가 가능하게 했던 것들" description="웹의 초기 멀티미디어">
+
+**인터랙티브 컨텐츠:**
+- 애니메이션, 게임
+- 동영상 재생 (YouTube 초기)
+- 인터랙티브 광고
+
+**리치 애플리케이션:**
+- 복잡한 UI
+- 벡터 그래픽스
+- 사운드 처리
+
+**크로스 플랫폼:**
+- 한 번 만들면 모든 브라우저에서 작동
+- Windows, Mac, Linux 지원
+
+**성능:**
+- JavaScript보다 훨씬 빠름
+- ActionScript 3.0은 컴파일됨
+
+</Card>
+
+```actionscript
+// Flash ActionScript 3.0
+// JavaScript보다 훨씬 빠르고 강력했음
+
+package {
+  import flash.display.Sprite;
+  import flash.events.Event;
+  
+  public class Game extends Sprite {
+    private var particles:Vector.<Particle>;
+    
+    public function Game() {
+      particles = new Vector.<Particle>();
+      addEventListener(Event.ENTER_FRAME, gameLoop);
+    }
+    
+    private function gameLoop(e:Event):void {
+      // 물리 엔진 계산
+      // JavaScript보다 10배 빠름
+      for each (var p:Particle in particles) {
+        p.update();
+      }
+    }
+  }
+}
+```
+
+### 2010년, "Thoughts on Flash" - Steve Jobs의 선전포고
+
+2010년 4월, Steve Jobs는 공개 서한을 발표합니다. 제목은 **"Thoughts on Flash"**.
+
+<Blockquote author='Steve Jobs' cite='Thoughts on Flash (2010)'>
+"Flash는 PC 시대를 위해 만들어졌습니다. 마우스와 키보드를 위해 만들어졌죠. 하지만 모바일 시대는 터치를 위한 것입니다. Flash는 모바일에 적합하지 않습니다."
+</Blockquote>
+
+Jobs의 비판:
+
+<Callout type='error' title='Flash의 문제점들'>
+
+**보안:**
+- Flash는 보안 취약점의 온상
+- 정기적인 제로데이 공격
+
+**성능:**
+- 모바일에서 배터리 소모 심각
+- 발열 문제
+
+**폐쇄성:**
+- Adobe의 독점 기술
+- 웹 표준이 아님
+
+**모바일 부적합:**
+- 터치 인터페이스 지원 부족
+- iOS에서 Flash 지원 거부
+
+</Callout>
+
+### 웹 표준의 반격: HTML5
+
+HTML5는 Flash를 대체하기 위해 등장했습니다:
+
+```html
+<!-- Flash 없이 가능해진 것들 -->
+
+<!-- 비디오 재생 -->
+<video src="movie.mp4" controls></video>
+
+<!-- 캔버스 그래픽 -->
+<canvas id="game"></canvas>
+<script>
+  const ctx = canvas.getContext('2d');
+  // 그리기...
+</script>
+
+<!-- 오디오 재생 -->
+<audio src="music.mp3" controls></audio>
+
+<!-- WebGL (3D 그래픽) -->
+<canvas id="webgl"></canvas>
+<script>
+  const gl = canvas.getContext('webgl');
+  // 3D 렌더링...
+</script>
+```
+
+<Steps>
+<Step title="2010: HTML5 표준화 가속">
+Canvas, Video, Audio, WebGL 등 멀티미디어 API 추가
+</Step>
+
+<Step title="2012: Flash Player 모바일 지원 중단">
+Adobe가 모바일 Flash 포기 선언
+</Step>
+
+<Step title="2015: YouTube HTML5로 전환">
+Flash 비디오 플레이어를 HTML5로 완전 대체
+</Step>
+
+<Step title="2020: Flash 공식 지원 종료">
+Adobe가 Flash Player 업데이트 중단
+</Step>
+</Steps>
+
+하지만 문제가 남았습니다: **HTML5 + JavaScript는 여전히 느렸습니다**.
+
+---
+
+## Chapter 2: asm.js - JavaScript 부집합의 실험
+
+### Mozilla의 대담한 실험
+
+2013년, Mozilla는 흥미로운 아이디어를 제시합니다: **"JavaScript의 부집합을 정의해서 최적화하면 어떨까?"**
+
+```javascript
+// asm.js: JavaScript의 특수한 부집합
+
+function add(x, y) {
+  "use asm";  // asm.js 모드
+  
+  // 타입 어노테이션 (비트 연산으로 표현)
+  x = x | 0;  // x는 32비트 정수
+  y = y | 0;  // y도 32비트 정수
+  
+  return (x + y) | 0;  // 결과도 32비트 정수
+}
+
+// JavaScript이지만 AOT(Ahead-of-Time) 컴파일 가능
+// 거의 네이티브급 성능
+```
+
+<Card title="asm.js의 핵심 아이디어" description="제약을 통한 성능">
+
+**원리:**
+- JavaScript의 부집합 정의
+- 동적 타입 제거 (모든 타입이 명시적)
+- 예측 가능한 메모리 접근
+- JIT 최적화가 극도로 쉬움
+
+**성능:**
+- 일반 JavaScript의 10배 빠름
+- 네이티브 코드의 50-70% 성능
+- Flash보다 빠름!
+
+**호환성:**
+- 그냥 JavaScript라서 모든 브라우저에서 작동
+- asm.js를 모르는 브라우저에서도 실행됨 (느리지만)
+
+</Card>
+
+### Emscripten: C/C++를 asm.js로
+
+Mozilla는 한 발 더 나아갑니다. **Emscripten**이라는 컴파일러를 만듭니다:
+
+```bash
+# C/C++ 코드를 asm.js로 컴파일
+
+# game.cpp
+emcc game.cpp -o game.js -O3
+
+# 결과: game.js (asm.js 코드)
+# 브라우저에서 네이티브급 성능으로 실행!
+```
+
+실제 적용 사례들:
+
+<Steps>
+<Step title="Unreal Engine 3 데모 (2013)">
+Epic Games의 Unreal Engine 3를 브라우저에서 실행. **충격적인 성능**
+</Step>
+
+<Step title="Unity WebGL (2015)">
+Unity 게임을 asm.js로 컴파일하여 브라우저에서 실행
+</Step>
+
+<Step title="Autocad (2017)">
+Autodesk가 30년 된 C++ 코드베이스를 asm.js로 포팅
+</Step>
+</Steps>
+
+```javascript
+// Emscripten이 생성한 asm.js 코드 (간략화)
+
+function Module(stdlib, foreign, heap) {
+  "use asm";
+  
+  var HEAP32 = new stdlib.Int32Array(heap);
+  var imul = stdlib.Math.imul;
+  
+  function _compute(x, y) {
+    x = x | 0;
+    y = y | 0;
+    var result = 0;
+    
+    // C++ 코드가 asm.js로 변환됨
+    result = imul(x, y) | 0;
+    HEAP32[0] = result;
+    
+    return result | 0;
+  }
+  
+  return { compute: _compute };
+}
+
+// 복잡하지만 빠름!
+```
+
+<Blockquote author='Brendan Eich' cite='JavaScript 창시자'>
+"asm.js는 JavaScript를 컴파일 타겟으로 만들었습니다. 이것은 게임 체인저입니다."
+</Blockquote>
+
+### asm.js의 한계
+
+하지만 asm.js에도 한계가 있었습니다:
+
+<Callout type='warning' title='asm.js의 문제점'>
+
+**파일 크기:**
+- JavaScript 텍스트로 전송
+- 압축해도 크기가 큼
+- 네트워크 오버헤드
+
+**파싱 시간:**
+- JavaScript 파서를 거쳐야 함
+- 큰 파일은 파싱에 수 초 소요
+
+**메모리 비효율:**
+- JavaScript의 타입 시스템 위에서 작동
+- 불필요한 오버헤드
+
+**표준이 아님:**
+- Mozilla 전용 최적화
+- 다른 브라우저들의 지원이 미지근
+
+</Callout>
+
+웹 커뮤니티는 더 나은 해결책을 원했습니다. **진짜** 바이트코드를.
+
+---
+
+## Chapter 3: WebAssembly의 등장 - 모든 언어를 웹으로
+
+### 2015년, 경쟁자들의 연합
+
+놀랍게도 **Google, Mozilla, Microsoft, Apple**이 손을 잡습니다. 경쟁 관계인 브라우저 벤더들이 **공동 표준**을 만들기로 합니다.
+
+<Card title="WebAssembly 설계 목표" description="업계의 합의">
+
+**성능:**
+- 네이티브에 가까운 속도
+- 예측 가능한 성능
+
+**안전성:**
+- 샌드박스 환경에서 실행
+- 메모리 안전성 보장
+
+**이식성:**
+- 모든 플랫폼에서 동일하게 작동
+- 아키텍처 독립적
+
+**간결성:**
+- 작은 바이너리 크기
+- 빠른 로딩과 파싱
+
+**개방성:**
+- 오픈 표준
+- 모든 언어가 타겟 가능
+
+</Card>
+
+```wat
+;; WebAssembly Text Format (WAT)
+;; 사람이 읽을 수 있는 형태
+
+(module
+  (func $add (param $x i32) (param $y i32) (result i32)
+    local.get $x
+    local.get $y
+    i32.add
+  )
+  (export "add" (func $add))
+)
+
+;; 이것이 바이너리로 컴파일됨 (.wasm)
+;; JavaScript에서 호출 가능
+```
+
+### 2017년 3월, WebAssembly 1.0 출시
+
+모든 주요 브라우저가 **동시에** WebAssembly를 지원합니다:
+
+<Steps>
+<Step title="Chrome 57">
+2017년 3월
+</Step>
+
+<Step title="Firefox 52">
+2017년 3월
+</Step>
+
+<Step title="Safari 11">
+2017년 9월
+</Step>
+
+<Step title="Edge 16">
+2017년 10월
+</Step>
+</Steps>
+
+브라우저 업계에서 이렇게 빠른 합의는 **전례가 없는** 일이었습니다.
+
+<Callout type='success' title='WebAssembly의 혁명'>
+WebAssembly는 JavaScript를 **대체**하는 것이 아니라 **보완**하는 것입니다.
+
+- 고성능이 필요한 부분: WebAssembly
+- UI와 접착 코드: JavaScript
+- 완벽한 조합
+</Callout>
+
+### WebAssembly 사용 예제
+
+```javascript
+// JavaScript에서 WebAssembly 사용
+
+// 1. WASM 로드
+const response = await fetch('module.wasm');
+const buffer = await response.arrayBuffer();
+const module = await WebAssembly.instantiate(buffer);
+
+// 2. WASM 함수 호출
+const result = module.instance.exports.add(5, 3);
+console.log(result);  // 8
+
+// 3. 메모리 공유
+const memory = module.instance.exports.memory;
+const data = new Uint8Array(memory.buffer);
+// JavaScript와 WASM이 같은 메모리 사용!
+```
+
+C/C++에서 WebAssembly로:
+
+```cpp
+// C++ 코드
+#include <emscripten.h>
+
+extern "C" {
+  EMSCRIPTEN_KEEPALIVE
+  int fibonacci(int n) {
+    if (n <= 1) return n;
+    return fibonacci(n - 1) + fibonacci(n - 2);
+  }
+}
+
+// 컴파일
+// emcc fibonacci.cpp -o fibonacci.wasm -O3
+```
+
+```javascript
+// JavaScript에서 호출
+const wasm = await WebAssembly.instantiateStreaming(
+  fetch('fibonacci.wasm')
+);
+
+console.log(wasm.instance.exports.fibonacci(40));
+// JavaScript로 하면 느림
+// WASM으로 하면 훨씬 빠름!
+```
+
+### 성능 비교
+
+<Card title="성능 벤치마크 (일반적인 경우)" description="WebAssembly vs JavaScript">
+
+**수치 계산 (피보나치, 행렬 연산):**
+- JavaScript: 1x (기준)
+- asm.js: 2-5x 빠름
+- WebAssembly: 5-10x 빠름
+- 네이티브 C++: 10-20x 빠름
+
+**이미지 처리:**
+- JavaScript: 1x
+- WebAssembly: 3-8x 빠름
+
+**게임 로직:**
+- JavaScript: 1x
+- WebAssembly: 2-5x 빠름
+
+**결론:**
+WebAssembly는 네이티브의 **50-80%** 성능을 냄
+
+</Card>
+
+---
+
+## Chapter 4: 게임부터 비트코인 마이닝까지 - 새로운 가능성들
+
+### 게임: AAA급 게임이 브라우저로
+
+WebAssembly의 첫 번째 킬러 유스케이스는 **게임**이었습니다:
+
+<Steps>
+<Step title="Doom 3 (2019)">
+id Software의 Doom 3를 브라우저에서 실행. 60 FPS로 부드럽게
+</Step>
+
+<Step title="Unity, Unreal Engine">
+주요 게임 엔진들이 WebAssembly 지원
+</Step>
+
+<Step title="Google Stadia">
+클라우드 게임 플랫폼의 클라이언트로 WebAssembly 활용
+</Step>
+
+<Step title="Ruffle">
+Flash Player를 WebAssembly로 재구현. 옛날 Flash 게임을 다시 즐길 수 있음
+</Step>
+</Steps>
+
+```javascript
+// Unity 게임을 WebAssembly로 로드
+
+createUnityInstance(canvas, {
+  dataUrl: "Build/game.data",
+  frameworkUrl: "Build/game.framework.js",
+  codeUrl: "Build/game.wasm",  // WebAssembly!
+  streamingAssetsUrl: "StreamingAssets",
+}).then((unityInstance) => {
+  // 게임 실행
+});
+
+// 수백 MB의 C++ 코드가 브라우저에서 실행됨
+```
+
+### 비디오/이미지 처리: FFmpeg, Photoshop
+
+Adobe는 Photoshop을 웹으로 가져왔습니다. **WebAssembly 덕분에**.
+
+<Card title="Photoshop on the Web (2021)" description="30년 된 C++ 코드베이스를 웹으로">
+
+**기술 스택:**
+- C++ 코어 → WebAssembly로 컴파일
+- 수백만 줄의 코드
+- 레이어, 필터, 브러시 등 모든 기능
+
+**성능:**
+- 네이티브 앱의 70-80% 성능
+- 작은 파일은 거의 차이 없음
+
+**의미:**
+- 설치 필요 없음
+- 브라우저만 있으면 Photoshop 사용 가능
+- 파일을 업로드할 필요도 없음 (로컬에서 처리)
+
+</Card>
+
+FFmpeg.wasm:
+
+```javascript
+// FFmpeg을 브라우저에서 실행!
+import { createFFmpeg, fetchFile } from '@ffmpeg/ffmpeg';
+
+const ffmpeg = createFFmpeg({ log: true });
+await ffmpeg.load();
+
+// 비디오 변환 (모두 브라우저 내에서)
+ffmpeg.FS('writeFile', 'input.avi', await fetchFile('/input.avi'));
+await ffmpeg.run('-i', 'input.avi', 'output.mp4');
+const data = ffmpeg.FS('readFile', 'output.mp4');
+
+// 서버에 업로드할 필요 없음!
+// 모든 처리가 클라이언트에서
+```
+
+### 데이터베이스: SQLite, PostgreSQL
+
+SQLite를 브라우저에서 실행할 수 있습니다:
+
+```javascript
+// sql.js: SQLite의 WebAssembly 포트
+import initSqlJs from 'sql.js';
+
+const SQL = await initSqlJs({
+  locateFile: file => `https://sql.js.org/dist/${file}`
+});
+
+const db = new SQL.Database();
+
+// 테이블 생성
+db.run("CREATE TABLE users (id INTEGER, name TEXT)");
+db.run("INSERT INTO users VALUES (1, 'Alice')");
+
+// 쿼리
+const result = db.exec("SELECT * FROM users");
+console.log(result);
+
+// 완전한 SQL 데이터베이스가 브라우저 안에서!
+```
+
+<Callout type='info' title='오프라인 퍼스트 애플리케이션'>
+WebAssembly + SQLite/PostgreSQL 조합으로 **완전한 오프라인 애플리케이션** 구현 가능:
+
+- 로컬에서 모든 데이터 처리
+- 네트워크 필요 없음
+- 빠른 응답 속도
+- 프라이버시 보호
+</Callout>
+
+### 언어 런타임: Python, Ruby, .NET
+
+다른 프로그래밍 언어들도 웹으로 왔습니다:
+
+<Steps>
+<Step title="Pyodide: Python in Browser">
+전체 Python 인터프리터 + NumPy, Pandas 등 과학 라이브러리
+</Step>
+
+<Step title="Ruby.wasm">
+Ruby 인터프리터를 WebAssembly로
+</Step>
+
+<Step title="Blazor (.NET)">
+C#으로 웹 애플리케이션 작성, WebAssembly로 실행
+</Step>
+
+<Step title="Go, Rust">
+Go와 Rust도 WebAssembly 타겟 지원
+</Step>
+</Steps>
+
+```python
+# Pyodide: 브라우저에서 Python!
+from js import document
+import numpy as np
+import pandas as pd
+
+# NumPy 사용
+data = np.random.rand(100, 100)
+result = np.linalg.inv(data)
+
+# Pandas 사용
+df = pd.DataFrame({'x': [1, 2, 3], 'y': [4, 5, 6]})
+print(df.describe())
+
+# DOM 조작
+document.getElementById('output').innerHTML = str(result)
+
+# 서버 없이 브라우저에서 데이터 과학!
+```
+
+### 블록체인과 암호화
+
+암호화 연산은 CPU 집약적입니다. WebAssembly가 적합하죠:
+
+```javascript
+// WebAssembly로 가속화된 암호화
+
+// 1. Bitcoin mining (교육용)
+const wasm = await WebAssembly.instantiateStreaming(
+  fetch('sha256.wasm')
+);
+
+function mineBlock(data, difficulty) {
+  let nonce = 0;
+  while (true) {
+    const hash = wasm.instance.exports.sha256(data, nonce);
+    if (hash < difficulty) {
+      return nonce;
+    }
+    nonce++;
+  }
+}
+
+// 2. 영지식 증명 (Zero-Knowledge Proofs)
+// zkSNARKs 계산을 WebAssembly로 가속
+
+// 3. 지갑 애플리케이션
+// 키 생성, 서명 등을 안전하고 빠르게
+```
+
+### 엣지 컴퓨팅: Cloudflare Workers, Fastly
+
+WebAssembly는 **서버리스 엣지 컴퓨팅**에서도 사용됩니다:
+
+<Card title="Cloudflare Workers" description="엣지에서 WebAssembly 실행">
+
+**개념:**
+- CDN 엣지 노드에서 코드 실행
+- JavaScript 또는 WebAssembly
+- 전 세계 200+ 위치에서 실행
+
+**장점:**
+- 낮은 레이턴시 (사용자와 가까움)
+- 확장성 (자동 스케일)
+- 보안성 (샌드박스)
+
+**사용 사례:**
+- API 라우팅
+- 이미지 최적화
+- A/B 테스팅
+- 봇 감지
+
+</Card>
+
+```javascript
+// Cloudflare Worker with Rust + WebAssembly
+
+// Rust 코드
+#[wasm_bindgen]
+pub fn process_request(data: &str) -> String {
+  // 복잡한 처리...
+  format!("Processed: {}", data)
+}
+
+// Worker 코드 (JavaScript)
+import { process_request } from './module.wasm';
+
+addEventListener('fetch', event => {
+  event.respondWith(handleRequest(event.request));
+});
+
+async function handleRequest(request) {
+  const result = process_request(await request.text());
+  return new Response(result);
+}
+
+// 전 세계 엣지에서 Rust 코드 실행!
+```
+
+---
+
+## Chapter 5: WebAssembly의 미래
+
+### WASI: WebAssembly System Interface
+
+WebAssembly는 브라우저를 넘어서고 있습니다. **WASI (WebAssembly System Interface)**는 WebAssembly를 **범용 바이트코드**로 만드는 시도입니다:
+
+```rust
+// Rust 코드를 WASI로 컴파일
+use std::fs::File;
+use std::io::Write;
+
+fn main() {
+  let mut file = File::create("hello.txt").unwrap();
+  file.write_all(b"Hello, WASI!").unwrap();
+}
+
+// 컴파일
+// rustc --target wasm32-wasi main.rs
+
+// 실행 (브라우저가 아닌 런타임에서)
+// wasmtime main.wasm
+```
+
+<Callout type='success' title='WASI의 비전'>
+"만약 WASM+WASI가 2008년에 존재했다면, Docker를 만들 필요가 없었을 것입니다."
+- Solomon Hykes (Docker 창시자)
+
+**목표:**
+- Write Once, Run Anywhere (진짜로)
+- 플랫폼 독립적인 바이너리
+- 샌드박스 보안
+- 작은 풋프린트
+</Callout>
+
+### WebAssembly 2.0의 새로운 기능들
+
+<Steps>
+<Step title="멀티 스레드 (Threads)">
+SharedArrayBuffer로 진정한 병렬 처리
+</Step>
+
+<Step title="SIMD (Single Instruction, Multiple Data)">
+벡터 연산 가속화
+</Step>
+
+<Step title="예외 처리 (Exception Handling)">
+C++, Java 등의 예외를 직접 지원
+</Step>
+
+<Step title="가비지 컬렉션 (GC)">
+Java, Go, C# 등을 더 효율적으로 지원
+</Step>
+
+<Step title="인터페이스 타입">
+언어 간 상호운용성 개선
+</Step>
+</Steps>
+
+```wat
+;; SIMD 예제 (WebAssembly 2.0)
+(module
+  (func $add_vectors (param $a v128) (param $b v128) (result v128)
+    local.get $a
+    local.get $b
+    i32x4.add  ;; 4개의 32비트 정수를 동시에 더함
+  )
+)
+
+;; 한 번에 4개의 연산 = 4배 빠름!
+```
+
+### Component Model: 진정한 플러그인 시스템
+
+WebAssembly Component Model은 **언어 독립적인 컴포넌트 시스템**을 목표로 합니다:
+
+```wit
+// WebAssembly Interface Type (WIT)
+
+interface image-processor {
+  record image {
+    width: u32,
+    height: u32,
+    data: list<u8>,
+  }
+  
+  blur: func(img: image, radius: u32) -> image
+  sharpen: func(img: image, amount: float32) -> image
+}
+
+// Rust, C++, Go 등 어떤 언어로든 구현 가능
+// 다른 언어에서도 사용 가능
+// 진정한 "Write Once, Use Everywhere"
+```
+
+<Card title="Component Model의 가능성" description="플러그인 생태계">
+
+**현재 문제:**
+- Photoshop 플러그인: C++로 작성
+- VSCode 확장: JavaScript만
+- Browser 확장: JavaScript + 특정 API
+
+**Component Model 미래:**
+- 어떤 언어로든 플러그인 작성
+- 플랫폼 독립적
+- 샌드박스로 안전
+- 표준화된 인터페이스
+
+**영향:**
+- 에디터, IDE
+- DAW, 비디오 편집 도구
+- 게임 엔진
+- 서버리스 플랫폼
+
+</Card>
+
+---
+
+## 에필로그: 웹 성능의 마지막 퍼즐
+
+### Flash에서 WebAssembly까지
+
+2010년, Flash가 무너지면서 웹 개발자들은 고민했습니다:
+
+_"고성능 웹 애플리케이션을 어떻게 만들 수 있을까?"_
+
+2024년, 그 답은 명확합니다: **WebAssembly**.
+
+<Card title="WebAssembly가 가능하게 한 것들" description="Flash를 넘어서">
+
+**이전에는 불가능했던 것:**
+- AAA급 게임을 브라우저에서
+- Photoshop, Figma 같은 전문 도구
+- 비디오 편집, 3D 모델링
+- 데이터 과학, 머신러닝
+- 오프라인 우선 애플리케이션
+
+**새로운 패러다임:**
+- 설치 필요 없음
+- 크로스 플랫폼 (진짜로)
+- 프라이버시 보호 (로컬 처리)
+- 빠른 로딩
+- 자동 업데이트
+
+</Card>
+
+<Callout type='success' title='WebAssembly의 승리'>
+
+**Flash보다 나은 점:**
+- 오픈 표준 (W3C)
+- 모든 브라우저 지원
+- 보안 (샌드박스)
+- 성능 (네이티브급)
+- 언어 독립적
+
+**네이티브 앱보다 나은 점:**
+- 설치 불필요
+- 즉시 실행
+- 크로스 플랫폼
+- 자동 업데이트
+
+</Callout>
+
+### JavaScript와의 공존
+
+WebAssembly는 JavaScript를 **대체하지 않습니다**. 함께 작동합니다:
+
+```javascript
+// 완벽한 조합
+
+// UI와 접착 코드: JavaScript
+import { processImage } from './image-processor.wasm';
+
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+
+const imageData = ctx.getImageData(0, 0, width, height);
+
+// 고성능 처리: WebAssembly
+const processed = processImage(
+  imageData.data,
+  imageData.width,
+  imageData.height,
+  filters
+);
+
+// 결과 표시: JavaScript
+ctx.putImageData(processed, 0, 0);
+
+// 각자 잘하는 일을 하는 것
+```
+
+<Blockquote author='Brendan Eich'>
+"JavaScript는 웹의 접착제입니다. WebAssembly는 엔진입니다. 함께 작동할 때 가장 강력합니다."
+</Blockquote>
+
+### 웹을 넘어서: WASI와 범용 바이트코드
+
+WebAssembly의 미래는 **웹을 넘어섭니다**:
+
+```bash
+# 다양한 플랫폼에서 동일한 WASM 바이너리 실행
+
+# 브라우저
+<script src="app.wasm"></script>
+
+# Cloudflare Workers (엣지)
+wrangler publish
+
+# Docker 대신 (WASI)
+wasmtime app.wasm
+
+# 임베디드 시스템
+wasm3 app.wasm
+
+# 블록체인 스마트 컨트랙트
+near deploy app.wasm
+
+# 하나의 바이너리, 모든 플랫폼!
+```
+
+<Callout type='info' title='WebAssembly의 미래'>
+
+**단기 (1-2년):**
+- 더 많은 언어 지원
+- 더 나은 디버깅 도구
+- Component Model 안정화
+
+**중기 (3-5년):**
+- WASI 표준화
+- 주류 백엔드 플랫폼으로
+- 플러그인 생태계 성장
+
+**장기 (5-10년):**
+- 범용 바이트코드 표준
+- OS 없이 WASM 직접 실행?
+- "Write Once, Run Anywhere"의 실현
+
+</Callout>
+
+### 성능의 마지막 퍼즐
+
+2010년, 웹은 성능의 한계에 부딪혔습니다. JavaScript만으로는 부족했습니다.
+
+2024년, 그 한계는 사라졌습니다. WebAssembly는 **웹 성능의 마지막 퍼즐**을 완성했습니다.
+
+<Blockquote author='Lin Clark' cite='Mozilla 엔지니어'>
+"WebAssembly는 웹 플랫폼의 완성입니다. 이제 웹에서 불가능한 것이 없습니다."
+</Blockquote>
+
+이제 웹은 단순한 문서 플랫폼이 아닙니다. **범용 애플리케이션 플랫폼**입니다. 그리고 WebAssembly가 그것을 가능하게 했습니다.
+
+---
+
+<ReferenceList title='참고자료'>
+  <Reference
+    title='WebAssembly Official Site'
+    description='WebAssembly 공식 사이트 및 명세'
+    href='https://webassembly.org/'
+    type='documentation'
+    author='W3C WebAssembly Working Group'
+  />
+  <Reference
+    title='WebAssembly: A Binary Instruction Format'
+    description='WebAssembly 설계 문서'
+    href='https://www.w3.org/TR/wasm-core-1/'
+    type='documentation'
+    author='W3C'
+  />
+  <Reference
+    title='asm.js: A subset of JavaScript'
+    description='asm.js 명세와 배경'
+    href='http://asmjs.org/'
+    type='documentation'
+    author='Mozilla'
+  />
+  <Reference
+    title='Emscripten Documentation'
+    description='C/C++를 WebAssembly로 컴파일'
+    href='https://emscripten.org/'
+    type='documentation'
+    author='Emscripten Project'
+  />
+  <Reference
+    title='WASI: WebAssembly System Interface'
+    description='WebAssembly의 시스템 인터페이스'
+    href='https://wasi.dev/'
+    type='documentation'
+    author='Bytecode Alliance'
+  />
+  <Reference
+    title='WebAssembly cut Figma load times by 3x'
+    description='Figma의 WebAssembly 적용 사례'
+    href='https://www.figma.com/blog/webassembly-cut-figmas-load-time-by-3x/'
+    type='article'
+    author='Figma Engineering'
+  />
+</ReferenceList>
+
+---
+
+_다음 에피소드에서는 "도커: 컨테이너가 바꾼 세상"을 다룰 예정입니다. "내 컴퓨터에서는 되는데" 문제를 영원히 해결한 기술을 살펴보겠습니다._
+
