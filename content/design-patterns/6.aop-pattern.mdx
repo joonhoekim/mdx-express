@@ -1,0 +1,298 @@
+---
+title: 'AOP: 횡단 관심사의 분리'
+description: '로깅·권한·트랜잭션·캐싱 같은 공통 기능을 비즈니스 코드에서 떼어내는 방법'
+date: '2025-12-06'
+author: 'JH'
+tags: ['Design Patterns', 'AOP', 'Cross-cutting Concern', 'NestJS', 'Express']
+series: 'SI 실전 디자인 패턴'
+---
+
+# AOP: 횡단 관심사의 분리
+
+## 시작하며
+
+SI 프로젝트를 오래 하다 보면 특정 코드가 **모든 서비스 함수에 복붙**됩니다.
+
+- API 호출 로깅
+- 권한 체크
+- 트랜잭션 처리
+- 캐싱/인증 토큰 갱신
+- 성능 측정/모니터링
+
+비즈니스 로직은 점점 가려지고, 공통 코드가 지면을 덮습니다. **AOP(Aspect-Oriented Programming)**는 이런 횡단 관심사를 핵심 로직에서 분리해 **얇은 핵심, 두터운 인프라**를 만드는 기법입니다.
+
+---
+
+## 문제 상황: 모든 함수에 같은 코드
+
+```typescript
+// ❌ 반복되는 패턴
+async function createOrder(dto: CreateOrderDto, user: User) {
+  const start = Date.now();
+  const traceId = generateTraceId();
+  try {
+    requireAdmin(user); // 권한
+    await beginTransaction();
+
+    const order = await orderRepo.save(dto);
+    await auditLog({ traceId, userId: user.id, action: 'CREATE', orderId: order.id });
+
+    await commit();
+    return order;
+  } catch (error) {
+    await rollback();
+    await notifyError(traceId, error);
+    throw error;
+  } finally {
+    recordMetrics('createOrder', Date.now() - start);
+  }
+}
+```
+
+- 로깅/트랜잭션/권한/모니터링이 **핵심 도메인**을 묻어버립니다.
+- 함수마다 복붙하면 누락·순서 오류·예외 처리 편차가 생깁니다.
+- 요구사항이 바뀌면 30개 함수를 동시에 고쳐야 합니다.
+
+---
+
+## AOP 핵심 개념
+
+<Callout type="info" title="용어 정리">
+- **Join Point**: 로직이 실행되는 지점 (메서드 호출, 응답 반환 등)
+- **Pointcut**: 어떤 Join Point에 AOP를 적용할지 정의
+- **Advice**: 실제로 주입되는 부가기능 (before/after/around)
+- **Aspect**: 관련 Advice들의 묶음 (예: LoggingAspect)
+</Callout>
+
+아이디어는 단순합니다. **핵심 로직을 감싸는 래퍼를 체계적으로 주입**해서 공통 기능을 바깥으로 뺍니다. Decorator 패턴과 닮았지만, AOP는 **적용 지점을 선언적으로 지정**할 수 있다는 점이 다릅니다.
+
+---
+
+## NestJS 실전: Interceptor + Guard + Filter
+
+NestJS는 AOP를 위한 훅을 이미 제공합니다.
+
+### 1) 로깅/측정: Interceptor
+
+```typescript
+// common/interceptors/logging.interceptor.ts
+@Injectable()
+export class LoggingInterceptor implements NestInterceptor {
+  private readonly logger = new Logger('HTTP');
+
+  async intercept(context: ExecutionContext, next: CallHandler) {
+    const now = performance.now();
+    const req = context.switchToHttp().getRequest<Request>();
+    const traceId = req.headers['x-trace-id'] ?? crypto.randomUUID();
+
+    this.logger.log(`[${traceId}] ${req.method} ${req.url}`);
+
+    return next.handle().pipe(
+      tap(() => {
+        const ms = Math.round(performance.now() - now);
+        this.logger.log(`[${traceId}] ${req.method} ${req.url} ${ms}ms`);
+      }),
+    );
+  }
+}
+```
+
+### 2) 권한: Guard
+
+```typescript
+// common/guards/role.guard.ts
+@Injectable()
+export class RoleGuard implements CanActivate {
+  constructor(private readonly roles: string[]) {}
+
+  canActivate(ctx: ExecutionContext): boolean {
+    const req = ctx.switchToHttp().getRequest();
+    return this.roles.includes(req.user?.role);
+  }
+}
+```
+
+사용 시:
+
+```typescript
+@UseGuards(new RoleGuard(['ADMIN']))
+@UseInterceptors(LoggingInterceptor)
+@Post('/orders')
+create(@Body() dto: CreateOrderDto) { ... }
+```
+
+### 3) 트랜잭션/캐싱: Interceptor 조합
+
+```typescript
+// common/interceptors/transaction.interceptor.ts
+@Injectable()
+export class TransactionInterceptor implements NestInterceptor {
+  constructor(private readonly dataSource: DataSource) {}
+
+  async intercept(ctx: ExecutionContext, next: CallHandler) {
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    return next.handle().pipe(
+      tap({
+        next: () => queryRunner.commitTransaction(),
+        error: () => queryRunner.rollbackTransaction(),
+      }),
+      finalize(() => queryRunner.release()),
+    );
+  }
+}
+```
+
+필요한 API에 `@UseInterceptors(TransactionInterceptor)`만 붙이면 됩니다.
+
+---
+
+## Express/Node에서도 가능: 고차 함수 래핑
+
+DI 프레임워크가 없을 때는 **고차 함수(HOF)**로 비슷한 효과를 얻습니다.
+
+```typescript
+// aop/wrap.ts
+type Handler = (req: Request, res: Response) => Promise<void>;
+
+export const withLogging = (handler: Handler): Handler => async (req, res) => {
+  const start = Date.now();
+  await handler(req, res);
+  console.log(`${req.method} ${req.url} ${Date.now() - start}ms`);
+};
+
+export const withTryCatch = (handler: Handler): Handler => async (req, res) => {
+  try {
+    await handler(req, res);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ message: 'internal error' });
+  }
+};
+
+export const compose = (...wrappers: Array<(h: Handler) => Handler>) =>
+  wrappers.reduceRight((acc, fn) => fn(acc));
+```
+
+사용:
+
+```typescript
+const base = async (req, res) => { /* 핵심 로직 */ };
+app.post('/orders', compose(withLogging, withTryCatch)(base));
+```
+
+---
+
+## Next.js Fullstack에서의 적용 팁
+
+Next.js는 요청 스코프 DI가 없지만, **함수형 AOP**로 충분히 응용 가능합니다.
+
+- **Route Handler**: `(req) => withLogging(withAuth(withErrorBoundary(base)))(req)` 형태로 합성
+- **Middleware**: 전역 Cross-cutting은 `/middleware.ts`에서 처리 (로그/트레이싱/AB 테스트)
+- **Server Actions**: 공통 래퍼 `withActionGuard(actionFn)`을 만들어 권한/로깅을 적용
+
+```typescript
+// app/lib/aop.ts
+export const withActionGuard =
+  <T extends (...args: any[]) => Promise<any>>(fn: T) =>
+  async (...args: Parameters<T>) => {
+    const user = await getSession();
+    if (!user) throw new Error('unauthorized');
+    const started = performance.now();
+    try {
+      return await fn(...args);
+    } finally {
+      console.log('action ms', Math.round(performance.now() - started));
+    }
+  };
+```
+
+- **주의**: Edge 런타임 제약이 있으니 Node 전용 라이브러리(예: 일부 DB/Redis 드라이버)는 Route Handler(노드 런타임)로 한정합니다.
+- 복잡도가 커지면 **BFF/백엔드로 분리**해 NestJS 스타일 AOP를 적용하는 것이 유지보수에 유리합니다.
+
+---
+
+## Memory KV Store(예: Redis)와의 AOP 조합
+
+캐싱·락·멱등성 같은 횡단 관심사를 Redis로 처리하면 성능과 안정성을 얻습니다.
+
+```typescript
+// common/interceptors/cache.interceptor.ts
+@Injectable()
+export class CacheInterceptor implements NestInterceptor {
+  constructor(private readonly redis: Redis) {}
+
+  async intercept(ctx: ExecutionContext, next: CallHandler) {
+    const req = ctx.switchToHttp().getRequest<Request>();
+    const key = `cache:${req.method}:${req.url}:${JSON.stringify(req.body ?? {})}`;
+
+    const cached = await this.redis.get(key);
+    if (cached) return of(JSON.parse(cached));
+
+    return next.handle().pipe(
+      tap((data) => this.redis.set(key, JSON.stringify(data), 'EX', 60)),
+    );
+  }
+}
+```
+
+```typescript
+// 멱등성/중복 방지 예시 (간단 버전)
+@Injectable()
+export class IdempotencyInterceptor implements NestInterceptor {
+  constructor(private readonly redis: Redis) {}
+
+  async intercept(ctx: ExecutionContext, next: CallHandler) {
+    const req = ctx.switchToHttp().getRequest<Request>();
+    const key = `idem:${req.headers['idempotency-key']}`;
+    if (!key) return next.handle();
+
+    const exists = await this.redis.get(key);
+    if (exists) throw new BadRequestException('duplicate request');
+
+    await this.redis.set(key, '1', 'EX', 60);
+    return next.handle();
+  }
+}
+```
+
+- **스탬피드 방지**: 캐시 미스 시 하나만 재계산하도록 `SET NX PX` 기반 락 데코레이터를 추가합니다.
+- **Stale-While-Revalidate**: 응답을 즉시 주고, 백그라운드에서 갱신하는 `SWRInterceptor`를 한 겹 더 둘러 성능과 신선도를 균형 있게 가져갑니다.
+
+---
+
+## 적용 체크리스트
+
+<Steps>
+  <Step title="Join Point 결정">
+    컨트롤러/서비스/리포지토리 중 어디에 훅을 걸지 정합니다. 지나친 중첩은 피하세요.
+  </Step>
+  <Step title="순서 정의">
+    트랜잭션 → 권한 → 로깅 순서처럼 일관된 체인을 정해둡니다.
+  </Step>
+  <Step title="예외 정책">
+    Advice가 에러를 삼킬지, 래핑해서 던질지 규칙을 명확히 합니다.
+  </Step>
+  <Step title="환경 분리">
+    로컬·스테이징·프로덕션에서 로깅/트레이싱 레벨을 분리합니다.
+  </Step>
+  <Step title="성능 측정">
+    Interceptor/미들웨어로 p95, p99를 기록하고 병목을 찾습니다.
+  </Step>
+</Steps>
+
+---
+
+## 언제 피해야 할까?
+
+- 단순 CRUD에 과도한 AOP를 붙이면 **오버엔지니어링**이 됩니다.
+- 상태 공유가 필요한 복잡한 흐름은 AOP보다 **명시적 파이프라인**(예: 함수 합성, 워크플로 엔진)이 더 읽기 쉽습니다.
+- 팀에 AOP 사용 경험이 부족하다면, 먼저 1~2개의 Aspect(로깅/에러)만 도입하고 점진적으로 확장하세요.
+
+---
+
+## 마치며
+
+AOP는 "핵심 로직을 가리지 않으면서 공통 기능을 일관되게 적용"하는 실용적 무기입니다. 로깅/권한/트랜잭션/캐싱/모니터링이 여기저기 흩어져 있다면, 지금 당장 Interceptor·미들웨어·고차 함수로 한 겹 감싸는 것부터 시작하세요. 코드가 얇아지고, 실수는 줄어들며, 요구사항 변경에도 빠르게 대응할 수 있습니다.
