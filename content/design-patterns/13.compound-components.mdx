@@ -1,0 +1,1092 @@
+---
+title: Compound Components
+description: 복잡한 UI를 유연하게 구성하는 컴포넌트 설계 패턴에 대해 알아봅니다.
+---
+
+# Compound Components: 복잡한 UI의 유연한 구성
+
+<Callout type="info" title="핵심 요약">
+  **Compound Components**는 여러 개의 하위 컴포넌트가 함께 동작하여 하나의 기능을 완성하는 패턴입니다. 
+  단일 컴포넌트에 수십 개의 props를 전달하는 대신, 구조적으로 조립하여 사용자에게 제어권을 돌려줍니다.
+</Callout>
+
+컴포넌트를 만들다 보면 어느 순간 이런 괴물을 마주하게 됩니다:
+
+```tsx
+<Select
+  title="사용자 선택"
+  options={users}
+  value={selectedUser}
+  onChange={handleChange}
+  renderOption={(user) => <UserItem user={user} />}
+  showSearch={true}
+  searchPlaceholder="검색..."
+  onSearch={handleSearch}
+  isSearchable={true}
+  isClearable={true}
+  isDisabled={false}
+  isLoading={false}
+  loadingMessage="로딩 중..."
+  noOptionsMessage="결과 없음"
+  placement="bottom"
+  menuMaxHeight={300}
+  // ... 30개가 넘는 props들
+/>
+```
+
+Props가 이렇게 많아지면:
+- 어떤 props가 필수인지 알기 어렵습니다
+- 새로운 기능 추가 시 props가 기하급수적으로 늘어납니다
+- 컴포넌트 제작자가 예상하지 못한 디자인은 구현하기 어렵습니다
+- 타입스크립트의 자동완성이 느려지고 코드 가독성이 떨어집니다
+
+Compound Components 패턴은 이 문제를 "HTML처럼 구조적으로 작성하기"로 해결합니다.
+
+## 1. Props Hell에서 탈출하기
+
+같은 기능을 Compound Components로 구현하면 어떻게 달라질까요?
+
+```tsx
+<Select value={selectedUser} onChange={handleChange}>
+  <Select.Trigger>
+    <Select.Value placeholder="사용자 선택" />
+    <Select.Icon />
+  </Select.Trigger>
+  
+  <Select.Content>
+    <Select.Search placeholder="검색..." />
+    
+    <Select.Group>
+      <Select.Label>최근 사용자</Select.Label>
+      {recentUsers.map(user => (
+        <Select.Item key={user.id} value={user}>
+          <UserAvatar user={user} />
+          <span>{user.name}</span>
+        </Select.Item>
+      ))}
+    </Select.Group>
+    
+    <Select.Separator />
+    
+    <Select.Group>
+      <Select.Label>전체 사용자</Select.Label>
+      {allUsers.map(user => (
+        <Select.Item key={user.id} value={user}>
+          {user.name}
+        </Select.Item>
+      ))}
+    </Select.Group>
+  </Select.Content>
+</Select>
+```
+
+<div className="grid grid-cols-1 md:grid-cols-2 gap-4 my-6">
+  <Card title="구조가 명확해집니다" icon={<Icon name="Layout" className="text-blue-500" />}>
+    HTML의 `<select>`와 `<option>`처럼 직관적입니다. 어디가 트리거고, 어디가 내용인지 코드만 봐도 바로 알 수 있습니다.
+  </Card>
+  <Card title="자유도가 높아집니다" icon={<Icon name="Palette" className="text-purple-500" />}>
+    제작자가 예상 못한 UI도 구현 가능합니다. 아바타를 넣을지, 아이콘을 넣을지, 그룹을 나눌지 - 모두 사용자가 결정합니다.
+  </Card>
+</div>
+
+## 2. HTML이 알려주는 패턴
+
+사실 Compound Components는 새로운 개념이 아닙니다. HTML에서 이미 익숙하게 사용하고 있는 패턴이죠.
+
+<Tabs defaultValue="select">
+  <TabsList>
+    <TabsTrigger value="select">select</TabsTrigger>
+    <TabsTrigger value="table">table</TabsTrigger>
+    <TabsTrigger value="form">form</TabsTrigger>
+  </TabsList>
+  
+  <TabsContent value="select">
+    ```html
+    <select>
+      <optgroup label="과일">
+        <option value="apple">사과</option>
+        <option value="banana">바나나</option>
+      </optgroup>
+      <optgroup label="채소">
+        <option value="carrot">당근</option>
+      </optgroup>
+    </select>
+    ```
+    
+    `<select>` 혼자서는 아무것도 못합니다. `<option>`과 함께 있어야 의미가 있죠.
+  </TabsContent>
+  
+  <TabsContent value="table">
+    ```html
+    <table>
+      <thead>
+        <tr>
+          <th>이름</th>
+          <th>나이</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>홍길동</td>
+          <td>30</td>
+        </tr>
+      </tbody>
+    </table>
+    ```
+    
+    `<table>`, `<thead>`, `<tbody>`, `<tr>`, `<th>`, `<td>` - 각자의 역할이 명확하고, 함께 동작합니다.
+  </TabsContent>
+  
+  <TabsContent value="form">
+    ```html
+    <form>
+      <fieldset>
+        <legend>개인정보</legend>
+        <label>
+          이름: <input type="text" name="name" />
+        </label>
+        <label>
+          이메일: <input type="email" name="email" />
+        </label>
+      </fieldset>
+      <button type="submit">제출</button>
+    </form>
+    ```
+    
+    `<form>` 안의 `<button type="submit">`은 자동으로 폼을 제출합니다. 명시적인 연결 없이도 암묵적으로 동작하죠.
+  </TabsContent>
+</Tabs>
+
+Compound Components는 바로 이 철학을 React 컴포넌트로 가져온 것입니다.
+
+## 3. 기본 개념: 상태는 부모가, 렌더링은 자식이
+
+Compound Components의 핵심은 **"암묵적 상태 공유(Implicit State Sharing)"** 입니다.
+
+```tsx
+// 부모 컴포넌트: 상태 관리
+function Tabs({ children, defaultValue }) {
+  const [activeTab, setActiveTab] = useState(defaultValue);
+  
+  // Context로 자식들에게 상태 공유
+  return (
+    <TabsContext.Provider value={{ activeTab, setActiveTab }}>
+      <div className="tabs">{children}</div>
+    </TabsContext.Provider>
+  );
+}
+
+// 자식 컴포넌트들: Context에서 필요한 것만 가져다 사용
+function TabsList({ children }) {
+  return <div className="tabs-list">{children}</div>;
+}
+
+function TabsTrigger({ value, children }) {
+  const { activeTab, setActiveTab } = useTabsContext();
+  const isActive = activeTab === value;
+  
+  return (
+    <button
+      className={isActive ? 'active' : ''}
+      onClick={() => setActiveTab(value)}
+    >
+      {children}
+    </button>
+  );
+}
+
+function TabsContent({ value, children }) {
+  const { activeTab } = useTabsContext();
+  
+  if (activeTab !== value) return null;
+  return <div className="tabs-content">{children}</div>;
+}
+
+// 네임스페이스 패턴으로 연결
+Tabs.List = TabsList;
+Tabs.Trigger = TabsTrigger;
+Tabs.Content = TabsContent;
+```
+
+<Callout type="success" title="암묵적 연결의 마법">
+  `TabsTrigger`와 `TabsContent`는 명시적으로 연결되어 있지 않습니다. 
+  하지만 같은 `value`를 가진 트리거를 클릭하면 해당 내용이 자동으로 보입니다. 
+  Context를 통한 상태 공유 덕분이죠.
+</Callout>
+
+## 4. 현실 시나리오: 어디에 쓸까?
+
+Compound Components는 특히 **사용자 입력을 받는 복잡한 UI**에서 빛을 발합니다.
+
+### 🎯 Dropdown / Select
+
+가장 대표적인 사례입니다. 트리거, 메뉴, 아이템, 검색창, 구분선 등 여러 요소가 조화롭게 동작해야 하죠.
+
+```tsx
+// Radix UI, Headless UI 같은 라이브러리들이 이 패턴을 사용합니다
+<DropdownMenu>
+  <DropdownMenu.Trigger asChild>
+    <button>옵션</button>
+  </DropdownMenu.Trigger>
+  
+  <DropdownMenu.Content>
+    <DropdownMenu.Item onSelect={() => handleEdit()}>
+      <Icon name="Edit" /> 수정
+    </DropdownMenu.Item>
+    <DropdownMenu.Item onSelect={() => handleDelete()}>
+      <Icon name="Trash" /> 삭제
+    </DropdownMenu.Item>
+    <DropdownMenu.Separator />
+    <DropdownMenu.Item disabled>
+      <Icon name="Archive" /> 보관 (준비 중)
+    </DropdownMenu.Item>
+  </DropdownMenu.Content>
+</DropdownMenu>
+```
+
+**제작자가 예상 못한 디자인도 가능합니다:**
+- 아이템에 아이콘 추가? 그냥 넣으면 됩니다
+- 일부 아이템만 비활성화? `disabled` prop 사용
+- 중간에 구분선? `<Separator />` 추가
+- 각 아이템마다 다른 색상? className으로 자유롭게
+
+### 📋 Modal / Dialog
+
+헤더, 바디, 푸터를 선택적으로 구성하고, 각각 독립적으로 스타일링할 수 있습니다.
+
+```tsx
+<Dialog open={isOpen} onOpenChange={setIsOpen}>
+  <Dialog.Trigger asChild>
+    <button>회원가입</button>
+  </Dialog.Trigger>
+  
+  <Dialog.Portal>
+    <Dialog.Overlay className="backdrop" />
+    <Dialog.Content className="modal">
+      <Dialog.Title>회원가입</Dialog.Title>
+      <Dialog.Description>
+        아래 정보를 입력해주세요.
+      </Dialog.Description>
+      
+      {/* 폼 내용 */}
+      <form onSubmit={handleSubmit}>
+        <input name="email" type="email" />
+        <input name="password" type="password" />
+        
+        <div className="modal-footer">
+          <Dialog.Close asChild>
+            <button type="button">취소</button>
+          </Dialog.Close>
+          <button type="submit">가입</button>
+        </div>
+      </form>
+    </Dialog.Content>
+  </Dialog.Portal>
+</Dialog>
+```
+
+**유연성의 예:**
+- `Dialog.Description`이 필요 없으면 빼면 됩니다
+- 푸터가 필요 없으면 안 넣으면 됩니다
+- `Dialog.Close`를 어디든 배치할 수 있습니다 (X 버튼, 취소 버튼, 배경 클릭 등)
+
+### 🎵 Accordion
+
+각 아코디언 아이템이 독립적이지만, 전체 상태는 부모가 관리하는 구조입니다.
+
+```tsx
+<Accordion type="single" collapsible>
+  <Accordion.Item value="item-1">
+    <Accordion.Trigger>
+      <Icon name="User" /> 계정 설정
+    </Accordion.Trigger>
+    <Accordion.Content>
+      프로필 정보를 수정할 수 있습니다.
+    </Accordion.Content>
+  </Accordion.Item>
+  
+  <Accordion.Item value="item-2">
+    <Accordion.Trigger>
+      <Icon name="Bell" /> 알림 설정
+    </Accordion.Trigger>
+    <Accordion.Content>
+      알림 수신 방법을 선택할 수 있습니다.
+    </Accordion.Content>
+  </Accordion.Item>
+  
+  <Accordion.Item value="item-3" disabled>
+    <Accordion.Trigger>
+      <Icon name="Lock" /> 보안 설정 (준비 중)
+    </Accordion.Trigger>
+    <Accordion.Content>
+      곧 제공될 예정입니다.
+    </Accordion.Content>
+  </Accordion.Item>
+</Accordion>
+```
+
+`type="single"`이면 하나만 열리고, `type="multiple"`이면 여러 개를 동시에 열 수 있습니다. 이 모든 로직이 부모 `Accordion`에 캡슐화되어 있죠.
+
+## 5. 실전 구현: Dropdown 만들기
+
+이론은 이쯤 하고, 실제로 Compound Components를 만들어 봅시다.
+
+### Step 1: Context 설정
+
+```tsx
+// context를 통해 상태를 자식들에게 공유
+interface DropdownContextValue {
+  isOpen: boolean;
+  setIsOpen: (open: boolean) => void;
+  selectedValue: string | null;
+  onSelect: (value: string) => void;
+}
+
+const DropdownContext = createContext<DropdownContextValue | undefined>(undefined);
+
+function useDropdownContext() {
+  const context = useContext(DropdownContext);
+  if (!context) {
+    throw new Error('Dropdown 컴포넌트 내부에서만 사용 가능합니다');
+  }
+  return context;
+}
+```
+
+<Callout type="warning" title="에러 처리 필수">
+  Context를 사용하는 Compound Components에서는 **"컴포넌트가 올바른 부모 안에 있는지"** 체크하는 것이 중요합니다. 
+  그렇지 않으면 사용자가 실수로 `<Dropdown.Item>`을 `<Dropdown>` 밖에서 사용했을 때 알 수 없는 에러가 발생합니다.
+</Callout>
+
+### Step 2: 부모 컴포넌트
+
+```tsx
+interface DropdownProps {
+  children: React.ReactNode;
+  value?: string;
+  onValueChange?: (value: string) => void;
+}
+
+function Dropdown({ children, value, onValueChange }: DropdownProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [selectedValue, setSelectedValue] = useState<string | null>(value ?? null);
+
+  const handleSelect = (newValue: string) => {
+    setSelectedValue(newValue);
+    onValueChange?.(newValue);
+    setIsOpen(false); // 선택 후 자동으로 닫기
+  };
+
+  return (
+    <DropdownContext.Provider 
+      value={{ 
+        isOpen, 
+        setIsOpen, 
+        selectedValue, 
+        onSelect: handleSelect 
+      }}
+    >
+      <div className="dropdown">{children}</div>
+    </DropdownContext.Provider>
+  );
+}
+```
+
+### Step 3: 자식 컴포넌트들
+
+```tsx
+// 트리거 버튼
+function DropdownTrigger({ children }: { children: React.ReactNode }) {
+  const { isOpen, setIsOpen } = useDropdownContext();
+  
+  return (
+    <button
+      className="dropdown-trigger"
+      onClick={() => setIsOpen(!isOpen)}
+      aria-expanded={isOpen}
+      aria-haspopup="true"
+    >
+      {children}
+    </button>
+  );
+}
+
+// 메뉴 컨테이너
+function DropdownContent({ children }: { children: React.ReactNode }) {
+  const { isOpen, setIsOpen } = useDropdownContext();
+  const ref = useRef<HTMLDivElement>(null);
+  
+  // 외부 클릭 시 닫기
+  useEffect(() => {
+    if (!isOpen) return;
+    
+    const handleClickOutside = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isOpen, setIsOpen]);
+  
+  if (!isOpen) return null;
+  
+  return (
+    <div ref={ref} className="dropdown-content">
+      {children}
+    </div>
+  );
+}
+
+// 개별 아이템
+interface DropdownItemProps {
+  value: string;
+  children: React.ReactNode;
+  disabled?: boolean;
+}
+
+function DropdownItem({ value, children, disabled = false }: DropdownItemProps) {
+  const { selectedValue, onSelect } = useDropdownContext();
+  const isSelected = selectedValue === value;
+  
+  return (
+    <button
+      className={`dropdown-item ${isSelected ? 'selected' : ''}`}
+      onClick={() => !disabled && onSelect(value)}
+      disabled={disabled}
+      role="option"
+      aria-selected={isSelected}
+    >
+      {children}
+      {isSelected && <Icon name="Check" className="ml-auto" />}
+    </button>
+  );
+}
+
+// 구분선
+function DropdownSeparator() {
+  return <div className="dropdown-separator" role="separator" />;
+}
+
+// 라벨
+function DropdownLabel({ children }: { children: React.ReactNode }) {
+  return <div className="dropdown-label">{children}</div>;
+}
+```
+
+### Step 4: 네임스페이스로 연결
+
+```tsx
+// 사용자 친화적인 API를 위해 네임스페이스 패턴 사용
+Dropdown.Trigger = DropdownTrigger;
+Dropdown.Content = DropdownContent;
+Dropdown.Item = DropdownItem;
+Dropdown.Separator = DropdownSeparator;
+Dropdown.Label = DropdownLabel;
+
+export { Dropdown };
+```
+
+### Step 5: 사용하기
+
+```tsx
+function UserSelector() {
+  const [user, setUser] = useState('');
+  
+  return (
+    <Dropdown value={user} onValueChange={setUser}>
+      <Dropdown.Trigger>
+        {user || '사용자 선택'}
+      </Dropdown.Trigger>
+      
+      <Dropdown.Content>
+        <Dropdown.Label>개발팀</Dropdown.Label>
+        <Dropdown.Item value="john">John (Frontend)</Dropdown.Item>
+        <Dropdown.Item value="jane">Jane (Backend)</Dropdown.Item>
+        
+        <Dropdown.Separator />
+        
+        <Dropdown.Label>디자인팀</Dropdown.Label>
+        <Dropdown.Item value="alice">Alice (UI/UX)</Dropdown.Item>
+        <Dropdown.Item value="bob" disabled>Bob (휴가 중)</Dropdown.Item>
+      </Dropdown.Content>
+    </Dropdown>
+  );
+}
+```
+
+<Callout type="success" title="완성!">
+  이제 Dropdown 컴포넌트를 사용하는 개발자는 어떤 구조로 동작하는지 신경 쓸 필요 없이, 
+  원하는 대로 조립해서 쓰면 됩니다. 마치 LEGO 블록처럼요.
+</Callout>
+
+## 6. 장점과 트레이드오프
+
+모든 패턴이 그렇듯, Compound Components도 만능은 아닙니다.
+
+### ✅ 장점
+
+<div className="grid grid-cols-1 md:grid-cols-2 gap-4 my-6">
+  <Card title="유연성 (Flexibility)" icon={<Icon name="Workflow" className="text-green-500" />}>
+    사용자가 UI 구조를 완전히 제어할 수 있습니다. 순서를 바꾸거나, 일부를 생략하거나, 새로운 요소를 추가하는 것이 자유롭습니다.
+  </Card>
+  
+  <Card title="관심사 분리 (Separation of Concerns)" icon={<Icon name="Split" className="text-blue-500" />}>
+    각 서브 컴포넌트가 하나의 역할만 담당합니다. `Trigger`는 열기만, `Item`은 선택만, `Content`는 표시만 - 단일 책임 원칙(SRP)을 따릅니다.
+  </Card>
+  
+  <Card title="읽기 쉬운 코드 (Readable Code)" icon={<Icon name="BookOpen" className="text-purple-500" />}>
+    HTML처럼 구조적으로 작성되어 있어 코드만 봐도 어떤 UI가 그려질지 상상하기 쉽습니다. 새로운 팀원의 온보딩 시간이 줄어듭니다.
+  </Card>
+  
+  <Card title="확장 용이성 (Extensibility)" icon={<Icon name="Puzzle" className="text-orange-500" />}>
+    새로운 서브 컴포넌트를 추가해도 기존 코드를 수정할 필요가 없습니다. `Dropdown.Search`를 추가하고 싶다면 그냥 만들어서 붙이면 됩니다.
+  </Card>
+</div>
+
+### ⚠️ 단점 (트레이드오프)
+
+<Tabs defaultValue="complexity">
+  <TabsList>
+    <TabsTrigger value="complexity">복잡도</TabsTrigger>
+    <TabsTrigger value="learning">학습 곡선</TabsTrigger>
+    <TabsTrigger value="structure">구조 강제 불가</TabsTrigger>
+  </TabsList>
+  
+  <TabsContent value="complexity">
+    **구현 복잡도가 높습니다**
+    
+    Context, Custom Hook, 여러 개의 서브 컴포넌트 - 구현해야 할 코드량이 많습니다. 
+    단순한 UI에는 과도한(overkill) 패턴일 수 있습니다.
+    
+    ```tsx
+    // 단순한 토글 버튼에 이 패턴을 쓰면?
+    // ❌ 오버엔지니어링
+    <Toggle>
+      <Toggle.Button />
+      <Toggle.Label />
+    </Toggle>
+    
+    // ✅ 그냥 이게 나아요
+    <button onClick={() => setIsOn(!isOn)}>
+      {isOn ? 'ON' : 'OFF'}
+    </button>
+    ```
+  </TabsContent>
+  
+  <TabsContent value="learning">
+    **팀원들의 학습 비용**
+    
+    Compound Components를 처음 보는 개발자는 "왜 이렇게 복잡하게 만들었지?"라고 생각할 수 있습니다. 
+    특히 Context API에 익숙하지 않다면 더욱 그렇죠.
+    
+    **해결책:**
+    - Storybook이나 문서로 사용 예시를 충분히 제공하세요
+    - 주석으로 "왜 이 패턴을 사용했는지" 설명하세요
+    - 팀 내 코드 리뷰에서 패턴을 공유하세요
+  </TabsContent>
+  
+  <TabsContent value="structure">
+    **잘못된 구조를 막을 수 없습니다**
+    
+    사용자가 이상한 구조로 작성해도 타입스크립트가 막아주지 않습니다.
+    
+    ```tsx
+    // 이런 잘못된 사용도 가능합니다
+    <Dropdown>
+      <Dropdown.Item value="1">아이템 1</Dropdown.Item>
+      {/* Trigger가 없으면 어떻게 열죠? */}
+    </Dropdown>
+    
+    <Tabs>
+      <Tabs.Content value="tab1">내용</Tabs.Content>
+      {/* Trigger가 없으면 어떻게 전환하죠? */}
+    </Tabs>
+    ```
+    
+    **해결책:**
+    - 필수 컴포넌트를 부모 내부에서 체크하여 경고를 띄우세요
+    - TypeScript의 고급 타입 기능으로 제약을 걸 수 있지만, 복잡도가 크게 증가합니다
+    - 문서에 "올바른 사용법"을 명확히 안내하세요
+  </TabsContent>
+</Tabs>
+
+## 7. 안티패턴과 올바른 처리법
+
+Compound Components를 잘못 사용하면 오히려 코드가 복잡해집니다.
+
+### 안티패턴 1: 단순한 UI에 과도하게 적용
+
+**문제:** 2~3개 props로 충분한 컴포넌트를 억지로 Compound Components로 만드는 경우
+
+```tsx
+// ❌ 나쁜 예: 불필요한 복잡화
+<Badge>
+  <Badge.Icon name="Star" />
+  <Badge.Label>New</Badge.Label>
+</Badge>
+
+// ✅ 좋은 예: 단순하게
+<Badge icon="Star" label="New" />
+// 또는
+<Badge>New</Badge>
+```
+
+<Callout type="note" title="언제 Compound Components를 쓸까?">
+  **다음 조건 중 2개 이상 해당될 때** 고려하세요:
+  - 서브 컴포넌트가 **5개 이상** 필요할 때
+  - 사용자가 **순서를 바꾸거나 생략**할 수 있어야 할 때
+  - 각 서브 컴포넌트에 **독립적인 스타일**이 필요할 때
+  - 동일한 컴포넌트를 **다양한 변형**으로 사용해야 할 때
+</Callout>
+
+### 안티패턴 2: Context 과의존
+
+**문제:** 모든 데이터를 Context에 넣으면 성능 문제가 발생합니다.
+
+```tsx
+// ❌ 나쁜 예: Context에 너무 많은 상태
+interface DropdownContextValue {
+  isOpen: boolean;
+  setIsOpen: (open: boolean) => void;
+  selectedValue: string;
+  hoveredIndex: number;  // 이건 Context에 넣을 필요 없음
+  searchTerm: string;    // 이것도 굳이...
+  filteredItems: Item[]; // 이건 계산으로 처리 가능
+  // ... 10개가 넘는 상태들
+}
+```
+
+**해결:** **꼭 공유해야 하는 상태만** Context에 넣으세요.
+
+```tsx
+// ✅ 좋은 예: 필요한 것만 Context에
+interface DropdownContextValue {
+  isOpen: boolean;
+  setIsOpen: (open: boolean) => void;
+  selectedValue: string | null;
+  onSelect: (value: string) => void;
+}
+
+// 나머지는 각 컴포넌트의 로컬 상태로
+function DropdownItem({ value, children }) {
+  const [isHovered, setIsHovered] = useState(false); // 로컬 상태
+  const { selectedValue, onSelect } = useDropdownContext();
+  
+  return (
+    <button
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      onClick={() => onSelect(value)}
+    >
+      {children}
+    </button>
+  );
+}
+```
+
+<Callout type="warning" title="Context 업데이트 = 전체 리렌더링">
+  Context의 값이 바뀌면 **해당 Context를 구독하는 모든 컴포넌트가 리렌더링**됩니다. 
+  자주 바뀌는 상태(예: 마우스 위치, 입력 중인 텍스트)를 Context에 넣으면 성능이 나빠집니다.
+</Callout>
+
+### 안티패턴 3: Props Drilling의 재현
+
+**문제:** Context를 쓰면서도 props를 계속 내려보내는 경우
+
+```tsx
+// ❌ 나쁜 예: Context를 쓰는데 왜 props를 또 내리나요?
+function Dropdown({ children, isOpen, setIsOpen, value, onValueChange }) {
+  return (
+    <DropdownContext.Provider value={{ isOpen, setIsOpen }}>
+      {React.Children.map(children, child => 
+        React.cloneElement(child, { value, onValueChange }) // 😱
+      )}
+    </DropdownContext.Provider>
+  );
+}
+```
+
+**해결:** Context를 사용한다면 **모든 상태를 Context로** 전달하세요.
+
+```tsx
+// ✅ 좋은 예: 상태는 Context로 통합
+function Dropdown({ children, value, onValueChange }) {
+  const [isOpen, setIsOpen] = useState(false);
+  
+  return (
+    <DropdownContext.Provider 
+      value={{ 
+        isOpen, 
+        setIsOpen, 
+        selectedValue: value, 
+        onSelect: onValueChange 
+      }}
+    >
+      {children} {/* 그냥 children 렌더링 */}
+    </DropdownContext.Provider>
+  );
+}
+```
+
+### 안티패턴 4: 타입 안정성 무시
+
+**문제:** Context에 `any`를 쓰거나, 타입 체크 없이 사용하는 경우
+
+```tsx
+// ❌ 나쁨
+const DropdownContext = createContext<any>(null);
+```
+
+**해결:** 엄격한 타입과 에러 핸들링
+
+```tsx
+// ✅ 좋음
+interface DropdownContextValue {
+  isOpen: boolean;
+  setIsOpen: (open: boolean) => void;
+  selectedValue: string | null;
+  onSelect: (value: string) => void;
+}
+
+const DropdownContext = createContext<DropdownContextValue | undefined>(undefined);
+
+function useDropdownContext() {
+  const context = useContext(DropdownContext);
+  if (context === undefined) {
+    throw new Error(
+      'useDropdownContext는 Dropdown 컴포넌트 내부에서만 사용할 수 있습니다'
+    );
+  }
+  return context;
+}
+```
+
+## 8. Next.js 15와 Server Components
+
+Next.js 15의 Server Components 환경에서는 어떻게 사용할까요?
+
+### 핵심: Client Components에서만 가능
+
+Context API를 사용하는 Compound Components는 **Client Component**여야 합니다.
+
+```tsx
+// components/Dropdown/index.tsx
+'use client'; // 필수!
+
+import { createContext, useContext, useState } from 'react';
+
+const DropdownContext = createContext<DropdownContextValue | undefined>(undefined);
+
+export function Dropdown({ children, ...props }: DropdownProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  // ... 구현
+}
+
+Dropdown.Trigger = DropdownTrigger;
+Dropdown.Content = DropdownContent;
+Dropdown.Item = DropdownItem;
+```
+
+### 패턴: Server에서 데이터, Client에서 UI
+
+```tsx
+// app/users/page.tsx (Server Component)
+async function UsersPage() {
+  // 서버에서 데이터 페칭
+  const users = await fetchUsers();
+  
+  // Client Component에 전달
+  return <UserDropdown users={users} />;
+}
+
+// components/UserDropdown.tsx (Client Component)
+'use client';
+
+import { Dropdown } from '@/components/ui/dropdown';
+
+interface UserDropdownProps {
+  users: User[];
+}
+
+export function UserDropdown({ users }: UserDropdownProps) {
+  const [selected, setSelected] = useState<string | null>(null);
+  
+  return (
+    <Dropdown value={selected} onValueChange={setSelected}>
+      <Dropdown.Trigger>
+        {selected ? users.find(u => u.id === selected)?.name : '사용자 선택'}
+      </Dropdown.Trigger>
+      
+      <Dropdown.Content>
+        {users.map(user => (
+          <Dropdown.Item key={user.id} value={user.id}>
+            {user.name}
+          </Dropdown.Item>
+        ))}
+      </Dropdown.Content>
+    </Dropdown>
+  );
+}
+```
+
+<Callout type="info" title="하이드레이션 주의">
+  Server에서 렌더링된 HTML과 Client에서 렌더링한 결과가 달라지면 **Hydration Mismatch** 에러가 발생합니다. 
+  Dropdown의 `isOpen` 같은 상태는 항상 `false`로 시작하도록 하여 서버/클라이언트 일관성을 유지하세요.
+</Callout>
+
+### 서버 액션과 조합하기
+
+```tsx
+// app/actions/user.ts
+'use server';
+
+export async function assignUserToTask(userId: string, taskId: string) {
+  await db.task.update({
+    where: { id: taskId },
+    data: { assignedUserId: userId },
+  });
+  revalidatePath('/tasks');
+}
+
+// components/TaskAssignDropdown.tsx
+'use client';
+
+import { Dropdown } from '@/components/ui/dropdown';
+import { assignUserToTask } from '@/app/actions/user';
+
+export function TaskAssignDropdown({ taskId, users }) {
+  const [isPending, startTransition] = useTransition();
+  
+  const handleSelect = (userId: string) => {
+    startTransition(async () => {
+      await assignUserToTask(userId, taskId);
+    });
+  };
+  
+  return (
+    <Dropdown onValueChange={handleSelect}>
+      <Dropdown.Trigger disabled={isPending}>
+        {isPending ? '저장 중...' : '담당자 지정'}
+      </Dropdown.Trigger>
+      
+      <Dropdown.Content>
+        {users.map(user => (
+          <Dropdown.Item key={user.id} value={user.id}>
+            {user.name}
+          </Dropdown.Item>
+        ))}
+      </Dropdown.Content>
+    </Dropdown>
+  );
+}
+```
+
+## 9. 실무 라이브러리들의 Compound Components
+
+이미 여러분이 사용하고 있을지도 모릅니다.
+
+### Radix UI
+
+Headless UI 라이브러리로, 접근성(a11y)까지 완벽하게 구현된 Compound Components를 제공합니다.
+
+```tsx
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
+
+<DropdownMenu.Root>
+  <DropdownMenu.Trigger>옵션</DropdownMenu.Trigger>
+  <DropdownMenu.Portal>
+    <DropdownMenu.Content>
+      <DropdownMenu.Item>프로필</DropdownMenu.Item>
+      <DropdownMenu.Separator />
+      <DropdownMenu.Item>로그아웃</DropdownMenu.Item>
+    </DropdownMenu.Content>
+  </DropdownMenu.Portal>
+</DropdownMenu.Root>
+```
+
+### Headless UI
+
+Tailwind CSS 팀이 만든 라이브러리. 스타일 없이 동작만 제공합니다.
+
+```tsx
+import { Menu } from '@headlessui/react';
+
+<Menu>
+  <Menu.Button>옵션</Menu.Button>
+  <Menu.Items>
+    <Menu.Item>{({ active }) => (
+      <a className={active ? 'bg-blue-500' : ''}>프로필</a>
+    )}</Menu.Item>
+  </Menu.Items>
+</Menu>
+```
+
+### React Hook Form
+
+폼 라이브러리도 Compound Components 패턴을 사용합니다.
+
+```tsx
+import { useForm, FormProvider } from 'react-hook-form';
+
+<FormProvider {...methods}>
+  <form onSubmit={methods.handleSubmit(onSubmit)}>
+    <FormField
+      name="email"
+      render={({ field }) => (
+        <FormItem>
+          <FormLabel>이메일</FormLabel>
+          <FormControl>
+            <Input {...field} />
+          </FormControl>
+          <FormMessage />
+        </FormItem>
+      )}
+    />
+  </form>
+</FormProvider>
+```
+
+<Callout type="success" title="Best Practice">
+  실무에서는 직접 구현하기보다 **검증된 라이브러리**를 사용하는 것을 권장합니다. 
+  특히 접근성(Accessibility), 키보드 네비게이션, 포커스 관리 등은 까다로운 부분이 많기 때문이죠. 
+  
+  하지만 패턴을 이해하고 있으면 라이브러리를 커스터마이징하거나, 프로젝트에 맞는 변형을 만들 수 있습니다.
+</Callout>
+
+## 10. 체크리스트: Compound Components 적용 전에
+
+<div className="space-y-4 my-6">
+
+### 🤔 적용 여부 판단
+
+<Callout type="note" title="이 질문들에 답해보세요">
+  - [ ] 이 컴포넌트가 **5개 이상의 props**를 받고 있나요?
+  - [ ] 사용자가 UI의 **순서나 구조를 바꾸고** 싶어할 가능성이 있나요?
+  - [ ] 같은 컴포넌트를 **여러 변형**으로 사용해야 하나요?
+  - [ ] `renderXxx` 같은 render prop이 **3개 이상** 필요한가요?
+  - [ ] 새로운 기능 추가 시마다 **props가 계속 늘어나고** 있나요?
+  
+  **3개 이상 "예"라면** Compound Components를 고려하세요.
+</Callout>
+
+### 📐 설계 단계
+
+<Callout type="warning" title="구조 설계">
+  - [ ] 어떤 서브 컴포넌트들이 필요한가? (리스트업)
+  - [ ] 어떤 상태를 Context로 공유할 것인가?
+  - [ ] 필수 컴포넌트와 선택 컴포넌트는 무엇인가?
+  - [ ] 사용자가 잘못된 구조로 쓰는 것을 어떻게 방지할 것인가?
+</Callout>
+
+### 💻 구현 단계
+
+<Callout type="info" title="구현 체크">
+  - [ ] Context에 타입을 명확히 정의했나요?
+  - [ ] `useContext` Hook에 에러 처리를 추가했나요?
+  - [ ] 각 서브 컴포넌트가 **하나의 역할**만 하나요?
+  - [ ] 네임스페이스 패턴(`Dropdown.Item`)을 사용했나요?
+  - [ ] 접근성(aria 속성, role)을 고려했나요?
+</Callout>
+
+### 📚 문서화 단계
+
+<Callout type="success" title="사용성 개선">
+  - [ ] Storybook이나 문서에 다양한 사용 예시를 작성했나요?
+  - [ ] 잘못된 사용 예시와 올바른 사용 예시를 보여주나요?
+  - [ ] 각 서브 컴포넌트의 props와 역할을 설명했나요?
+  - [ ] 팀원들에게 패턴을 공유했나요?
+</Callout>
+
+</div>
+
+## 마치며
+
+Compound Components는 "사용자에게 제어권을 돌려주는" 철학의 구현입니다.
+
+### 핵심 요약
+
+<div className="grid grid-cols-1 md:grid-cols-3 gap-4 my-6">
+  <Card title="구조적 사고" icon={<Icon name="Blocks" className="text-blue-500" />}>
+    HTML처럼 계층적으로 생각하세요. 컴포넌트는 LEGO 블록처럼 조립 가능해야 합니다.
+  </Card>
+  <Card title="암묵적 연결" icon={<Icon name="Link2" className="text-green-500" />}>
+    Context로 상태를 공유하되, 사용자는 그 내부를 몰라도 됩니다. 마법처럼 동작하게 하세요.
+  </Card>
+  <Card title="유연성 우선" icon={<Icon name="Maximize2" className="text-purple-500" />}>
+    제작자가 예상 못한 UI도 만들 수 있어야 합니다. 제약이 아닌 가능성을 열어두세요.
+  </Card>
+</div>
+
+### 기억해야 할 원칙들
+
+1. **과도한 적용 금지**: 단순한 컴포넌트에는 단순한 props가 낫습니다
+2. **Context는 최소한으로**: 꼭 공유해야 하는 상태만 Context에 넣으세요
+3. **타입 안정성**: TypeScript로 잘못된 사용을 컴파일 타임에 잡으세요
+4. **접근성 고려**: 키보드 네비게이션, 스크린 리더 지원을 잊지 마세요
+5. **문서화 필수**: 팀원들이 쉽게 이해하고 사용할 수 있도록 예시를 충분히 제공하세요
+
+<Blockquote author="Kent C. Dodds" cite="Advanced React Patterns">
+  Compound components are about providing a flexible, expressive, and intuitive API for components that need to share state implicitly.
+</Blockquote>
+
+Compound Components는 암묵적으로 상태를 공유해야 하는 컴포넌트를 위한, 유연하고 표현력 있으며 직관적인 API를 제공하는 것입니다.
+
+### 언제 사용하고, 언제 피할까?
+
+<Tabs defaultValue="use">
+  <TabsList>
+    <TabsTrigger value="use">사용해야 할 때</TabsTrigger>
+    <TabsTrigger value="avoid">피해야 할 때</TabsTrigger>
+  </TabsList>
+  
+  <TabsContent value="use">
+    **Compound Components를 사용하세요:**
+    
+    - ✅ 복잡한 UI (Dropdown, Modal, Tabs, Accordion)
+    - ✅ 사용자가 구조를 커스터마이징해야 할 때
+    - ✅ 여러 서브 컴포넌트가 상태를 공유해야 할 때
+    - ✅ 디자인 시스템이나 재사용 가능한 라이브러리를 만들 때
+    - ✅ Props가 10개를 넘어가고 계속 늘어날 때
+  </TabsContent>
+  
+  <TabsContent value="avoid">
+    **Compound Components를 피하세요:**
+    
+    - ❌ 2~3개 props로 충분한 단순한 컴포넌트
+    - ❌ 한 곳에서만 사용하는 일회성 컴포넌트
+    - ❌ 구조가 고정되어 있고 변경 가능성이 없을 때
+    - ❌ 팀원들이 이 패턴에 익숙하지 않고 학습 시간이 부족할 때
+    - ❌ 성능이 극도로 중요하고 Context 오버헤드가 부담될 때
+  </TabsContent>
+</Tabs>
+
+<Steps>
+  <Step title="Props Hell 찾기">
+    현재 프로젝트에서 10개 이상의 props를 받는 컴포넌트를 찾아보세요.
+  </Step>
+  <Step title="구조 설계하기">
+    어떤 서브 컴포넌트들로 나눌 수 있을지 종이에 그려보세요.
+  </Step>
+  <Step title="Context 정의하기">
+    어떤 상태를 공유해야 하는지 리스트업하세요.
+  </Step>
+  <Step title="작은 것부터 구현">
+    전체를 한 번에 바꾸지 말고, 한 컴포넌트부터 리팩토링해보세요.
+  </Step>
+</Steps>
+
+<Callout type="success" title="다음 단계">
+  여러분의 프로젝트에서 가장 복잡한 컴포넌트 하나를 골라보세요. 
+  그것을 Compound Components로 리팩토링하면서 이 패턴의 진가를 체감할 수 있을 것입니다.
+  
+  특히 디자인 시스템을 구축 중이라면, Radix UI나 Headless UI의 소스 코드를 읽어보는 것을 강력히 추천합니다. 
+  실전에서 어떻게 적용되는지 최고의 사례를 볼 수 있습니다.
+</Callout>
+
+---
+
+Compound Components는 **"LEGO 철학"**입니다. 각 블록은 단순하지만, 조합하면 무한한 가능성이 열립니다. 
+여러분의 컴포넌트도 그렇게 만들어보세요.
+
