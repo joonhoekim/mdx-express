@@ -642,6 +642,737 @@ export type User = z.infer<typeof userSchema>;
   TypeScript 풀스택의 최대 장점은 End-to-End 타입 안전성입니다. 이걸 포기하면 TypeScript를 쓰는 의미가 반감됩니다. tRPC를 쓰세요.
 </Callout>
 
+## 7. 데이터베이스 초기 세팅을 먼저 하라
+
+타임존과 collation 설정은 데이터가 들어오기 전에 해야 합니다. 나중에 바꾸려면 정말 고생합니다.
+
+### 타임존: 서버는 UTC로, 변환은 애플리케이션에서
+
+<Callout type='error' title='실제로 겪은 일'>
+  서버 타임존을 KST로 설정해뒀다가, 글로벌 서비스 확장할 때 모든 날짜 데이터를 마이그레이션해야 했습니다. 기존 데이터가 KST인지 UTC인지 확신할 수 없어서 하나하나 검증해야 했습니다.
+</Callout>
+
+**왜 UTC여야 하는가:**
+
+1. **글로벌 서비스 대응**: 사용자마다 다른 타임존을 지원하려면 기준점이 필요
+2. **DST(서머타임) 문제 회피**: 일부 국가는 서머타임이 있어서 로컬 시간으로 저장하면 1시간씩 어긋남
+3. **데이터 정합성**: 모든 시간 데이터가 동일한 기준으로 저장됨
+
+```typescript
+// Bad: 서버 타임존에 의존
+const createdAt = new Date(); // 서버가 KST면 KST, UTC면 UTC
+
+// Good: 명시적으로 UTC 사용
+const createdAt = new Date().toISOString(); // 항상 UTC
+```
+
+**date-fns + date-fns-tz로 타임존 처리:**
+
+```typescript
+import { formatInTimeZone, toZonedTime } from 'date-fns-tz';
+import { parseISO } from 'date-fns';
+
+// DB에서 가져온 UTC 시간을 사용자 타임존으로 표시
+function formatForUser(utcDateString: string, userTimezone: string) {
+  const date = parseISO(utcDateString);
+  return formatInTimeZone(date, userTimezone, 'yyyy-MM-dd HH:mm:ss');
+}
+
+// 사용
+const dbTime = '2024-01-15T09:00:00.000Z'; // UTC로 저장된 시간
+formatForUser(dbTime, 'Asia/Seoul');     // "2024-01-15 18:00:00"
+formatForUser(dbTime, 'America/New_York'); // "2024-01-15 04:00:00"
+```
+
+**서버/DB 타임존 설정:**
+
+```sql
+-- PostgreSQL
+SET timezone = 'UTC';
+-- 또는 postgresql.conf에서
+-- timezone = 'UTC'
+
+-- MySQL
+SET GLOBAL time_zone = '+00:00';
+```
+
+```bash
+# 서버 환경변수
+TZ=UTC node server.js
+```
+
+<Callout type='warning' title='핵심 원칙'>
+  저장은 UTC로, 표시는 사용자 타임존으로. 이 원칙만 지키면 글로벌 서비스도 문제없습니다.
+</Callout>
+
+### Collation: 데이터 들어오기 전에 설정하라
+
+Collation은 문자열 정렬과 비교 규칙을 정의합니다. 한글 정렬이 이상하게 되거나, 대소문자 구분이 안 되는 문제의 원인이 대부분 collation입니다.
+
+<Callout type='error' title='실제로 겪은 일'>
+  데이터가 100만 건 쌓인 후에 "가나다 순으로 정렬이 안 돼요"라는 버그 리포트를 받았습니다. collation을 바꾸려면 테이블을 새로 만들고 데이터를 마이그레이션해야 했습니다.
+</Callout>
+
+**왜 미리 설정해야 하는가:**
+
+1. **데이터가 있으면 변경 불가**: 대부분의 DB에서 기존 데이터가 있는 컬럼의 collation 변경은 테이블 재생성 필요
+2. **인덱스 재생성 필요**: collation이 바뀌면 관련 인덱스도 모두 재생성해야 함
+3. **다운타임 발생**: 대용량 테이블이면 마이그레이션에 수 시간 소요
+
+**PostgreSQL 설정:**
+
+```sql
+-- 데이터베이스 생성 시 설정 (가장 확실)
+CREATE DATABASE myapp
+  WITH ENCODING = 'UTF8'
+       LC_COLLATE = 'ko_KR.UTF-8'
+       LC_CTYPE = 'ko_KR.UTF-8'
+       TEMPLATE = template0;
+
+-- 또는 ICU collation 사용 (PostgreSQL 10+, 더 정확한 정렬)
+CREATE DATABASE myapp
+  WITH ENCODING = 'UTF8'
+       LOCALE_PROVIDER = icu
+       ICU_LOCALE = 'ko-KR'
+       TEMPLATE = template0;
+```
+
+**MySQL 설정:**
+
+```sql
+-- 데이터베이스 생성 시
+CREATE DATABASE myapp
+  CHARACTER SET utf8mb4
+  COLLATE utf8mb4_unicode_ci;
+
+-- 한글 정렬이 중요하면
+COLLATE utf8mb4_korean_ci;
+```
+
+**Collation 선택 가이드:**
+
+| 요구사항 | PostgreSQL | MySQL |
+|---------|------------|-------|
+| 한글 가나다순 정렬 | `ko_KR.UTF-8` 또는 ICU `ko-KR` | `utf8mb4_korean_ci` |
+| 대소문자 구분 | 기본값 (case-sensitive) | `utf8mb4_bin` |
+| 대소문자 무시 | `CITEXT` 타입 사용 | `utf8mb4_unicode_ci` |
+| 이모지 지원 | UTF8 (기본 지원) | `utf8mb4` 필수 |
+
+```typescript
+// Drizzle ORM에서 테이블 정의 시 collation 지정
+import { pgTable, text, varchar } from 'drizzle-orm/pg-core';
+
+export const users = pgTable('users', {
+  id: serial('id').primaryKey(),
+  // 특정 컬럼에만 다른 collation 적용 가능
+  name: text('name').notNull(), // DB 기본 collation 사용
+  email: varchar('email', { length: 255 })
+    .notNull()
+    .$type<string>(), // 타입 힌트
+});
+```
+
+<Callout type='success' title='실용적인 원칙'>
+  프로젝트 시작할 때 5분만 투자해서 타임존과 collation을 설정하세요. 나중에 바꾸려면 5시간이 아니라 5일이 걸릴 수 있습니다.
+</Callout>
+
+## 8. 중요한 API에는 멱등성을 보장하라
+
+결제, 포인트 차감, 주문 생성 같은 API에서 "같은 요청이 두 번 처리되면 안 된다"는 요구사항은 필수입니다. 이걸 보장하는 개념이 멱등성(Idempotency)입니다.
+
+### 멱등성이란
+
+멱등성은 **같은 연산을 여러 번 수행해도 결과가 동일한 성질**입니다.
+
+```
+f(x) = f(f(x)) = f(f(f(x))) = ...
+```
+
+일상적인 예시로 이해하면 쉽습니다:
+
+- **멱등한 것**: 엘리베이터 버튼 누르기 - 한 번 누르든 열 번 누르든 엘리베이터는 한 번만 옴
+- **멱등하지 않은 것**: 커피 주문 - 버튼 누를 때마다 커피가 추가됨
+
+HTTP 메서드로 보면:
+
+| 메서드 | 멱등성 | 설명 |
+|--------|--------|------|
+| GET | O | 같은 리소스 조회를 여러 번 해도 결과 동일 |
+| PUT | O | 같은 데이터로 여러 번 업데이트해도 최종 상태 동일 |
+| DELETE | O | 이미 삭제된 리소스를 또 삭제해도 결과는 "없음"으로 동일 |
+| POST | X | 호출할 때마다 새 리소스가 생성될 수 있음 |
+
+문제는 **POST가 멱등하지 않다**는 점입니다. 결제, 주문, 포인트 차감은 대부분 POST인데, 이게 두 번 실행되면 큰일납니다.
+
+### 왜 두 번 실행되는가
+
+"API를 두 번 호출할 일이 있나?"라고 생각할 수 있지만, 실제로는 자주 발생합니다.
+
+<Callout type='error' title='실제로 겪은 일'>
+  결제 API 응답이 5초 이상 걸리자 사용자가 "결제" 버튼을 다시 눌렀습니다. 결제가 두 번 승인되었고, 환불 처리와 CS 대응에 반나절을 썼습니다.
+</Callout>
+
+**두 번 실행되는 시나리오들:**
+
+```
+1. 사용자의 중복 클릭
+   [결제 버튼 클릭] → 응답 느림 → [다시 클릭] → 결제 2번
+
+2. 네트워크 타임아웃 + 자동 재시도
+   [요청 전송] → 서버 처리 완료 → 응답 중 타임아웃 → [클라이언트 재시도] → 2번 처리
+
+3. 프론트엔드 라이브러리의 자동 재시도
+   React Query, SWR 등이 실패로 간주하고 자동 재시도 → 2번 처리
+
+4. 로드밸런서/프록시의 재시도
+   upstream 타임아웃 → 다른 서버로 재시도 → 2번 처리
+```
+
+특히 2번 시나리오가 위험합니다. **서버는 처리를 완료했는데 클라이언트는 실패로 인식**하는 경우입니다. 이때 재시도하면 중복 처리가 발생합니다.
+
+### 멱등성 키(Idempotency Key)로 해결하기
+
+해결 방법은 간단합니다. **클라이언트가 고유한 키를 보내고, 서버는 이 키로 중복 요청을 식별**합니다.
+
+```typescript
+// 클라이언트: 요청 시 고유 키 생성
+const idempotencyKey = crypto.randomUUID();
+
+const response = await fetch('/api/payments', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'Idempotency-Key': idempotencyKey,  // 고유 키 전송
+  },
+  body: JSON.stringify({ amount: 10000, orderId: 'order-123' }),
+});
+```
+
+```typescript
+// 서버: 키 기반으로 중복 체크
+async function handlePayment(req: Request) {
+  const idempotencyKey = req.headers.get('Idempotency-Key');
+
+  if (!idempotencyKey) {
+    throw new Error('Idempotency-Key header is required');
+  }
+
+  // 1. 이미 처리된 요청인지 확인
+  const existing = await redis.get(`idempotency:${idempotencyKey}`);
+
+  if (existing) {
+    // 이미 처리됨 → 저장된 결과 반환
+    return JSON.parse(existing);
+  }
+
+  // 2. 처리 중 상태로 마킹 (다른 요청이 동시에 처리하는 것 방지)
+  const locked = await redis.set(
+    `idempotency:${idempotencyKey}`,
+    JSON.stringify({ status: 'processing' }),
+    'NX',  // 키가 없을 때만 설정
+    'EX', 60  // 60초 후 만료 (처리 중 타임아웃)
+  );
+
+  if (!locked) {
+    // 다른 요청이 처리 중
+    throw new Error('Request is being processed');
+  }
+
+  // 3. 실제 결제 처리
+  const result = await processPayment(req.body);
+
+  // 4. 결과 저장 (24시간 보관)
+  await redis.set(
+    `idempotency:${idempotencyKey}`,
+    JSON.stringify(result),
+    'EX', 86400
+  );
+
+  return result;
+}
+```
+
+**핵심 포인트:**
+
+1. **키는 클라이언트가 생성**: 서버가 생성하면 "이 요청이 재시도인지" 알 수 없음
+2. **처리 중 상태 관리**: 동시에 같은 키로 요청이 오면 하나만 처리
+3. **결과 저장**: 재시도 시 같은 결과를 반환해야 진정한 멱등성
+4. **TTL 설정**: 영원히 저장하면 스토리지 낭비, 적절한 만료 시간 설정
+
+### DB 기반 멱등성 (Redis 없이)
+
+Redis가 없는 환경이라면 DB로도 구현할 수 있습니다.
+
+```sql
+CREATE TABLE idempotency_keys (
+  key VARCHAR(255) PRIMARY KEY,
+  request_path VARCHAR(255) NOT NULL,
+  request_body JSONB,
+  response_body JSONB,
+  status VARCHAR(20) DEFAULT 'processing',  -- processing, completed, failed
+  created_at TIMESTAMP DEFAULT NOW(),
+  completed_at TIMESTAMP
+);
+
+-- 오래된 키 자동 삭제를 위한 인덱스
+CREATE INDEX idx_idempotency_created_at ON idempotency_keys(created_at);
+```
+
+```typescript
+async function withIdempotency<T>(
+  key: string,
+  fn: () => Promise<T>
+): Promise<T> {
+  // 1. 키 삽입 시도 (이미 있으면 실패)
+  try {
+    await db.insert(idempotencyKeys).values({
+      key,
+      status: 'processing',
+    });
+  } catch (e) {
+    // 이미 존재하는 키
+    const existing = await db.query.idempotencyKeys.findFirst({
+      where: eq(idempotencyKeys.key, key),
+    });
+
+    if (existing?.status === 'completed') {
+      return existing.responseBody as T;
+    }
+
+    if (existing?.status === 'processing') {
+      throw new Error('Request is being processed');
+    }
+  }
+
+  // 2. 실제 로직 실행
+  try {
+    const result = await fn();
+
+    // 3. 성공 결과 저장
+    await db.update(idempotencyKeys)
+      .set({
+        status: 'completed',
+        responseBody: result,
+        completedAt: new Date(),
+      })
+      .where(eq(idempotencyKeys.key, key));
+
+    return result;
+  } catch (e) {
+    // 4. 실패 시 키 삭제 (재시도 허용)
+    await db.delete(idempotencyKeys)
+      .where(eq(idempotencyKeys.key, key));
+    throw e;
+  }
+}
+
+// 사용
+app.post('/api/payments', async (req) => {
+  const idempotencyKey = req.headers['idempotency-key'];
+
+  return withIdempotency(idempotencyKey, async () => {
+    return processPayment(req.body);
+  });
+});
+```
+
+### 프론트엔드에서의 처리
+
+멱등성 키를 제대로 활용하려면 프론트엔드도 협력해야 합니다.
+
+```typescript
+// hooks/useIdempotentMutation.ts
+function useIdempotentMutation<T>(
+  mutationFn: (data: T, key: string) => Promise<Response>
+) {
+  const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
+
+  const mutation = useMutation({
+    mutationFn: (data: T) => mutationFn(data, idempotencyKey),
+    onSuccess: () => {
+      // 성공 시 새 키 생성 (다음 요청을 위해)
+      setIdempotencyKey(crypto.randomUUID());
+    },
+    // 실패 시 같은 키로 재시도 (자동으로 됨)
+  });
+
+  return mutation;
+}
+
+// 사용
+function PaymentButton({ orderId, amount }: Props) {
+  const mutation = useIdempotentMutation(async (data, key) => {
+    return fetch('/api/payments', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': key,
+      },
+      body: JSON.stringify(data),
+    });
+  });
+
+  return (
+    <button
+      onClick={() => mutation.mutate({ orderId, amount })}
+      disabled={mutation.isPending}
+    >
+      {mutation.isPending ? '처리 중...' : '결제하기'}
+    </button>
+  );
+}
+```
+
+<Callout type='success' title='실용적인 원칙'>
+  결제, 포인트, 재고처럼 "두 번 실행되면 안 되는" 모든 API에 멱등성 키를 적용하세요. 구현 비용은 하루, 사고 수습 비용은 일주일입니다.
+</Callout>
+
+## 9. 감사 로그(Audit Log)를 제대로 설계하라
+
+"누가 이 데이터를 바꿨어요?"라는 질문에 답하지 못하면 곤란합니다. 감사 로그는 요구사항에 포함되는 경우가 많지만, 설계를 잘못하면 나중에 쓸모없는 로그가 됩니다.
+
+### 감사 로그가 필요한 순간들
+
+<Callout type='error' title='실제로 겪은 일'>
+  고객사에서 "3일 전에 수정된 데이터를 원래대로 복구해달라"고 요청했습니다. 변경 이력은 있었지만 "변경 전 값"을 저장하지 않아서 복구할 수 없었습니다.
+</Callout>
+
+감사 로그가 빛을 발하는 순간들:
+
+- "이 주문 금액이 원래 이게 맞았나요?" → 변경 이력 확인
+- "누가 이 사용자를 삭제했어요?" → 삭제자 추적
+- "언제부터 이 설정이 바뀌었죠?" → 변경 시점 확인
+- 내부 감사/외부 감사 대응 → 모든 변경 이력 제출
+- 버그 원인 분석 → "이 시점에 뭐가 바뀌었지?"
+
+### 흔한 실수: 쓸모없는 감사 로그
+
+```typescript
+// Bad: 변경 사실만 기록
+await auditLog.create({
+  action: 'UPDATE',
+  entity: 'users',
+  entityId: userId,
+  userId: currentUser.id,
+  timestamp: new Date(),
+});
+// "user 123이 수정됨"만 알 수 있음. 뭐가 어떻게 바뀌었는지는 모름.
+```
+
+```typescript
+// Bad: 변경된 필드만 기록
+await auditLog.create({
+  action: 'UPDATE',
+  entity: 'users',
+  entityId: userId,
+  changes: { email: 'new@email.com' },  // 변경 후 값만 있음
+});
+// 이전 이메일이 뭐였는지 알 수 없음
+```
+
+```typescript
+// Bad: JSON으로 대충 저장
+await auditLog.create({
+  data: JSON.stringify({
+    action: 'update',
+    table: 'users',
+    // ... 구조가 일관되지 않음
+  }),
+});
+// 나중에 쿼리/분석 불가능
+```
+
+### 감사 로그 테이블 설계
+
+```sql
+CREATE TABLE audit_logs (
+  id BIGSERIAL PRIMARY KEY,
+
+  -- 언제
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
+
+  -- 누가
+  actor_id VARCHAR(255),           -- 사용자 ID (시스템이면 NULL)
+  actor_type VARCHAR(50) NOT NULL, -- 'user', 'admin', 'system', 'api_key'
+  actor_ip INET,                   -- IP 주소
+  actor_user_agent TEXT,           -- User Agent
+
+  -- 무엇을
+  entity_type VARCHAR(100) NOT NULL,  -- 'users', 'orders', 'products'
+  entity_id VARCHAR(255) NOT NULL,    -- 대상 레코드 ID
+
+  -- 어떻게
+  action VARCHAR(50) NOT NULL,     -- 'create', 'update', 'delete', 'restore'
+
+  -- 변경 내용 (핵심!)
+  before_state JSONB,              -- 변경 전 전체 스냅샷
+  after_state JSONB,               -- 변경 후 전체 스냅샷
+  changed_fields TEXT[],           -- 변경된 필드 목록 (빠른 필터링용)
+
+  -- 부가 정보
+  reason TEXT,                     -- 변경 사유 (선택)
+  request_id VARCHAR(255),         -- 요청 추적 ID
+
+  -- 인덱스를 위한 컬럼
+  created_date DATE GENERATED ALWAYS AS (created_at::date) STORED
+);
+
+-- 필수 인덱스
+CREATE INDEX idx_audit_entity ON audit_logs(entity_type, entity_id);
+CREATE INDEX idx_audit_actor ON audit_logs(actor_id, created_at);
+CREATE INDEX idx_audit_created_date ON audit_logs(created_date);
+CREATE INDEX idx_audit_changed_fields ON audit_logs USING GIN(changed_fields);
+```
+
+**설계 포인트:**
+
+1. **before/after 전체 저장**: 변경된 필드만 저장하면 복구 시 전체 상태를 알 수 없음
+2. **changed_fields 배열**: "이메일이 변경된 이력"만 빠르게 조회 가능
+3. **actor_type 구분**: 사용자, 관리자, 시스템, API 키 등 구분
+4. **날짜 파티셔닝 대비**: created_date 컬럼으로 파티셔닝 가능
+
+### Drizzle ORM에서 구현
+
+```typescript
+// schema/audit-logs.ts
+import { pgTable, bigserial, timestamp, varchar, jsonb, text, inet } from 'drizzle-orm/pg-core';
+
+export const auditLogs = pgTable('audit_logs', {
+  id: bigserial('id', { mode: 'bigint' }).primaryKey(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+
+  actorId: varchar('actor_id', { length: 255 }),
+  actorType: varchar('actor_type', { length: 50 }).notNull(),
+  actorIp: inet('actor_ip'),
+  actorUserAgent: text('actor_user_agent'),
+
+  entityType: varchar('entity_type', { length: 100 }).notNull(),
+  entityId: varchar('entity_id', { length: 255 }).notNull(),
+
+  action: varchar('action', { length: 50 }).notNull(),
+
+  beforeState: jsonb('before_state'),
+  afterState: jsonb('after_state'),
+  changedFields: text('changed_fields').array(),
+
+  reason: text('reason'),
+  requestId: varchar('request_id', { length: 255 }),
+});
+```
+
+```typescript
+// lib/audit.ts
+type AuditAction = 'create' | 'update' | 'delete' | 'restore';
+
+interface AuditContext {
+  actorId?: string;
+  actorType: 'user' | 'admin' | 'system' | 'api_key';
+  actorIp?: string;
+  actorUserAgent?: string;
+  requestId?: string;
+  reason?: string;
+}
+
+export async function createAuditLog<T extends Record<string, unknown>>(
+  entityType: string,
+  entityId: string,
+  action: AuditAction,
+  context: AuditContext,
+  before?: T,
+  after?: T,
+) {
+  // 변경된 필드 계산
+  const changedFields = before && after
+    ? Object.keys(after).filter(key =>
+        JSON.stringify(before[key]) !== JSON.stringify(after[key])
+      )
+    : undefined;
+
+  await db.insert(auditLogs).values({
+    entityType,
+    entityId: String(entityId),
+    action,
+    actorId: context.actorId,
+    actorType: context.actorType,
+    actorIp: context.actorIp,
+    actorUserAgent: context.actorUserAgent,
+    requestId: context.requestId,
+    reason: context.reason,
+    beforeState: before,
+    afterState: after,
+    changedFields,
+  });
+}
+```
+
+```typescript
+// 사용 예시: 사용자 정보 수정
+async function updateUser(
+  userId: string,
+  data: UpdateUserInput,
+  context: AuditContext
+) {
+  // 1. 현재 상태 조회 (before)
+  const before = await db.query.users.findFirst({
+    where: eq(users.id, userId),
+  });
+
+  if (!before) throw new Error('User not found');
+
+  // 2. 업데이트 실행
+  const [after] = await db
+    .update(users)
+    .set(data)
+    .where(eq(users.id, userId))
+    .returning();
+
+  // 3. 감사 로그 기록
+  await createAuditLog(
+    'users',
+    userId,
+    'update',
+    context,
+    before,
+    after
+  );
+
+  return after;
+}
+```
+
+### 트리거 vs 애플리케이션: 트레이드오프
+
+감사 로그를 DB 트리거로 구현할지, 애플리케이션에서 구현할지는 트레이드오프가 있습니다.
+
+**DB 트리거 방식:**
+
+```sql
+-- PostgreSQL 트리거 예시
+CREATE OR REPLACE FUNCTION audit_trigger_func()
+RETURNS TRIGGER AS $$
+BEGIN
+  INSERT INTO audit_logs (
+    entity_type, entity_id, action,
+    before_state, after_state, actor_type
+  ) VALUES (
+    TG_TABLE_NAME,
+    COALESCE(NEW.id, OLD.id)::text,
+    TG_OP,
+    CASE WHEN TG_OP IN ('UPDATE', 'DELETE') THEN row_to_json(OLD) END,
+    CASE WHEN TG_OP IN ('INSERT', 'UPDATE') THEN row_to_json(NEW) END,
+    'system'  -- 트리거에서는 사용자 정보를 알기 어려움
+  );
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER audit_users_trigger
+AFTER INSERT OR UPDATE OR DELETE ON users
+FOR EACH ROW EXECUTE FUNCTION audit_trigger_func();
+```
+
+| 방식 | 장점 | 단점 |
+|------|------|------|
+| **DB 트리거** | 누락 불가능, 직접 SQL 수정도 기록됨 | 사용자 정보 전달 어려움, 디버깅 어려움, DB 부하 |
+| **애플리케이션** | 풍부한 컨텍스트(사용자, IP 등), 유연한 로직 | 개발자가 빼먹을 수 있음, 직접 SQL은 기록 안 됨 |
+
+<Callout type='info' title='추천 방식'>
+  애플리케이션 레벨을 기본으로 하되, 중요한 테이블에는 트리거를 백업으로 추가하세요. 트리거는 "최소한의 기록"만 하고, 상세 정보는 애플리케이션에서 기록합니다.
+</Callout>
+
+### 감사 로그 조회 API
+
+```typescript
+// 특정 엔티티의 변경 이력 조회
+app.get('/api/audit/:entityType/:entityId', async (req) => {
+  const { entityType, entityId } = req.params;
+  const { limit = 50, offset = 0 } = req.query;
+
+  const logs = await db.query.auditLogs.findMany({
+    where: and(
+      eq(auditLogs.entityType, entityType),
+      eq(auditLogs.entityId, entityId)
+    ),
+    orderBy: desc(auditLogs.createdAt),
+    limit: Number(limit),
+    offset: Number(offset),
+  });
+
+  return logs;
+});
+
+// 특정 필드가 변경된 이력만 조회
+app.get('/api/audit/:entityType', async (req) => {
+  const { entityType } = req.params;
+  const { field, from, to } = req.query;
+
+  const logs = await db.query.auditLogs.findMany({
+    where: and(
+      eq(auditLogs.entityType, entityType),
+      field ? sql`${field} = ANY(${auditLogs.changedFields})` : undefined,
+      from ? gte(auditLogs.createdAt, new Date(from as string)) : undefined,
+      to ? lte(auditLogs.createdAt, new Date(to as string)) : undefined,
+    ),
+    orderBy: desc(auditLogs.createdAt),
+    limit: 100,
+  });
+
+  return logs;
+});
+```
+
+### 데이터 복구 유틸리티
+
+감사 로그의 진가는 복구할 때 발휘됩니다.
+
+```typescript
+// 특정 시점으로 데이터 복구
+async function restoreEntity(
+  entityType: string,
+  entityId: string,
+  targetTimestamp: Date,
+  context: AuditContext
+) {
+  // 1. 해당 시점 직전의 상태 찾기
+  const log = await db.query.auditLogs.findFirst({
+    where: and(
+      eq(auditLogs.entityType, entityType),
+      eq(auditLogs.entityId, entityId),
+      lte(auditLogs.createdAt, targetTimestamp)
+    ),
+    orderBy: desc(auditLogs.createdAt),
+  });
+
+  if (!log?.afterState) {
+    throw new Error('No state found for the given timestamp');
+  }
+
+  // 2. 현재 상태 조회
+  const currentState = await db.query[entityType].findFirst({
+    where: eq(schema[entityType].id, entityId),
+  });
+
+  // 3. 복구 실행
+  await db.update(schema[entityType])
+    .set(log.afterState)
+    .where(eq(schema[entityType].id, entityId));
+
+  // 4. 복구 이력도 감사 로그에 기록
+  await createAuditLog(
+    entityType,
+    entityId,
+    'restore',
+    { ...context, reason: `Restored to state at ${targetTimestamp.toISOString()}` },
+    currentState,
+    log.afterState
+  );
+}
+```
+
+<Callout type='success' title='실용적인 원칙'>
+  감사 로그는 "있다"만으로는 부족합니다. before/after 전체 상태를 저장하고, 복구까지 가능하게 설계하세요. 로그가 있어도 복구를 못 하면 반쪽짜리입니다.
+</Callout>
+
 ## 마치며: 코드에서 나는 악취를 맡아라
 
 이 글에서 다룬 실수들의 공통점은 **나도 모르게 SOLID 원칙을 어기게 된다**는 것입니다.
@@ -652,6 +1383,9 @@ export type User = z.infer<typeof userSchema>;
 - 분석 없는 구현과 자의적 매핑은 KISS 원칙을 위반 - 불필요한 복잡성 추가
 - 에러 핸들링 분산은 DRY 원칙을 위반 - 동일한 처리 로직이 여러 곳에 복붙됨
 - 타입 분리 정의는 신뢰성을 위반 - 런타임에서야 불일치 발견
+- DB 초기 세팅 누락은 "나중에 바꾸면 되지" 사고방식의 전형 - 데이터 쌓인 후에는 변경 불가
+- 멱등성 미적용은 "두 번 호출될 리 없다"는 낙관의 결과 - 네트워크는 믿을 수 없음
+- 감사 로그 설계 미흡은 "기록만 하면 되지"의 결과 - 복구 못 하면 무용지물
 
 문제는 이런 위반이 코드를 작성하는 순간에는 잘 보이지 않는다는 점입니다. "이게 더 깔끔해 보이는데?"라고 생각하며 작성하지만, 시간이 지나고 유지보수할 때 비용이 드러납니다.
 
@@ -667,6 +1401,9 @@ export type User = z.infer<typeof userSchema>;
 - "이게 아닌데요" 듣고 절반 다시 만들어봐야 알게 됨
 - "에러 메시지 포맷 통일해주세요"에 모든 페이지 돌아다녀봐야 알게 됨
 - 프로덕션에서 "Cannot read property of undefined" 터져봐야 알게 됨
+- 데이터 100만 건 쌓인 후에 "한글 정렬이 안 돼요" 듣고 테이블 재생성해봐야 알게 됨
+- 결제가 두 번 되어서 환불 처리하고 CS 대응해봐야 알게 됨
+- "3일 전 데이터로 복구해주세요"에 "변경 전 값이 없어서요..." 라고 답변해봐야 알게 됨
 
 "필요해지면 그때 추상화하자"가 "미리 추상화해두자"보다 대부분의 경우 나은 선택이었습니다. 추상화는 복잡성을 숨기는 좋은 도구이지만, 숨겨진 복잡성은 여전히 존재합니다.
 
