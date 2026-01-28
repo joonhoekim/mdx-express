@@ -1,0 +1,581 @@
+---
+title: '2025년 TypeScript 개발환경 추천'
+description: 'Claude Code, Zed IDE, tsgo 기반의 현대적인 TypeScript 개발환경 구축 가이드'
+date: '2025-10-20'
+tags: ['TypeScript', 'Claude Code', 'Zed', 'AI', '개발환경']
+---
+
+import { Callout } from '@/components/writing-ui';
+
+2025년 현재, TypeScript 개발환경은 AI 코딩 어시스턴트의 등장으로 완전히 새로운 국면에 접어들었습니다. 이 글에서는 생산성을 극대화할 수 있는 개발환경 구성을 다룹니다.
+
+## 1. Claude Code: 새로운 개발의 표준
+
+AI 코딩 어시스턴트 중에서 Claude Code가 사실상 표준으로 자리잡고 있습니다.
+
+### 왜 Claude Code인가
+
+<Callout type='info' title='핵심 장점'>
+  Claude Code는 단순한 코드 자동완성이 아닙니다. 코드베이스 전체를 이해하고, 맥락을 파악하며, 복잡한 리팩토링까지 수행할 수 있는 에이전트입니다.
+</Callout>
+
+**기존 AI 코딩 도구와의 차이점:**
+
+1. **코드베이스 전체 이해**: 단일 파일이 아닌 프로젝트 전체 맥락을 파악
+2. **멀티 파일 수정**: 관련된 여러 파일을 동시에 일관성 있게 수정
+3. **터미널 명령 실행**: 빌드, 테스트, 린트 등을 직접 실행하고 결과를 반영
+4. **대화형 개발**: 요구사항을 자연어로 설명하면 구현까지 진행
+
+```
+기존 방식:
+"이 함수에서 버그가 있는 것 같아" → 자동완성 제안
+
+Claude Code:
+"이 함수에서 버그가 있는 것 같아"
+→ 관련 테스트 파일 확인
+→ 호출하는 코드 분석
+→ 버그 원인 파악
+→ 수정 제안 + 테스트 케이스 추가
+```
+
+### Claude Code가 바꾸는 개발 워크플로우
+
+이제 개발자의 역할이 "코드를 작성하는 사람"에서 "의도를 명확히 전달하고 결과를 검증하는 사람"으로 변화하고 있습니다.
+
+**효과적인 Claude Code 사용 패턴:**
+
+```
+1. 명확한 의도 전달
+   "사용자 인증 기능을 추가해줘" (X)
+   "JWT 기반 인증을 추가해줘.
+    access token은 15분, refresh token은 7일 만료.
+    토큰은 httpOnly 쿠키에 저장." (O)
+
+2. 제약 조건 명시
+   "기존 User 모델은 수정하지 말고,
+    별도의 AuthToken 테이블을 만들어줘"
+
+3. 점진적 요청
+   큰 기능을 한 번에 요청하기보다
+   작은 단위로 나누어 요청하고 검증
+```
+
+<Callout type='warning' title='주의사항'>
+  Claude Code가 생성한 코드를 무조건 수용하지 마세요. 반드시 diff를 확인하고, 의도한 대로 구현되었는지 검증해야 합니다. AI는 도구일 뿐, 최종 책임은 개발자에게 있습니다.
+</Callout>
+
+## 2. Zed IDE: Claude Code를 위한 최적의 환경
+
+Claude Code를 사용한다면 Zed IDE를 강력히 추천합니다.
+
+### Zed의 Claude Code 통합이 뛰어난 이유
+
+<Callout type='success' title='핵심 이점'>
+  Zed는 Claude Code를 1급 시민(first-class citizen)으로 지원합니다. VS Code의 확장 기능 방식과 달리, 에디터 코어 레벨에서 통합되어 있습니다.
+</Callout>
+
+**VS Code 대비 장점:**
+
+| 기능 | VS Code (확장) | Zed (내장) |
+|------|---------------|-----------|
+| Diff 확인 | 별도 패널, 전환 필요 | 인라인 표시, 즉시 확인 |
+| Accept/Reject | 파일 단위 또는 전체 | 라인 단위 세밀한 제어 |
+| 성능 | 확장 로딩 오버헤드 | 네이티브 속도 |
+| 멀티파일 변경 | 파일 간 이동 필요 | 통합 뷰로 한눈에 확인 |
+
+**Zed에서의 Claude Code 워크플로우:**
+
+```
+1. Cmd+Shift+P → "Assistant" 입력
+2. 자연어로 요청 작성
+3. 제안된 변경사항이 인라인으로 표시됨
+4. 각 변경사항을 라인 단위로 Accept/Reject
+5. 필요시 추가 대화로 수정 요청
+```
+
+### Zed 설치 및 Claude Code 설정
+
+```bash
+# macOS
+brew install zed
+
+# Linux
+curl -f https://zed.dev/install.sh | sh
+```
+
+Claude Code 로그인은 터미널에서 `claude` 명령어로 로그인하는 것과 동일한 방식입니다:
+
+1. Zed에서 GUI로 claude code 로그인
+2. 로그인 프롬프트가 나타나면 제공된 URL로 이동
+3. 브라우저에서 Anthropic 계정으로 로그인
+4. 로그인 후 표시되는 인증 키를 Zed에 붙여넣기
+
+별도의 API 키를 발급받아 입력하는 방식도 있지만, 위 방식이 더 간편합니다.
+
+**VS Code에서도 동일한 방식:**
+
+VS Code의 Claude 확장도 마찬가지로 터미널 기반 Claude Code와 동일한 로그인 플로우를 사용합니다. 확장 설치 후 로그인 버튼을 누르면 브라우저에서 인증하고, 제공된 키를 붙여넣으면 됩니다.
+
+## 3. tsgo: Language Server 성능의 혁신
+
+프로젝트가 커질수록 Language Server의 성능이 개발 경험을 좌우합니다. tsgo(TypeScript Go)는 이 문제를 근본적으로 해결합니다.
+
+### 왜 tsgo가 필요한가
+
+<Callout type='error' title='기존 TypeScript Language Server의 문제'>
+  대규모 프로젝트에서 "Go to Definition"에 5초, 자동완성에 3초가 걸리는 경험을 해보셨다면, tsgo의 필요성을 이해하실 겁니다.
+</Callout>
+
+tsgo는 Microsoft가 공식적으로 개발 중인 TypeScript의 Go 언어 포팅입니다. 기존 JavaScript 기반 tsc 대비 10배 이상의 성능 향상을 제공합니다.
+
+**성능 차이가 나는 작업들:**
+
+- **Go to Definition / Go to References**: 대규모 모노레포에서 체감 차이가 극명
+- **자동완성**: 타이핑 중 지연 없이 즉각적인 제안
+- **타입 검사**: 저장 시 거의 즉시 에러 표시
+- **리팩토링**: Rename Symbol 등의 작업 속도 개선
+
+### IDE별 tsgo 설정
+
+**Zed:**
+
+Zed는 tsgo를 네이티브로 지원합니다. 설정 파일(`.zed/settings.json`)에서:
+
+```json
+{
+  "languages": {
+    "TypeScript": {
+      "language_servers": ["tsgo"]
+    },
+    "TSX": {
+      "language_servers": ["tsgo"]
+    }
+  }
+}
+```
+
+**VS Code:**
+
+VS Code에서는 TypeScript Team의 공식 Native Preview 확장을 설치해야 합니다:
+
+1. Extensions 탭에서 "TypeScript Native Preview" 검색
+2. 또는 직접 설치: [TypeScript Native Preview](https://marketplace.visualstudio.com/items?itemName=TypeScriptTeam.native-preview)
+3. 설치 후 VS Code 재시작
+
+```json
+// settings.json
+{
+  "typescript.experimental.useTsgo": true
+}
+```
+
+<Callout type='info' title='참고'>
+  tsgo는 [microsoft/typescript-go](https://github.com/microsoft/typescript-go) 저장소에서 개발되고 있습니다. 아직 프리뷰 단계이지만, 일반적인 TypeScript 개발에는 충분히 안정적입니다.
+</Callout>
+
+## 4. Claude Code Rules와 Skills 이해하기
+
+Claude Code를 효과적으로 사용하려면 Rules와 Skills 개념을 이해해야 합니다.
+
+### Rules: AI에게 프로젝트 맥락 제공
+
+Rules는 Claude Code에게 프로젝트의 컨벤션, 구조, 제약사항을 알려주는 설정입니다.
+
+**Zed의 Rules 설정:**
+
+`.zed/assistant/rules.md` 파일을 생성합니다:
+
+```markdown
+# Project Rules
+
+## 코드 스타일
+- 함수형 컴포넌트만 사용 (클래스 컴포넌트 금지)
+- 타입 정의는 interface 우선 (type은 union/intersection에만)
+- 모든 export는 named export 사용
+
+## 프로젝트 구조
+- 컴포넌트: src/components/{domain}/{ComponentName}.tsx
+- 훅: src/hooks/use{HookName}.ts
+- API: src/api/{domain}.ts
+
+## 금지 사항
+- any 타입 사용 금지
+- console.log 커밋 금지
+- 인라인 스타일 금지
+```
+
+**VS Code의 Rules 설정:**
+
+`.vscode/claude_rules.md` 또는 `.cursorrules` 파일을 사용합니다:
+
+```markdown
+# Claude Rules for This Project
+
+## Tech Stack
+- React 19 with Server Components
+- TypeScript 5.x with strict mode
+- Tailwind CSS for styling
+- Drizzle ORM for database
+
+## Conventions
+- Use 'pnpm' for package management
+- All components should be in kebab-case folders
+- Test files should be colocated with source files
+```
+
+### Skills: 자주 사용하는 워크플로우 자동화
+
+Skills는 반복적인 작업을 명령어로 등록하여 빠르게 실행할 수 있게 합니다.
+
+```markdown
+# /component 스킬
+
+새 React 컴포넌트를 생성합니다.
+
+## 실행 방법
+/component {ComponentName} {domain}
+
+## 동작
+1. src/components/{domain}/{ComponentName}.tsx 파일 생성
+2. 기본 컴포넌트 구조 작성
+3. index.ts에 export 추가
+4. 테스트 파일 생성
+```
+
+<Callout type='success' title='활용 팁'>
+  프로젝트에서 자주 반복하는 작업(컴포넌트 생성, API 엔드포인트 추가, 테스트 작성 등)을 Skills로 정의해두면 개발 속도가 크게 향상됩니다.
+</Callout>
+
+## 5. MCP 서버: 업무 효율의 게임 체인저
+
+MCP(Model Context Protocol)는 Claude Code가 외부 도구와 통신할 수 있게 해주는 프로토콜입니다. 적절한 MCP 서버를 연결하면 개발 워크플로우가 크게 개선됩니다.
+
+### Playwright MCP: E2E 테스트 자동화
+
+<Callout type='info' title='Playwright MCP란'>
+  Claude Code가 직접 브라우저를 조작하여 E2E 테스트를 작성하고 실행할 수 있게 해주는 MCP 서버입니다.
+</Callout>
+
+**설치:**
+
+```bash
+npm install -g @anthropic/mcp-server-playwright
+```
+
+**설정 (claude_desktop_config.json):**
+
+```json
+{
+  "mcpServers": {
+    "playwright": {
+      "command": "mcp-server-playwright",
+      "args": []
+    }
+  }
+}
+```
+
+**활용 예시:**
+
+```
+"로그인 페이지의 E2E 테스트를 작성해줘.
+ 1. 이메일/비밀번호 입력
+ 2. 로그인 버튼 클릭
+ 3. 대시보드로 리다이렉트 확인
+ 4. 잘못된 비밀번호 케이스도 추가"
+
+Claude Code가:
+→ 실제 브라우저를 띄워서 페이지 구조 분석
+→ 적절한 셀렉터 자동 선택
+→ 테스트 코드 작성
+→ 테스트 실행 및 결과 확인
+```
+
+### 기타 유용한 MCP 서버들
+
+**파일 시스템 MCP:**
+- 프로젝트 구조 분석
+- 파일 검색 및 내용 확인
+- 대규모 리팩토링 시 유용
+
+**GitHub MCP:**
+- PR 생성 및 리뷰
+- 이슈 관리
+- 코드 검색
+
+**데이터베이스 MCP:**
+- 스키마 분석
+- 쿼리 작성 및 테스트
+- 마이그레이션 생성
+
+<Callout type='warning' title='보안 주의'>
+  MCP 서버는 Claude Code에 시스템 접근 권한을 부여합니다. 신뢰할 수 있는 MCP 서버만 사용하고, 프로덕션 환경의 민감한 데이터에 접근하지 않도록 주의하세요.
+</Callout>
+
+## 6. OS 선택: Windows + WSL2를 강력 추천
+
+개발 환경에서 OS 선택도 생산성에 큰 영향을 미칩니다. 결론부터 말하면, Windows + WSL2 조합을 강력히 추천합니다.
+
+### WSL2의 장점
+
+<Callout type='success' title='핵심 이점'>
+  WSL2는 실제 Linux 커널을 사용하므로, 네이티브 Linux와 비교해 성능 오버헤드가 거의 없습니다. 동시에 Windows의 생태계를 그대로 활용할 수 있습니다.
+</Callout>
+
+**WSL2가 좋은 이유:**
+
+1. **네이티브에 가까운 성능**: Hyper-V 기반의 경량 가상화로 I/O 성능이 우수
+2. **Docker 통합**: Docker Desktop과 포트를 자연스럽게 공유하여 개발이 편리
+3. **독립적인 환경**: 프로젝트별로 다른 WSL 배포판을 사용하여 환경 격리 가능
+4. **Windows 앱과의 공존**: MS Office, 화상회의 앱 등 Windows 전용 앱을 컨텍스트 스위칭 없이 사용
+
+```bash
+# WSL2 설치 (관리자 권한 PowerShell)
+wsl --install
+
+# Ubuntu 배포판 설치
+wsl --install -d Ubuntu-24.04
+
+# 기본 배포판을 WSL2로 설정
+wsl --set-default-version 2
+```
+
+### 네트워크 모드: Mirrored 추천
+
+<Callout type='warning' title='네트워크 설정'>
+  기본 NAT 모드보다 Mirrored 모드가 훨씬 안정적입니다. 특히 로컬 개발 서버에 외부에서 접근하거나, Docker 컨테이너와 통신할 때 체감됩니다.
+</Callout>
+
+`.wslconfig` 파일을 `C:\Users\{username}\.wslconfig`에 생성합니다:
+
+```ini
+[wsl2]
+networkingMode=mirrored
+dnsTunneling=true
+autoProxy=true
+
+[experimental]
+sparseVhd=true
+autoMemoryReclaim=gradual
+```
+
+**Mirrored 모드의 장점:**
+
+- Windows와 WSL이 동일한 IP를 공유
+- `localhost`로 양방향 접근이 자연스러움
+- 방화벽 설정이 단순해짐
+- VPN 환경에서도 안정적
+
+### 하드웨어 선택의 자유
+
+Windows를 선택하면 하드웨어 선택지가 넓어집니다.
+
+**macOS 대비 장점:**
+
+- **RAM 확보 비용**: 동일 예산으로 2~3배 더 많은 RAM 확보 가능
+- **다양한 폼팩터**: 데스크톱, 워크스테이션, 다양한 노트북 선택지
+- **업그레이드 가능**: RAM, SSD 등 부품 교체/추가 가능 (일부 모델)
+- **가성비 GPU**: AI/ML 작업이나 빌드 가속에 유리
+
+```
+예시 비교 (2025년 기준):
+- MacBook Pro M4 Max 64GB: ~500만원
+- Windows 노트북 64GB + eGPU: ~250만원
+- Windows 데스크톱 128GB: ~200만원
+```
+
+### macOS 선택 시 고려사항
+
+<Callout type='note' title='개인적인 체감 (면책조항)'>
+  이하 내용은 어디까지나 개인적인 경험에 기반한 체감입니다. 사용자마다 다르게 느낄 수 있습니다.
+</Callout>
+
+macOS도 훌륭한 개발 환경이지만, 몇 가지 고려할 점이 있습니다:
+
+**체감되는 차이점:**
+
+- **일부 킬러 앱의 완성도**: IDE, DB Client 같은 개발 도구들이 Windows 버전 대비 미묘하게 덜 다듬어진 느낌을 받을 때가 있습니다. 시장 규모 차이에서 오는 현상으로 추측됩니다.
+- **RAM 확보 비용**: Apple Silicon Mac에서 RAM 업그레이드는 구매 시점에만 가능하고, 비용이 높습니다.
+
+**원격 개발 환경 구성:**
+
+RAM이 부족하다면 원격 개발 환경을 구성하는 것도 좋은 방법입니다:
+
+```
+로컬 Mac (8~16GB)
+    ↓ SSH / VS Code Remote
+원격 서버 (64GB+)
+    - Proxmox 등 가상화 OS
+    - x64 아키텍처 (ARM 호환성 이슈 회피)
+    - 필요에 따라 리소스 확장 가능
+```
+
+**Proxmox 기반 홈 서버 구성:**
+
+```bash
+# Proxmox VE 설치 후 Ubuntu VM 생성
+# VM 설정 예시
+- CPU: 8 cores
+- RAM: 32GB (동적 할당)
+- Storage: 256GB SSD
+
+# VS Code Remote 또는 JetBrains Gateway로 접속
+```
+
+### 원격 개발 환경 구성 팁
+
+원격 서버에서 개발할 때 SSH 기반 연결(VS Code Remote, JetBrains Gateway 등) 외에도 유용한 선택지가 있습니다.
+
+**[code-server](https://github.com/coder/code-server): 웹 브라우저에서 VS Code**
+
+- SSH 연결과 병렬로 구성 가능 (SSH가 끊겨도 웹으로 접속)
+- 브라우저만 있으면 어디서든 개발 가능 (태블릿, 다른 PC 등)
+- 파일 업로드/다운로드가 웹 UI로 간편 (임시 파일 공유용으로도 유용)
+- Cloudflare Tunnel 등과 연동하면 외부에서도 안전하게 접속
+
+**[Coder](https://coder.com/): 팀을 위한 원격 개발 플랫폼**
+
+- 팀원별로 일관된 개발 환경을 코드로 정의하고 제공
+- 자체 호스팅 가능 (오픈소스)
+
+<Callout type='info' title='실용적인 조합'>
+  SSH + code-server를 함께 구성해두면 평소에는 SSH로 빠르게 접속하고, 급할 때는 웹 브라우저로 바로 접속할 수 있어 유연합니다.
+</Callout>
+
+### Linux 직접 사용 시 고려사항
+
+Linux를 메인 OS로 사용하면 완전한 커스터마이징이 가능하지만, 트레이드오프가 있습니다.
+
+**장점:**
+
+- 시스템 전체를 원하는 대로 구성 가능
+- 리소스 오버헤드 최소화
+- 서버 환경과 동일한 개발 환경
+
+**단점:**
+
+- 사용 가능한 앱이 제한적 (MS Office, Adobe 등)
+- 일부 화상회의 앱의 기능 제한
+- 하드웨어 호환성 이슈 가능성
+
+### Dev Container는 권장하지 않음
+
+macOS나 Linux에서 개발 환경 격리를 위해 Dev Container(Docker 기반 개발 컨테이너)를 고려할 수 있지만, 실용적인 관점에서 권장하지 않습니다.
+
+<Callout type='warning' title='Dev Container의 문제점'>
+  개발 컨테이너 안에서 또 Docker를 사용해야 하는 상황이 자주 발생합니다. 이 Docker-in-Docker 문제는 설정이 복잡하고, 볼륨 경로가 꼬이기 쉽습니다.
+</Callout>
+
+**체감되는 오버헤드:**
+
+- 파일 I/O 성능 저하 (특히 macOS에서 bind mount 시 심각)
+- Language Server가 컨테이너 안에서 돌면서 반응 속도 저하
+- `node_modules` 같은 대량 파일 처리 시 체감 차이가 큼
+
+**디버깅/툴링의 제약:**
+
+- 호스트의 GUI 앱과 연동이 번거로움
+- 일부 개발 도구가 컨테이너 환경을 제대로 지원하지 않음
+
+**권장하는 대안: 호스트에서 직접 개발**
+
+```
+호스트에서 직접 개발 (nvm, mise 등으로 버전 관리)
+    +
+Docker는 서비스(DB, Redis 등)만 실행
+    +
+docker-compose.yml로 의존 서비스 관리
+```
+
+```yaml
+# docker-compose.yml - 서비스만 컨테이너로
+services:
+  postgres:
+    image: postgres:16
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+```
+
+**버전 관리는 mise로:**
+
+```bash
+# mise 설치
+curl https://mise.run | sh
+
+# .mise.toml로 프로젝트별 버전 관리
+[tools]
+node = "22"
+pnpm = "9"
+```
+
+이렇게 하면:
+- 환경 격리는 프로젝트별 `.mise.toml`로 해결
+- Docker 오버헤드 없이 네이티브 성능
+- 컨테이너 안에서 또 컨테이너 돌리는 문제 없음
+
+<Callout type='success' title='WSL2의 진정한 가치'>
+  Dev Container의 문제점들이 WSL2의 가치를 더 높여줍니다. WSL2는 완전한 Linux 환경이면서도 Docker 오버헤드가 없고, Windows 앱과 자연스럽게 공존합니다. macOS/Linux에서 Dev Container로 해결하려던 문제들을 WSL2는 더 깔끔하게 해결합니다.
+</Callout>
+
+<Callout type='info' title='추천 조합'>
+  Windows + WSL2를 기본으로 하되, 필요시 Proxmox 등으로 원격 Linux 환경을 추가 구성하는 것이 가장 유연한 선택입니다.
+</Callout>
+
+## 정리: 추천 개발환경 체크리스트
+
+새 프로젝트를 시작하거나 개발환경을 개선할 때 다음을 확인하세요:
+
+### 필수 설정
+
+- [ ] **OS 환경**: Windows + WSL2 (Mirrored 네트워크 모드) 추천
+- [ ] **Claude Code 설정**: API 키 등록, 기본 모델 선택
+- [ ] **IDE 선택**: Zed 추천 (또는 VS Code + Native Preview)
+- [ ] **tsgo 활성화**: Language Server 성능 최적화
+- [ ] **프로젝트 Rules 작성**: 코드 컨벤션, 구조, 제약사항 명시
+
+### 권장 설정
+
+- [ ] **자주 쓰는 Skills 정의**: 반복 작업 자동화
+- [ ] **Playwright MCP 연결**: E2E 테스트 자동화
+- [ ] **Git 훅 설정**: 커밋 전 린트/타입 체크
+
+### IDE 설정 요약
+
+**Zed:**
+```json
+{
+  "assistant": {
+    "default_model": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-4-20250514"
+    }
+  },
+  "languages": {
+    "TypeScript": {
+      "language_servers": ["tsgo"]
+    }
+  }
+}
+```
+
+**VS Code:**
+```json
+{
+  "typescript.experimental.useTsgo": true,
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "editor.formatOnSave": true
+}
+```
+
+<Callout type='success' title='핵심 요약'>
+  Claude Code + Zed + tsgo 조합은 현재 가장 생산적인 TypeScript 개발환경입니다. AI가 코드를 작성하고, 개발자는 의도를 명확히 전달하고 결과를 검증하는 새로운 개발 패러다임에 적응해야 합니다.
+</Callout>
+
+개발 도구는 계속 발전하고 있습니다. 중요한 것은 도구 자체가 아니라, 도구를 통해 더 나은 소프트웨어를 더 빠르게 만드는 것입니다. 이 글이 여러분의 개발 환경 개선에 도움이 되길 바랍니다.
