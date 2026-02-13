@@ -1,8 +1,13 @@
 'use server';
 
-import { readdirSync, statSync } from 'fs';
+import { readdir, stat } from 'fs/promises';
 import { join } from 'path';
 import { cache } from 'react';
+
+// 자연스러운 숫자 정렬을 위한 비교 함수
+function naturalCompare(a: string, b: string): number {
+  return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+}
 
 export interface NavigationItem {
   title: string;
@@ -12,46 +17,40 @@ export interface NavigationItem {
   isActive?: boolean;
 }
 
-export interface NavigationStructure {
-  topLevel: NavigationItem[];
-  sidebarItems: NavigationItem[];
-}
-
 // content 폴더에서 최상위 디렉토리들을 읽어와서 topLevel 아이템 생성 (캐시됨)
 export const getTopLevelItems = cache(async (): Promise<NavigationItem[]> => {
   try {
     const contentPath = join(process.cwd(), 'content');
-    const directories = readdirSync(contentPath).filter((item) => {
+    const items = await readdir(contentPath);
+
+    const directories: string[] = [];
+    for (const item of items) {
       const itemPath = join(contentPath, item);
-      return statSync(itemPath).isDirectory();
-    });
+      const itemStat = await stat(itemPath);
+      if (itemStat.isDirectory()) {
+        directories.push(item);
+      }
+    }
+
+    directories.sort(naturalCompare);
 
     return directories.map((dir) => ({
-      title: dir.charAt(0).toUpperCase() + dir.slice(1), // 첫 글자 대문자로
+      title: dir.charAt(0).toUpperCase() + dir.slice(1),
       href: `/docs/${dir}`,
       icon: 'FileText',
     }));
   } catch (error) {
-    console.error('Error reading content directories:', error);
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`[getTopLevelItems] ${message}`);
     return [
       {
         title: '문서',
         href: '/docs',
         icon: 'FileText',
       },
-    ]; // 기본값 반환
+    ];
   }
 });
-
-// 동적 네비게이션 구조 생성
-export async function getNavigationStructure(): Promise<NavigationStructure> {
-  const topLevel = await getTopLevelItems();
-
-  return {
-    topLevel,
-    sidebarItems: [],
-  };
-}
 
 // 현재 경로에 기반하여 사이드바 아이템을 동적으로 생성 (캐시됨)
 export const getSidebarItems = cache(async (
@@ -109,15 +108,26 @@ export const getSidebarItems = cache(async (
       const sections = await getAllMDXSections();
 
       for (const section of sections) {
+        // 파일과 디렉토리를 합쳐서 children 생성
+        const fileItems: NavigationItem[] = section.files.map((file) => ({
+          title: file.title,
+          href: `/docs/${section.section}/${file.slug}`,
+        }));
+
+        const dirItems: NavigationItem[] = section.directories.map((dir) => ({
+          title: dir.title,
+          href: `/docs/${section.section}/${dir.slug}`,
+        }));
+
+        // 파일과 디렉토리를 합치고, order 기준으로 정렬
+        const allItems = [...fileItems, ...dirItems];
+
         staticItems.push({
           title:
             section.section.charAt(0).toUpperCase() + section.section.slice(1),
           href: `/docs/${section.section}`,
           icon: 'FileText',
-          children: section.files.map((file) => ({
-            title: file.title,
-            href: `/docs/${section.section}/${file.slug}`,
-          })),
+          children: allItems,
         });
       }
     } catch (error) {
