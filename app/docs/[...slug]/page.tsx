@@ -1,8 +1,5 @@
 import { notFound } from 'next/navigation';
 import {
-  getMDXContent,
-  getMDXFiles,
-  getAllMDXSections,
   getMDXContentByPath,
   getPathType,
   buildMDXTree,
@@ -29,19 +26,6 @@ export default async function DocsPage({ params }: PageProps) {
   const pathType = await getPathType(slug);
 
   if (pathType === null) {
-    // 기존 호환성을 위한 하이픈 처리 (레거시 라우팅)
-    if (slug.length === 1 && slug[0].includes('-')) {
-      const [sectionPart, ...filenameParts] = slug[0].split('-');
-      const filename = filenameParts.join('-');
-
-      if (sectionPart && filename) {
-        const mdxContent = await getMDXContent(sectionPart, filename);
-        if (mdxContent) {
-          return <DocumentPage mdxContent={mdxContent} />;
-        }
-      }
-    }
-
     notFound();
   }
 
@@ -132,17 +116,6 @@ export async function generateStaticParams() {
 
       // 섹션 내의 모든 파일과 디렉토리 경로 수집
       collectPaths(section.tree, [section.section]);
-    }
-
-    // 기존 호환성을 위한 레거시 경로도 추가
-    const legacySections = await getAllMDXSections();
-    for (const section of legacySections) {
-      for (const file of section.files) {
-        // 기존 호환성을 위한 구조: /docs/section-filename
-        params.push({
-          slug: [`${section.section}-${file.slug}`],
-        });
-      }
     }
 
     return params;
