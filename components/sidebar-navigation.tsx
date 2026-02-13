@@ -10,7 +10,6 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useState, useMemo, memo } from "react";
-import { useSiblingFiles } from "@/hooks/use-sibling-files";
 
 interface SidebarNavigationItemProps {
   item: NavigationItem;
@@ -91,29 +90,8 @@ interface SidebarNavigationProps {
 
 export function SidebarNavigation({ sidebarItems }: SidebarNavigationProps) {
   const pathname = usePathname();
-  const { dynamicItems, isLoading } = useSiblingFiles(pathname);
 
-  // 메모이제이션으로 불필요한 재계산 방지
-  const itemsToRender = useMemo(() =>
-    dynamicItems.length > 0 ? dynamicItems : sidebarItems,
-    [dynamicItems, sidebarItems]
-  );
-
-  if (isLoading) {
-    return (
-      <div className="hidden md:block w-64 border-r bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <ScrollArea className="h-full py-4">
-          <div className="space-y-1 px-3">
-            <div className="h-8 bg-muted rounded animate-pulse" />
-            <div className="h-8 bg-muted rounded animate-pulse" />
-            <div className="h-8 bg-muted rounded animate-pulse" />
-          </div>
-        </ScrollArea>
-      </div>
-    );
-  }
-
-  if (itemsToRender.length === 0) {
+  if (sidebarItems.length === 0) {
     return null;
   }
 
@@ -121,7 +99,7 @@ export function SidebarNavigation({ sidebarItems }: SidebarNavigationProps) {
     <div className="hidden md:block w-64 border-r bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <ScrollArea className="h-full py-4">
         <div className="space-y-1 px-3">
-          {itemsToRender.map((item) => (
+          {sidebarItems.map((item) => (
             <SidebarNavigationItem
               key={item.href}
               item={item}
@@ -141,34 +119,15 @@ interface SidebarNavigationContentProps {
 
 export function SidebarNavigationContent({ sidebarItems }: SidebarNavigationContentProps) {
   const pathname = usePathname();
-  const { dynamicItems, isLoading } = useSiblingFiles(pathname);
 
-  // 메모이제이션으로 불필요한 재계산 방지
-  const itemsToRender = useMemo(() =>
-    dynamicItems.length > 0 ? dynamicItems : sidebarItems,
-    [dynamicItems, sidebarItems]
-  );
-
-  if (isLoading) {
-    return (
-      <ScrollArea className="h-full py-4">
-        <div className="space-y-1 px-3">
-          <div className="h-8 bg-muted rounded animate-pulse" />
-          <div className="h-8 bg-muted rounded animate-pulse" />
-          <div className="h-8 bg-muted rounded animate-pulse" />
-        </div>
-      </ScrollArea>
-    );
-  }
-
-  if (itemsToRender.length === 0) {
+  if (sidebarItems.length === 0) {
     return null;
   }
 
   return (
     <ScrollArea className="h-full py-4">
       <div className="space-y-1 px-3">
-        {itemsToRender.map((item) => (
+        {sidebarItems.map((item) => (
           <SidebarNavigationItem
             key={item.href}
             item={item}
