@@ -1,0 +1,151 @@
+## Proxmox NAS 구축 & 디스크 관리 팁 정리
+
+### LXC 컨테이너에 ZFS 바인드 마운트
+
+```bash
+# GUI에서는 bind mount 지원 안 함, CLI로 해야 함
+pct set <CTID> -mp0 /zfs,mp=/mnt/zfs
+
+# 여러 LXC에 동시 마운트 가능
+pct set 101 -mp0 /zfs,mp=/mnt/zfs          # Filebrowser
+pct set 102 -mp0 /zfs/photos,mp=/mnt/photos # Immich (나중에)
+
+# 읽기 전용 마운트
+pct set 101 -mp0 /zfs,mp=/mnt/zfs,ro=1
+```
+
+### 마운트 확인 명령어
+
+```bash
+lsblk          # 블록 디바이스 목록 (LXC에서는 보이기만 함)
+df -h          # 실제 마운트된 파일시스템 + 용량
+findmnt        # 마운트 트리 구조로 보기
+```
+
+### 외장 디스크 마운트 & 해제
+
+```bash
+# 마운트 포인트 생성 후 마운트
+mkdir -p /mnt/external
+mount /dev/sdf1 /mnt/external
+
+# 확인
+ls /mnt/external
+
+# 작업 끝나면 언마운트
+umount /mnt/external
+```
+
+### Mac에서 디스크 관리
+
+```bash
+diskutil list                    # 디스크 목록
+diskutil eject /dev/diskX        # 안전하게 꺼내기
+diskutil verifyVolume /dev/diskX # 검사
+```
+
+### 파일 복사
+
+```bash
+# 기본 복사 (-r: 재귀, -v: 진행상황)
+cp -rv /mnt/external/* /zfs/backup-250131/
+
+# 중간에 끊겼을 때 이어서 (rsync)
+rsync -av --progress /mnt/external/ /zfs/backup-250131/
+```
+
+### 백그라운드 작업 (screen)
+
+```bash
+apt install -y screen
+screen -S backup          # 세션 생성
+# 명령 실행...
+# Ctrl+A → D 로 빠져나오기 (백그라운드 유지)
+screen -r backup          # 다시 들어가기
+```
+
+### 복사 완료 확인
+
+```bash
+du -sh /mnt/external
+du -sh /zfs/backup-250131
+
+# 파일 개수 비교
+find /mnt/external -type f | wc -l
+find /zfs/backup-250131 -type f | wc -l
+```
+
+### I/O 모니터링
+
+```bash
+iotop              # 프로세스별 디스크 사용량 (실시간)
+iostat -x 1        # 디스크별 사용률 (1초 갱신)
+zpool iostat 1     # ZFS 풀 읽기/쓰기 속도
+```
+
+### ZFS 데이터셋 관리
+
+```bash
+zfs list                    # 데이터셋 목록
+zfs create zfs/photos       # 하위 데이터셋 생성 (스냅샷/권한 분리 관리용)
+zfs create zfs/documents
+```
+
+### SMB 설정 (Mac/Windows 접근용)
+
+```bash
+apt install -y samba
+
+cat >> /etc/samba/smb.conf << 'EOF'
+
+[zfs]
+   path = /mnt/zfs
+   browseable = yes
+   read only = no
+   guest ok = no
+   create mask = 0755
+   directory mask = 0755
+EOF
+
+smbpasswd -a root
+systemctl restart smbd
+systemctl enable smbd
+```
+
+Mac에서: `Cmd+K` → `smb://<IP>/zfs`
+
+### NFS 설정 (LXC/VM용, 호스트에서 제공 추천)
+
+```bash
+apt install -y nfs-kernel-server
+echo '/zfs *(rw,sync,no_subtree_check,no_root_squash)' >> /etc/exports
+exportfs -a
+systemctl enable --now nfs-server
+```
+
+클라이언트에서:
+```bash
+mount -t nfs <NAS IP>:/zfs /mnt/nas
+```
+
+### Locale 경고 해결
+
+```bash
+apt install -y locales
+locale-gen en_US.UTF-8
+update-locale LANG=en_US.UTF-8
+```
+
+---
+
+## 핵심 개념 정리
+
+| 개념 | 설명 |
+|------|------|
+| **ARC** | ZFS 읽기 캐시, RAM 사용 (자동) |
+| **L2ARC** | 2차 읽기 캐시, SSD 사용 (선택) |
+| **TXG** | 쓰기 버퍼링, 5초마다 flush |
+| **bind mount** | 호스트 경로를 컨테이너에 연결 |
+| **LXC vs VM** | LXC는 커널 공유라 가볍고 빠름 |
+
+---

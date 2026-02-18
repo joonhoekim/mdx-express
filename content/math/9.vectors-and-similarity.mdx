@@ -1,0 +1,210 @@
+---
+title: "벡터, 내적, 유사도"
+description: "벡터는 물리학의 화살표이자 프로그래머의 배열이자 기하학의 점이다. 내적은 '두 벡터가 얼마나 같은 방향인가'이고, 코사인 유사도는 검색 엔진의 기반이다."
+date: "2025-02-18"
+author: "JH"
+tags: ["math", "programming", "linear-algebra", "vector", "cosine-similarity"]
+series: "Math Re:Loaded"
+order: 9
+---
+
+# 벡터, 내적, 유사도
+
+드디어 마지막 Stage. 여기가 개발자한테 가장 실용적인 파트이기도 해.
+
+---
+
+## 벡터란 무엇인가: 세 가지 관점
+
+벡터를 보는 방법이 여러 가지 있는데, 전부 같은 걸 다른 각도에서 본 거야:
+
+| 관점 | 벡터란 | 예시 |
+|------|--------|------|
+| 물리학 | 방향 + 크기를 가진 화살표 | "오른쪽 3, 위로 4" |
+| 프로그래밍 | 숫자의 배열 | `[3, 4]` |
+| 기하학 | 공간의 한 점 | 좌표 (3, 4) |
+
+```javascript
+// a vector is just a list of numbers
+const v = [3, 4];                       // 2D
+const w = [1, 0, -2];                   // 3D
+const u = [0.5, 0.3, 0.8, 0.1, 0.9];   // 5D
+// can't visualize, but same rules apply
+```
+
+### 차원 = 배열 길이
+
+Article 2에서 "독립적인 방향의 수 = 차원"이라고 했잖아. 벡터의 원소 개수가 차원이야.
+
+```
+[3, 4]           -> 2D (plane)
+[1, 0, -2]       -> 3D (space)
+[x1, x2, ..xn]   -> nD (can't draw, but math works the same)
+```
+
+2D, 3D까지는 시각화 가능하고, 그 이상은 못 그리지만 **규칙은 완전히 동일해.** 이게 선형대수의 힘이야.
+
+ML에서 28×28 픽셀 이미지 = **784차원 벡터**. 각 픽셀의 밝기가 하나의 차원이야.
+
+---
+
+## 벡터의 연산
+
+### 덧셈: 각 성분끼리
+
+```
+a = [3, 1],  b = [1, 3]
+a + b = [4, 4]
+```
+
+```javascript
+const add = (a, b) => a.map((v, i) => v + b[i]);
+add([3, 1], [1, 3]);  // [4, 4]
+```
+
+### 스칼라곱: 방향 유지, 크기 조절
+
+```
+v = [2, 3]
+2v  = [4, 6]       same direction, twice as long
+-1v = [-2, -3]     opposite direction
+0.5v = [1, 1.5]    same direction, half as long
+```
+
+Stage 1에서 곱셈의 본질이 "스케일링"이라고 했잖아. 스칼라곱은 **벡터 세계에서의 곱셈**이야.
+
+### 크기(norm)와 단위벡터
+
+```
+v = [3, 4]
+
+magnitude: ||v|| = sqrt(3^2 + 4^2) = sqrt(25) = 5
+
+unit vector: v/||v|| = [3/5, 4/5] = [0.6, 0.8]
+             magnitude = 1, pure direction only
+```
+
+이 크기 공식이 Article 5에서 본 **두 점 사이 거리**랑 완전히 같아.
+
+```
+any vector = magnitude * unit vector
+[3, 4]     = 5 * [0.6, 0.8]
+             "how much" * "which direction"
+```
+
+이렇게 하면 크기와 방향을 **명시적으로 분리**할 수 있어.
+
+---
+
+## 내적 (Dot Product): 가장 중요한 연산
+
+```
+a = [a1, a2],  b = [b1, b2]
+a · b = a1*b1 + a2*b2
+```
+
+계산은 단순해 -- 성분끼리 곱해서 합산. 근데 이게 **뭘 의미하는가**?
+
+### 기하학적 의미: "두 벡터가 얼마나 같은 방향인가"
+
+```
+a · b = ||a|| × ||b|| × cos(θ)
+
+where θ = angle between a and b
+```
+
+```
+case 1: same direction (theta = 0)
+   a -->
+   b -->
+   cos(0) = 1 → dot product = ||a||*||b|| (maximum, positive)
+
+case 2: perpendicular (theta = 90)
+   a -->
+   b ↓
+   cos(90) = 0 → dot product = 0
+
+case 3: opposite direction (theta = 180)
+   a -->
+   b <--
+   cos(180) = -1 → dot product = -||a||*||b|| (negative)
+```
+
+```
+dot product > 0:  similar direction    (acute angle)
+dot product = 0:  perpendicular        (orthogonal!)
+dot product < 0:  opposing direction   (obtuse angle)
+```
+
+**내적이 0이면 직교.** Article 5에서부터 계속 나왔던 직교 개념이 드디어 수식으로 정의된 거야.
+
+```
+[1, 0] · [0, 1] = 1*0 + 0*1 = 0    <- x축과 y축은 직교
+[3, 4] · [-4, 3] = -12 + 12 = 0     <- 이 둘도 직교
+```
+
+---
+
+## 코사인 유사도: 검색 엔진의 기반
+
+내적의 실용적 활용 -- **유사도 측정**:
+
+```
+cosine similarity = (a · b) / (||a|| × ||b||)
+```
+
+크기를 정규화해서 순수하게 **방향만** 비교하는 거야. -1(정반대)부터 1(동일 방향)까지.
+
+<Tabs defaultValue="code">
+  <TabsList>
+    <TabsTrigger value="code">Code</TabsTrigger>
+    <TabsTrigger value="example">Example</TabsTrigger>
+  </TabsList>
+  <TabsContent value="code">
+
+```javascript
+function cosineSimilarity(a, b) {
+  const dot = a.reduce((sum, v, i) => sum + v * b[i], 0);
+  const normA = Math.sqrt(a.reduce((s, v) => s + v * v, 0));
+  const normB = Math.sqrt(b.reduce((s, v) => s + v * v, 0));
+  return dot / (normA * normB);
+}
+
+// document vectors (simplified)
+const mathArticle = [0.8, 0.1, 0.9];   // "math and science"
+const sciArticle  = [0.7, 0.2, 0.8];   // "also math and science"
+const cookArticle = [0.1, 0.9, 0.1];   // "about cooking"
+
+cosineSimilarity(mathArticle, sciArticle);   // ~0.99 (very similar)
+cosineSimilarity(mathArticle, cookArticle);  // ~0.30 (very different)
+```
+
+  </TabsContent>
+  <TabsContent value="example">
+
+```
+검색 엔진이 "이 문서가 쿼리와 얼마나 관련 있는가"를
+판단할 때 쓰는 게 코사인 유사도.
+
+query = "math programming"  → vector [0.9, 0.0, 0.8]
+doc A = "math for devs"     → vector [0.8, 0.1, 0.9]
+doc B = "cooking recipes"   → vector [0.1, 0.9, 0.1]
+
+similarity(query, A) = 0.99  → 상위 노출
+similarity(query, B) = 0.25  → 하위 노출
+
+벡터의 내적이 그 기반.
+```
+
+  </TabsContent>
+</Tabs>
+
+<Callout type="note" title="반복 테마: 코드 동형">
+벡터의 내적 → 코사인 유사도 → 검색/추천 시스템. 순수한 수학적 개념이 실제 제품의 핵심 알고리즘이 되는 전형적인 경로야.
+</Callout>
+
+---
+
+## 다음 글 미리보기
+
+벡터가 "데이터"였다면, 행렬은 **"벡터를 변환하는 함수"**야. 행렬곱이 왜 그런 이상한 규칙인지, 행렬식이 뭘 의미하는지, 고유벡터가 왜 "고유한"지 -- 선형대수의 클라이맥스가 기다리고 있어.

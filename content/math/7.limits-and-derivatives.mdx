@@ -1,0 +1,257 @@
+---
+title: "극한과 미분: 함수의 git diff"
+description: "한 점의 기울기 문제에서 극한이 탄생하고, 미분이 각 지점의 변화율을 새 함수로 만든다. 핵심 규칙 3개만 알면 나머지는 전부 조합이다."
+date: "2025-02-18"
+author: "JH"
+tags: ["math", "programming", "calculus", "derivative", "chain-rule"]
+series: "Math Re:Loaded"
+order: 7
+---
+
+# 극한과 미분: 함수의 git diff
+
+Stage 2에서 일차함수의 기울기를 봤어. 두 점 사이의 변화율. 일차함수는 어디서든 기울기가 같으니까 문제없었어. 근데 `f(x) = x²` 같은 곡선에서 **한 점의 기울기**를 구하고 싶으면?
+
+두 점이 있어야 기울기를 구하는데, 점 하나로는 Δx = 0이 되니까 0/0이 돼. 정의 불가.
+
+---
+
+## 극한: "한없이 가까이"
+
+### 아이디어: B를 A에 한없이 가까이 보내면?
+
+```
+f(x) = x^2, point A at x = 3
+
+B at x=4:    slope = (16-9)/(4-3)     = 7
+B at x=3.5:  slope = (12.25-9)/(0.5)  = 6.5
+B at x=3.1:  slope = (9.61-9)/(0.1)   = 6.1
+B at x=3.01: slope = (9.0601-9)/(0.01) = 6.01
+B at x=3.001: slope = 6.001
+...
+B -> A:      slope -> 6
+```
+
+B를 A에 가까이 보낼수록 기울기가 6에 **수렴**해. B가 A에 "도달"하진 않지만, 기울기는 6에 한없이 가까워져.
+
+이게 극한이야:
+
+```
+lim   (f(3+h) - f(3)) / h = 6
+h->0
+```
+
+### 극한은 "도달"이 아니라 "수렴"
+
+```
+h never equals 0       (we never divide by zero)
+but the result gets arbitrarily close to 6
+so we say the limit IS 6
+```
+
+<MathCodeBridge title="극한의 직관" connections="h → 0 :: h /= 10 (점점 작아짐) | 극한값 = 6 :: 수렴값 = 6">
+
+```math
+lim  (f(x+h) - f(x)) / h
+h→0
+
+"h가 0에 한없이 가까워질 때
+ 이 식의 값이 수렴하는 곳"
+
+도달 ✗, 수렴 ✓
+```
+
+```ts
+function approachLimit(f, x) {
+  const results = [];
+  for (let h = 1; h > 1e-10; h /= 10) {
+    results.push((f(x + h) - f(x)) / h);
+  }
+  return results;
+  // [7, 6.5, 6.1, 6.01, 6.001, ...]
+  // converges to 6
+}
+```
+
+</MathCodeBridge>
+
+### 뉴턴/라이프니츠 vs 코시/바이어슈트라스
+
+재밌는 역사가 있어:
+
+```
+1680s: Newton/Leibniz - "works, trust me bro"
+       used "infinitesimals" - logically shaky but correct results
+
+1800s: Cauchy/Weierstrass - epsilon-delta definition
+       finally made limits rigorous
+```
+
+150년 동안 논리적 기반 없이 잘 돌아가는 도구를 먼저 쓰고, 나중에 기초를 깔은 거야. **프로덕션에 먼저 배포하고 테스트를 나중에 작성한 셈이지.**
+
+그리고 우리가 지금 쓰는 표기법(`dy/dx`, `∫`)은 대부분 라이프니츠 거야. 뉴턴의 표기법은 거의 사라졌어. `dy/dx`라는 표기가 "y의 변화량 / x의 변화량"이라는 직관을 그대로 담고 있거든. **좋은 네이밍이 이긴 거야.**
+
+---
+
+## 미분 = 각 지점의 기울기를 새 함수로
+
+### 미분의 정의
+
+```
+f'(x) = lim   (f(x+h) - f(x)) / h
+        h->0
+
+"x에서 아주 조금(h) 움직였을 때, 출력이 얼마나 변하는가"
+```
+
+`f(x) = x²`로 직접 해보자:
+
+<Steps>
+<Step title="극한식 세우기">
+`f'(x) = lim ((x+h)² - x²) / h`
+</Step>
+<Step title="전개">
+`= lim (x² + 2xh + h² - x²) / h = lim (2xh + h²) / h`
+</Step>
+<Step title="약분">
+`= lim (2x + h)`
+</Step>
+<Step title="h → 0">
+`= 2x`
+</Step>
+</Steps>
+
+x²의 미분은 2x. `x = 3`에서의 기울기는 `2(3) = 6`. 아까 극한으로 수렴했던 값과 일치하지.
+
+### 미분 = git diff
+
+```
+f(x) = x^2          f'(x) = 2x
+
+original function    its slope at each point
+(the source code)    (the diff)
+```
+
+미분은 **"각 지점에서의 기울기를 새로운 함수로 만든 것"**이야. 원본이 아니라 변화량을 보는 거야.
+
+Article 4에서 이차함수의 증가량이 1, 3, 5, 7이었고 "증가량의 증가량은 2, 2, 2"라고 했잖아. 이제 그 인터페이스가 구현된 거야:
+
+```
+f(x)   = x^2     original function
+f'(x)  = 2x      first derivative  (rate of change)
+f''(x) = 2       second derivative (rate of rate of change)
+                  = constant! that's why it was 2, 2, 2
+```
+
+---
+
+## 3가지 핵심 규칙만 알면 된다
+
+미분 규칙이 많아 보이지만, 근본 원리는 하나야 -- "h→0으로 보내서 정리하면 이렇게 될 수밖에 없다."
+
+### 1. 거듭제곱 규칙 (Power Rule)
+
+```
+f(x) = x^n   →   f'(x) = nx^(n-1)
+
+x^2  →  2x
+x^3  →  3x^2
+x^4  →  4x^3
+x^1  →  1        (일정한 기울기 = 일차함수)
+x^0  →  0        (상수는 변화 없음)
+```
+
+### 2. 곱의 미분 (Product Rule)
+
+```
+(f × g)' = f'×g + f×g'
+```
+
+왜 `f' × g'`이 아닐까? 직사각형으로 생각하면 자명해:
+
+```
+   think of a rectangle with sides f and g
+   area = f * g
+
+        g        g+dg
+   +----------+----+
+   |          |    |  <- f * dg  (g grew, f stayed)
+ f |  f * g   |    |
+   +----------+----+
+   | df * g        |  <- df * g  (f grew, g stayed)
+   +----------+----+
+        df
+
+   total change ~ f*dg + df*g
+   (the tiny corner df*dg vanishes in the limit)
+```
+
+양쪽이 동시에 변하는 "꼬다리"(`df × dg`)는 극한에서 사라져.
+
+### 3. 연쇄 법칙 (Chain Rule)
+
+```
+(f(g(x)))' = f'(g(x)) × g'(x)
+```
+
+이게 가장 중요하고, 직관도 명확해:
+
+```
+x  --[g]-->  g(x)  --[f]-->  f(g(x))
+
+x changes by dx
+g changes by g'(x) * dx         (g's rate * input change)
+f changes by f'(g) * (change in g)
+         = f'(g(x)) * g'(x) * dx
+```
+
+**기어 비유가 가장 좋아:**
+
+```
+gear A (g): 1 turn of input -> 3 turns output  (g' = 3)
+gear B (f): 1 turn of input -> 2 turns output  (f' = 2)
+
+chained: 1 turn of input -> 3 * 2 = 6 turns output
+
+chain rule = multiplying the gear ratios
+```
+
+각 단계의 변화 배율을 곱하면 전체 변화 배율이 나와.
+
+<Callout type="info" title="연쇄 법칙 = 역전파(Backpropagation)">
+연쇄 법칙이 머신러닝에서 **역전파**의 수학적 기반이야. 신경망이 학습할 때 "출력의 오차가 각 가중치에 얼마나 영향받는가"를 연쇄 법칙으로 계산하거든. 기어 비유 그대로 -- 여러 층의 변화 배율을 역방향으로 곱해나가는 거지.
+</Callout>
+
+---
+
+## 3개 규칙으로 모든 미분 도출하기
+
+```
+Level 0 - from limit definition (must derive once):
+   (x^n)' = nx^(n-1)
+   (sin x)' = cos x
+   (cos x)' = -sin x
+   (e^x)' = e^x
+
+Level 1 - derived from Level 0 + the three rules:
+   (tan x)' = sec^2(x)         <- quotient = product + chain
+   (ln x)' = 1/x               <- inverse function + chain
+   (a^x)' = a^x * ln(a)        <- rewrite as e^(x*ln(a)) + chain
+
+Level 2 - any combination:
+   (sin(x^2))' = cos(x^2)*2x   <- chain rule
+   (x*ln(x))' = ln(x) + 1      <- product rule
+   (e^(sin x))' = e^(sin x)*cos(x)  <- chain rule
+```
+
+Level 0의 기본 부품 몇 개만 극한으로 도출하고, 이후엔 전부 세 규칙의 조합이야. **"소수의 primitive + 조합 규칙 = 모든 것"**이라는 구조. 프로그래밍에서 소수의 기본 연산으로 모든 프로그램을 만드는 것과 같지.
+
+<Callout type="note" title="반복 테마: 분해">
+몫의 미분도 외울 필요 없어. `f/g = f × g⁻¹`로 보고 곱의 미분 + 연쇄 법칙으로 도출하면 돼. **규칙을 줄이는 게 핵심이야.**
+</Callout>
+
+---
+
+## 다음 글 미리보기
+
+미분의 역질문이 등장한다. "이 변화율의 원래 함수는?" -- 그게 적분이야. 미분이 `git diff`였다면, 적분은 `reduce()`. 그리고 이 둘이 정확한 역관계라는 게 미적분에서 가장 아름다운 정리야.
