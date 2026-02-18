@@ -6,7 +6,6 @@ import { Separator } from '@/components/ui/separator';
 import { MDXRemote } from 'next-mdx-remote/rsc';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
-import remarkMdx from 'remark-mdx';
 import { cn } from '@/lib/utils';
 
 // Writing UI 컴포넌트들 import
@@ -25,27 +24,10 @@ import {
   Badge as WritingBadge,
   Reference,
   ReferenceList,
-  Icon
+  Icon,
+  MathCodeBridge
 } from '@/components/writing-ui';
-
-// Lucide 아이콘들 - 자주 사용하는 아이콘만 직접 import (트리 쉐이킹)
-import {
-  Star, Code, Palette, Zap, FileText, ArrowRight,
-  Info, AlertTriangle, CheckCircle, XCircle, Lightbulb,
-  HelpCircle, ExternalLink, Copy, Check, ChevronRight,
-  ChevronLeft, ChevronDown, ChevronUp, X, Menu, Search,
-  Home, Settings, User, Mail, Github, Twitter, Linkedin,
-  Youtube, Book, BookOpen, Bookmark, Calendar, Clock,
-  Download, Upload, Eye, EyeOff, Heart, MessageCircle,
-  Share2, ThumbsUp, TrendingUp, Trash2, Edit, Plus,
-  Minus, Save, Send, Filter, SortAsc, SortDesc,
-  RefreshCw, Loader2, AlertCircle, Lock, Unlock, Key,
-  Shield, Bell, BellOff, Globe, Link2, MapPin, Phone,
-  Tag, Folder, File, Image, Video, Music, Archive,
-  Database, Server, Terminal, Package as PackageIcon, Cpu,
-  HardDrive, Wifi, WifiOff, Battery, Power, Sun, Moon,
-  Cloud, CloudRain, Sunrise, Sunset, Rocket
-} from 'lucide-react';
+import { LUCIDE_ICONS } from '@/components/writing-ui/icon';
 
 interface MDXRendererProps {
   content: string;
@@ -69,24 +51,11 @@ export function MDXRenderer({ content }: MDXRendererProps) {
     Badge: WritingBadge,
     Reference,
     ReferenceList,
-    Icon, // 동적 Icon 컴포넌트
+    Icon,
+    MathCodeBridge,
 
-    // Lucide 아이콘들 - 자주 사용하는 것들만 직접 노출
-    Star, Code, Palette, Zap, FileText, ArrowRight,
-    Info, AlertTriangle, CheckCircle, XCircle, Lightbulb,
-    HelpCircle, ExternalLink, Copy, Check, ChevronRight,
-    ChevronLeft, ChevronDown, ChevronUp, X, Menu, Search,
-    Home, Settings, User, Mail, Github, Twitter, Linkedin,
-    Youtube, Book, BookOpen, Bookmark, Calendar, Clock,
-    Download, Upload, Eye, EyeOff, Heart, MessageCircle,
-    Share2, ThumbsUp, TrendingUp, Trash2, Edit, Plus,
-    Minus, Save, Send, Filter, SortAsc, SortDesc,
-    RefreshCw, Loader2, AlertCircle, Lock, Unlock, Key,
-    Shield, Bell, BellOff, Globe, Link2, MapPin, Phone,
-    Tag, Folder, File, Image, Video, Music, Archive,
-    Database, Server, Terminal, PackageIcon, Cpu,
-    HardDrive, Wifi, WifiOff, Battery, Power, Sun, Moon,
-    Cloud, CloudRain, Sunrise, Sunset, Rocket,
+    // Lucide 아이콘들 (icon.tsx에서 단일 정의)
+    ...LUCIDE_ICONS,
 
     // Shadcn UI 컴포넌트들
     Button,
@@ -134,17 +103,9 @@ export function MDXRenderer({ content }: MDXRendererProps) {
     blockquote: (props: any) => (
       <blockquote className="my-8 border-l-4 border-blue-500/30 bg-slate-50 dark:bg-slate-800/50 pl-6 pr-4 py-4 italic rounded-r-lg shadow-sm" {...props} />
     ),
-    code: (props: any) => {
-      // 인라인 코드인 경우 (pre 태그 안에 있지 않은 경우)
-      if (props.className?.includes('language-') && props.children) {
-        return (
-          <code className="relative rounded-md bg-slate-100 dark:bg-slate-800 px-2 py-1 font-mono text-sm font-semibold text-blue-600 dark:text-blue-400 border border-slate-200 dark:border-slate-700" {...props} />
-        );
-      }
-      return (
-        <code className="relative rounded-md bg-slate-100 dark:bg-slate-800 px-2 py-1 font-mono text-sm font-semibold text-blue-600 dark:text-blue-400 border border-slate-200 dark:border-slate-700" {...props} />
-      );
-    },
+    code: (props: any) => (
+      <code className="relative rounded-md bg-slate-100 dark:bg-slate-800 px-2 py-1 font-mono text-sm font-semibold text-blue-600 dark:text-blue-400 border border-slate-200 dark:border-slate-700" {...props} />
+    ),
     pre: (props: any) => {
       // Mermaid 다이어그램인 경우
       if (props.children?.props?.className?.includes('language-mermaid')) {
@@ -158,23 +119,24 @@ export function MDXRenderer({ content }: MDXRendererProps) {
         const language = className.replace('language-', '');
         const codeContent = props.children.props.children;
 
-        // 언어 매핑 (지원하지 않는 언어를 비슷한 언어로 매핑)
-        const languageAliases: Record<string, string> = {
-          'mdx': 'markdown',
-          'md': 'markdown',
-          'vue': 'html',
-          'svelte': 'html',
-        };
-        const effectiveLanguage = languageAliases[language.toLowerCase()] || language;
-
         return (
-          <CodeBlock language={effectiveLanguage}>
+          <CodeBlock language={language}>
             {codeContent}
           </CodeBlock>
         );
       }
 
-      // 일반 pre 태그인 경우 기본 텍스트 색상 추가
+      // 언어 미지정 코드 블록도 CodeBlock으로 통일
+      if (props.children?.type === 'code') {
+        const codeContent = props.children.props.children;
+        return (
+          <CodeBlock language="plaintext">
+            {codeContent}
+          </CodeBlock>
+        );
+      }
+
+      // 순수 pre 태그인 경우
       return (
         <pre className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-6 font-mono text-sm my-8 shadow-sm text-slate-700 dark:text-slate-300" {...props} />
       );
@@ -213,8 +175,9 @@ export function MDXRenderer({ content }: MDXRendererProps) {
         source={content}
         components={components}
         options={{
+          blockJS: false,
           mdxOptions: {
-            remarkPlugins: [remarkGfm, remarkMdx],
+            remarkPlugins: [remarkGfm],
             rehypePlugins: [
               [rehypeRaw, {
                 passThrough: [
