@@ -12,6 +12,7 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
+import { formatTitle } from "@/lib/utils";
 
 interface BreadcrumbItem {
   title: string;
@@ -23,14 +24,6 @@ function generateBreadcrumbs(pathname: string): BreadcrumbItem[] {
   const breadcrumbs: BreadcrumbItem[] = [
     { title: "홈", href: "/" }
   ];
-
-  // 파일명을 기반으로 제목 생성 함수
-  const formatTitle = (segment: string): string => {
-    return segment
-      .split('-')
-      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-      .join(' ');
-  };
 
   let currentPath = "";
   segments.forEach((segment, index) => {

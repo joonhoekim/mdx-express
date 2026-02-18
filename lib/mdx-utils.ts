@@ -4,6 +4,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import matter from 'gray-matter';
 import { NavigationItem } from './navigation';
+import { naturalCompare, formatTitle } from './utils';
 
 export interface MDXFile {
   slug: string;
@@ -118,11 +119,6 @@ export async function getMDXFile(filePath: string): Promise<MDXFile | null> {
     console.error(`[getMDXFile] ${filePath}: ${message}`);
     return null;
   }
-}
-
-// 자연스러운 숫자 정렬을 위한 비교 함수
-function naturalCompare(a: string, b: string): number {
-  return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
 }
 
 // 정렬 헬퍼: order 필드에 따라 정렬, 같으면 자연스러운 숫자 정렬 적용
@@ -362,20 +358,10 @@ export async function getPathType(
   try {
     const filePath = path.join(CONTENT_DIR, ...pathArray);
 
-    // 파일로 시도
-    const mdxFilePath = `${filePath}.mdx`;
-    if (await pathExists(mdxFilePath)) {
-      return 'file';
-    }
-
-    // 디렉토리인지 확인
-    try {
-      const stat = await fs.stat(filePath);
-      if (stat.isDirectory()) {
-        return 'directory';
-      }
-    } catch {
-      // 둘 다 아니면 null 반환
+    if (await pathExists(`${filePath}.mdx`)) return 'file';
+    if (await pathExists(filePath)) {
+      const s = await fs.stat(filePath);
+      if (s.isDirectory()) return 'directory';
     }
 
     return null;
@@ -384,14 +370,6 @@ export async function getPathType(
     console.error(`[getPathType] ${pathArray.join('/')}: ${message}`);
     return null;
   }
-}
-
-// 이름을 제목으로 포맷팅 (디렉토리, 섹션 모두 사용)
-function formatTitle(name: string): string {
-  return name
-    .split('-')
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
 }
 
 // 새로운 MDX 파일 생성 - 서버 액션 (IDE에서 사용 가능)

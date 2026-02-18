@@ -3,11 +3,7 @@
 import { readdir, stat } from 'fs/promises';
 import { join } from 'path';
 import { cache } from 'react';
-
-// 자연스러운 숫자 정렬을 위한 비교 함수
-function naturalCompare(a: string, b: string): number {
-  return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
-}
+import { naturalCompare } from './utils';
 
 export interface NavigationItem {
   title: string;
@@ -58,50 +54,6 @@ export const getSidebarItems = cache(async (
 ): Promise<NavigationItem[]> => {
   const staticItems: NavigationItem[] = [];
 
-  if (pathname.startsWith('/dashboard')) {
-    staticItems.push(
-      {
-        title: '개요',
-        href: '/dashboard',
-        icon: 'Home',
-      },
-      {
-        title: '분석',
-        href: '/dashboard/analytics',
-        icon: 'BarChart3',
-        children: [
-          {
-            title: '리포트',
-            href: '/dashboard/analytics/reports',
-          },
-        ],
-      }
-    );
-  }
-
-  if (pathname.startsWith('/settings')) {
-    staticItems.push(
-      {
-        title: '일반',
-        href: '/settings',
-        icon: 'Settings',
-      },
-      {
-        title: '프로필',
-        href: '/settings/profile',
-      }
-    );
-  }
-
-  if (pathname.startsWith('/projects')) {
-    staticItems.push({
-      title: '모든 프로젝트',
-      href: '/projects',
-      icon: 'FolderOpen',
-    });
-  }
-
-  // docs 경로에 대한 MDX 네비게이션 생성
   if (pathname.startsWith('/docs')) {
     try {
       const { getAllMDXSections } = await import('./mdx-utils');
