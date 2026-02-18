@@ -35,14 +35,14 @@ const SidebarNavigationItem = memo(({ item, pathname, level = 0 }: SidebarNaviga
             <Button
               variant="ghost"
               className={cn(
-                "w-full justify-start gap-2 hover:bg-accent",
+                "w-full justify-start gap-2 h-auto min-h-9 whitespace-normal py-1.5 hover:bg-accent",
                 level > 0 && "ml-4",
                 isNavigationItemActiveSync(item, pathname) && "bg-accent"
               )}
             >
               <div className="flex items-center gap-2 flex-1">
-                {Icon && <Icon className="h-4 w-4" />}
-                <span className="truncate">{item.title}</span>
+                {Icon && <Icon className="h-4 w-4 shrink-0" />}
+                <span className="text-left">{item.title}</span>
               </div>
               {isOpen ? (
                 <ChevronDown className="h-4 w-4" />
@@ -71,14 +71,14 @@ const SidebarNavigationItem = memo(({ item, pathname, level = 0 }: SidebarNaviga
       asChild
       variant={isActive ? "secondary" : "ghost"}
       className={cn(
-        "w-full justify-start gap-2 hover:bg-accent",
+        "w-full justify-start gap-2 h-auto min-h-9 whitespace-normal py-1.5 hover:bg-accent",
         level > 0 && "ml-4",
         isActive && "bg-secondary"
       )}
     >
       <Link href={item.href}>
-        {Icon && <Icon className="h-4 w-4" />}
-        <span className="truncate">{item.title}</span>
+        {Icon && <Icon className="h-4 w-4 shrink-0" />}
+        <span className="text-left">{item.title}</span>
       </Link>
     </Button>
   );
@@ -96,19 +96,17 @@ export function SidebarNavigation({ sidebarItems }: SidebarNavigationProps) {
   }
 
   return (
-    <div className="hidden md:block w-64 border-r bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <ScrollArea className="h-full py-4">
-        <div className="space-y-1 px-3">
-          {sidebarItems.map((item) => (
-            <SidebarNavigationItem
-              key={item.href}
-              item={item}
-              pathname={pathname}
-            />
-          ))}
-        </div>
-      </ScrollArea>
-    </div>
+    <ScrollArea className="h-full py-4">
+      <div className="space-y-1 px-3">
+        {sidebarItems.map((item) => (
+          <SidebarNavigationItem
+            key={item.href}
+            item={item}
+            pathname={pathname}
+          />
+        ))}
+      </div>
+    </ScrollArea>
   );
 }
 
