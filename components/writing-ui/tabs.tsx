@@ -35,22 +35,20 @@ const TabsContext = React.createContext<{
 })
 
 export function Tabs({ defaultValue, className, children }: TabsProps) {
-    const [activeTab, setActiveTab] = React.useState(defaultValue || '')
-
-    React.useEffect(() => {
-        if (!defaultValue) {
-            // Find the first TabsTrigger and set it as default
-            const firstTrigger = React.Children.toArray(children)
-                .find(child => React.isValidElement(child) && child.type === TabsList)
+    const [activeTab, setActiveTab] = React.useState(() => {
+        if (defaultValue) return defaultValue;
+        // children에서 첫 TabsTrigger의 value 추출
+        const tabsList = React.Children.toArray(children)
+            .find(child => React.isValidElement(child) && child.type === TabsList);
+        if (tabsList && React.isValidElement(tabsList)) {
+            const firstTrigger = React.Children.toArray((tabsList as React.ReactElement<TabsListProps>).props.children)
+                .find(child => React.isValidElement(child) && child.type === TabsTrigger);
             if (firstTrigger && React.isValidElement(firstTrigger)) {
-                const firstTriggerValue = React.Children.toArray((firstTrigger as React.ReactElement<TabsListProps>).props.children)
-                    .find(child => React.isValidElement(child) && child.type === TabsTrigger)
-                if (firstTriggerValue && React.isValidElement(firstTriggerValue)) {
-                    setActiveTab((firstTriggerValue as React.ReactElement<TabsTriggerProps>).props.value)
-                }
+                return (firstTrigger as React.ReactElement<TabsTriggerProps>).props.value;
             }
         }
-    }, [defaultValue, children])
+        return '';
+    })
 
     return (
         <TabsContext.Provider value={{ activeTab, setActiveTab }}>
