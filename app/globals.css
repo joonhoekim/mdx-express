@@ -142,4 +142,10 @@
   .mermaid-diagram svg {
     @apply max-w-full h-auto;
   }
+  .mermaid-diagram[data-zoomed] {
+    cursor: grab;
+  }
+  .mermaid-diagram[data-panning] {
+    cursor: grabbing;
+  }
 }
