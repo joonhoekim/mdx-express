@@ -121,7 +121,7 @@ export function ResizableSidebarLayout({
           </Button>
         </div>
 
-        <div className="container mx-auto py-6 px-6 max-w-4xl">
+        <div className="container mx-auto py-6 px-4 md:px-6 max-w-4xl">
           {children}
         </div>
       </main>

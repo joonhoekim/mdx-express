@@ -38,7 +38,7 @@ export function TopNavigationClient({ topLevelItems }: TopNavigationClientProps)
     return (
         <nav className="flex items-center gap-1 overflow-hidden justify-end">
             {/* 태블릿: 일부 아이템 + 드롭다운 */}
-            <div className="hidden md:flex lg:hidden items-center gap-2">
+            <div className="hidden md:flex lg:hidden items-center gap-2 overflow-x-auto scrollbar-hide">
                 {visibleItems.map((item) => {
                     const Icon = getIconComponent(item.icon);
                     const isActive = activeItem?.href === item.href;

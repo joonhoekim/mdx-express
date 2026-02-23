@@ -108,31 +108,4 @@ export function SidebarNavigation({ sidebarItems }: SidebarNavigationProps) {
       </div>
     </ScrollArea>
   );
-}
-
-// 모바일용 사이드바 (Sheet에서 사용)
-interface SidebarNavigationContentProps {
-  sidebarItems: NavigationItem[];
-}
-
-export function SidebarNavigationContent({ sidebarItems }: SidebarNavigationContentProps) {
-  const pathname = usePathname();
-
-  if (sidebarItems.length === 0) {
-    return null;
-  }
-
-  return (
-    <ScrollArea className="h-full py-4">
-      <div className="space-y-1 px-3">
-        {sidebarItems.map((item) => (
-          <SidebarNavigationItem
-            key={item.href}
-            item={item}
-            pathname={pathname}
-          />
-        ))}
-      </div>
-    </ScrollArea>
-  );
 } 

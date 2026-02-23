@@ -137,6 +137,17 @@
   }
 }
 
+/* 스크롤바 숨김 유틸리티 */
+@layer utilities {
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+}
+
 /* Mermaid 다이어그램 스타일 */
 @layer components {
   .mermaid-diagram svg {

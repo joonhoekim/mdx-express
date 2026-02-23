@@ -33,7 +33,6 @@ export const getTopLevelItems = cache(async (): Promise<NavigationItem[]> => {
     return directories.map((dir) => ({
       title: dir.charAt(0).toUpperCase() + dir.slice(1),
       href: `/docs/${dir}`,
-      icon: 'FileText',
     }));
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -42,7 +41,6 @@ export const getTopLevelItems = cache(async (): Promise<NavigationItem[]> => {
       {
         title: '문서',
         href: '/docs',
-        icon: 'FileText',
       },
     ];
   }
@@ -78,7 +76,6 @@ export const getSidebarItems = cache(async (
           title:
             section.section.charAt(0).toUpperCase() + section.section.slice(1),
           href: `/docs/${section.section}`,
-          icon: 'FileText',
           children: allItems,
         });
       }

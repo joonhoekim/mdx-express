@@ -67,27 +67,27 @@ export function BreadcrumbNavigation() {
 
   return (
     <Breadcrumb>
-      <BreadcrumbList>
+      <BreadcrumbList className="flex-nowrap">
         {breadcrumbs.map((crumb, index) => (
-          <div key={crumb.href || crumb.title} className="flex items-center">
+          <div key={crumb.href || crumb.title} className="flex items-center min-w-0">
             <BreadcrumbItem>
               {crumb.href ? (
                 <BreadcrumbLink asChild>
-                  <Link href={crumb.href} className="flex items-center gap-1">
-                    {index === 0 && <Home className="h-4 w-4" />}
-                    {crumb.title}
+                  <Link href={crumb.href} className="flex items-center gap-1 min-w-0">
+                    {index === 0 && <Home className="h-4 w-4 shrink-0" />}
+                    <span className="truncate">{crumb.title}</span>
                   </Link>
                 </BreadcrumbLink>
               ) : (
-                <BreadcrumbPage className="flex items-center gap-1">
-                  {index === 0 && <Home className="h-4 w-4" />}
-                  {crumb.title}
+                <BreadcrumbPage className="flex items-center gap-1 min-w-0">
+                  {index === 0 && <Home className="h-4 w-4 shrink-0" />}
+                  <span className="truncate">{crumb.title}</span>
                 </BreadcrumbPage>
               )}
             </BreadcrumbItem>
             {index < breadcrumbs.length - 1 && (
               <BreadcrumbSeparator>
-                <ChevronRight className="h-4 w-4" />
+                <ChevronRight className="h-4 w-4 shrink-0" />
               </BreadcrumbSeparator>
             )}
           </div>

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { NavigationItem } from "@/lib/navigation";
 import { getIconComponent } from "@/lib/navigation-utils";
 import { Button } from "@/components/ui/button";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { TopNavigationClient } from "./top-navigation-client";
 import { headers } from 'next/headers';
 
@@ -16,7 +17,7 @@ export async function TopNavigationServer({ topLevelItems }: TopNavigationServer
 
     return (
         <header className="sticky top-0 z-50 w-full border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-            <div className="flex h-16 items-center px-4">
+            <div className="max-w-screen-xl mx-auto flex h-16 items-center px-4">
                 <div className="flex items-center gap-2 mr-4 shrink-0">
                     <Link href="/" className="flex items-center space-x-2">
                         <span className="font-bold text-sm sm:text-base">MDX Express</span>
@@ -24,7 +25,7 @@ export async function TopNavigationServer({ topLevelItems }: TopNavigationServer
                 </div>
 
                 {/* 데스크톱: 서버에서 정적 렌더링 */}
-                <nav className="hidden lg:flex items-center gap-2">
+                <nav className="hidden lg:flex items-center gap-2 min-w-0 overflow-x-auto scrollbar-hide">
                     {topLevelItems.map((item) => {
                         const Icon = getIconComponent(item.icon);
                         const isActive = pathname.startsWith(item.href);
@@ -49,6 +50,10 @@ export async function TopNavigationServer({ topLevelItems }: TopNavigationServer
                 {/* 모바일/태블릿: 클라이언트 컴포넌트로 처리 */}
                 <div className="lg:hidden flex-1">
                     <TopNavigationClient topLevelItems={topLevelItems} />
+                </div>
+
+                <div className="ml-auto shrink-0 pl-2">
+                    <ThemeToggle />
                 </div>
             </div>
         </header>

@@ -191,10 +191,7 @@ export function Mermaid({ children, className, title }: MermaidProps) {
                     'bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm',
                     'border border-slate-200 dark:border-slate-700',
                     'shadow-sm',
-                    'transition-opacity duration-200',
-                    isFullscreen
-                        ? 'opacity-100'
-                        : 'opacity-0 group-hover:opacity-100 focus-within:opacity-100',
+                    'transition-opacity duration-200 opacity-100',
                 )}
                 role="toolbar"
                 aria-label="Diagram zoom controls"

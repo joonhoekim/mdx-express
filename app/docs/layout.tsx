@@ -1,7 +1,6 @@
 import { TopNavigationServer } from "@/components/top-navigation-server";
 import { SidebarNavigation } from "@/components/sidebar-navigation";
 import { ResizableSidebarLayout } from "@/components/resizable-sidebar-layout";
-import { MobileSidebar } from "@/components/mobile-sidebar";
 import { BreadcrumbNavigation } from "@/components/breadcrumb-navigation";
 import { getTopLevelItems, getSidebarItems } from "@/lib/navigation";
 import { headers } from 'next/headers';
@@ -19,17 +18,12 @@ export default async function DocsLayout({
   const sidebarItems = await getSidebarItems(pathname);
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-background">
+    <div className="flex h-dvh flex-col overflow-hidden bg-background">
       <TopNavigationServer topLevelItems={topLevelItems} />
 
       <div className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="flex h-12 items-center px-6">
-          <div className="flex items-center">
-            <BreadcrumbNavigation />
-          </div>
-          <div className="ml-auto">
-            <MobileSidebar sidebarItems={sidebarItems} />
-          </div>
+        <div className="flex min-h-8 items-center px-4 md:px-6">
+          <BreadcrumbNavigation />
         </div>
       </div>
 
