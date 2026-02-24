@@ -5,6 +5,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
 import { MDXRemote } from 'next-mdx-remote/rsc';
 import remarkGfm from 'remark-gfm';
+import remarkCjkFriendly from 'remark-cjk-friendly';
 import rehypeRaw from 'rehype-raw';
 import { cn } from '@/lib/utils';
 
@@ -177,7 +178,7 @@ export function MDXRenderer({ content }: MDXRendererProps) {
         options={{
           blockJS: false,
           mdxOptions: {
-            remarkPlugins: [remarkGfm],
+            remarkPlugins: [remarkCjkFriendly, remarkGfm],
             rehypePlugins: [
               [rehypeRaw, {
                 passThrough: [

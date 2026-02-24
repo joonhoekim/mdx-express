@@ -61,6 +61,7 @@
     "react-resizable-panels": "^4.6.4",
     "recharts": "^3.7.0",
     "rehype-raw": "^7.0.0",
+    "remark-cjk-friendly": "^2.0.1",
     "remark-gfm": "^4.0.1",
     "remark-mdx": "^3.1.1",
     "remark-mdx-disable-explicit-jsx": "^0.1.0",
