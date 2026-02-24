@@ -71,9 +71,9 @@ const SidebarNavigationItem = memo(({ item, pathname, level = 0 }: SidebarNaviga
       asChild
       variant={isActive ? "secondary" : "ghost"}
       className={cn(
-        "w-full justify-start gap-2 h-auto min-h-9 whitespace-normal py-1.5 hover:bg-accent",
+        "w-full justify-start gap-2 h-auto min-h-9 whitespace-normal py-1.5 hover:bg-accent relative overflow-hidden",
         level > 0 && "ml-4",
-        isActive && "bg-secondary"
+        isActive && "bg-secondary before:content-[''] before:absolute before:left-0 before:top-1 before:bottom-1 before:w-[3px] before:rounded-full before:bg-primary"
       )}
     >
       <Link href={item.href}>

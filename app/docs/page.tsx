@@ -17,7 +17,7 @@ export default async function DocsIndexPage() {
 
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
         {sections.map((section) => (
-          <Card key={section.section} className="hover:shadow-lg transition-shadow">
+          <Card key={section.section} className="hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200 hover:border-slate-300 dark:hover:border-slate-600">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <BookOpen className="h-5 w-5" />

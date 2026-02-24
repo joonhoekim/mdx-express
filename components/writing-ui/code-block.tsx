@@ -24,12 +24,7 @@ function getCodeString(children: React.ReactNode): string {
     return String(children);
 }
 
-const LANGUAGE_ALIASES: Record<string, string> = {
-    'mdx': 'markdown',
-    'md': 'markdown',
-    'vue': 'html',
-    'svelte': 'html',
-};
+import { LANGUAGE_ALIASES, LANGUAGE_BADGE_COLORS } from './constants';
 
 function resolveLanguage(lang: string): string {
     return LANGUAGE_ALIASES[lang.toLowerCase()] || lang;
@@ -87,7 +82,10 @@ export function CodeBlock({
                         </span>
                     )}
                     {language !== 'plaintext' && (
-                        <span className="text-xs px-2 py-1 rounded bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400 font-mono">
+                        <span className={cn(
+                            "text-xs px-2 py-1 rounded font-mono",
+                            LANGUAGE_BADGE_COLORS[language.toLowerCase()] || "bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400"
+                        )}>
                             {language}
                         </span>
                     )}

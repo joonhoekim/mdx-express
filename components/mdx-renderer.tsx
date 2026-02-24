@@ -71,10 +71,10 @@ export function MDXRenderer({ content }: MDXRendererProps) {
 
     // HTML 기본 요소들 스타일링
     h1: (props: any) => (
-      <h1 className="scroll-m-20 text-4xl font-extrabold tracking-tight lg:text-5xl mt-12 mb-8 first:mt-0 bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-300 bg-clip-text text-transparent" {...props} />
+      <h1 className="scroll-m-20 text-3xl font-extrabold tracking-tight lg:text-4xl mt-8 mb-8 first:mt-0 bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-300 bg-clip-text text-transparent" {...props} />
     ),
     h2: (props: any) => (
-      <h2 className="scroll-m-20 border-b-2 pb-4 text-3xl font-semibold tracking-tight mt-12 mb-6 first:mt-0 border-slate-200 dark:border-slate-700 relative after:content-[''] after:absolute after:bottom-0 after:left-0 after:w-16 after:h-0.5 after:bg-gradient-to-r after:from-blue-500 after:to-purple-500" {...props} />
+      <h2 className="scroll-m-20 border-b-2 pb-3 text-3xl font-semibold tracking-tight mt-12 mb-6 first:mt-0 border-slate-200 dark:border-slate-700 relative after:content-[''] after:absolute after:bottom-0 after:left-0 after:w-16 after:h-0.5 after:bg-gradient-to-r after:from-blue-500 after:to-purple-500" {...props} />
     ),
     h3: (props: any) => (
       <h3 className="scroll-m-20 text-2xl font-semibold tracking-tight mt-10 mb-5 text-slate-800 dark:text-slate-200" {...props} />
@@ -89,7 +89,7 @@ export function MDXRenderer({ content }: MDXRendererProps) {
       <h6 className="scroll-m-20 text-base font-semibold tracking-tight mt-6 mb-3 text-slate-600 dark:text-slate-400" {...props} />
     ),
     p: (props: any) => (
-      <p className="leading-8 text-slate-700 dark:text-slate-300 [&:not(:first-child)]:mt-3 mb-3" {...props} />
+      <p className="leading-[1.8] text-slate-700 dark:text-slate-300 [&:not(:first-child)]:mt-3 mb-3" {...props} />
     ),
     ul: (props: any) => (
       <ul className="my-4 ml-4 list-disc space-y-3 [&>li]:mt-2 marker:text-blue-500 dark:marker:text-blue-400" {...props} />
@@ -98,13 +98,13 @@ export function MDXRenderer({ content }: MDXRendererProps) {
       <ol className="my-4 ml-4 list-decimal space-y-3 [&>li]:mt-2 marker:text-blue-500 dark:marker:text-blue-400 marker:font-semibold" {...props} />
     ),
     li: (props: any) => (
-      <li className="mt-2 leading-7 text-slate-700 dark:text-slate-300" {...props} />
+      <li className="mt-2 leading-[1.75] text-slate-700 dark:text-slate-300" {...props} />
     ),
     blockquote: (props: any) => (
-      <blockquote className="my-8 border-l-4 border-blue-500/30 bg-slate-50 dark:bg-slate-800/50 pl-6 pr-4 py-4 italic rounded-r-lg shadow-sm" {...props} />
+      <blockquote className="my-8 border-l-4 border-l-transparent bg-slate-50 dark:bg-slate-800/50 pl-6 pr-4 py-4 italic rounded-r-lg shadow-sm [border-image:linear-gradient(to_bottom,#3b82f6,#8b5cf6)_1]" {...props} />
     ),
     code: (props: any) => (
-      <code className="relative rounded-md bg-slate-100 dark:bg-slate-800 px-2 py-1 font-mono text-sm font-semibold text-blue-600 dark:text-blue-400 border border-slate-200 dark:border-slate-700" {...props} />
+      <code className="relative rounded-md bg-slate-100 dark:bg-slate-800 px-2 py-1 font-mono text-sm font-semibold text-blue-600 dark:text-blue-400 border border-slate-200 dark:border-slate-700 before:content-none after:content-none" {...props} />
     ),
     pre: (props: any) => {
       // Mermaid 다이어그램인 경우
@@ -162,7 +162,7 @@ export function MDXRenderer({ content }: MDXRendererProps) {
       <tr className="m-0 p-0 hover:bg-slate-50/50 dark:hover:bg-slate-800/50 transition-colors" {...props} />
     ),
     th: (props: any) => (
-      <th className="px-6 py-4 text-left font-semibold text-slate-900 dark:text-slate-100 [&[align=center]]:text-center [&[align=right]]:text-right" {...props} />
+      <th className="px-6 py-4 text-left text-sm font-semibold uppercase tracking-wider text-slate-900 dark:text-slate-100 [&[align=center]]:text-center [&[align=right]]:text-right" {...props} />
     ),
     td: (props: any) => (
       <td className="px-6 py-4 text-left text-slate-700 dark:text-slate-300 [&[align=center]]:text-center [&[align=right]]:text-right" {...props} />
@@ -170,7 +170,7 @@ export function MDXRenderer({ content }: MDXRendererProps) {
   };
 
   return (
-    <div className="mdx-content prose prose-slate dark:prose-invert max-w-none prose-lg prose-headings:font-display prose-pre:bg-slate-50 dark:prose-pre:bg-slate-800 prose-code:text-blue-600 dark:prose-code:text-blue-400">
+    <div className="mdx-content prose prose-slate dark:prose-invert max-w-none prose-lg prose-headings:font-display prose-pre:bg-slate-50 dark:prose-pre:bg-slate-800 prose-code:text-blue-600 dark:prose-code:text-blue-400 text-[16.5px]">
       <MDXRemote
         source={content}
         components={components}
