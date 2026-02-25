@@ -139,28 +139,39 @@ export function Mermaid({ children, className, title }: MermaidProps) {
         resetZoom();
     }, [svgContent, resetZoom]);
 
-    // -- Fullscreen --
+    // -- Fullscreen (CSS 기반) --
     const toggleFullscreen = useCallback(() => {
-        if (!wrapperRef.current) return;
+        setIsFullscreen(prev => {
+            if (prev) resetZoom();
+            return !prev;
+        });
+    }, [resetZoom]);
 
-        if (document.fullscreenElement) {
-            document.exitFullscreen();
-        } else {
-            wrapperRef.current.requestFullscreen();
-        }
-    }, []);
-
-    // 브라우저 fullscreenchange 이벤트로 상태 동기화
+    // ESC 키로 풀스크린 해제
     useEffect(() => {
-        const handleChange = () => {
-            const active = document.fullscreenElement === wrapperRef.current;
-            setIsFullscreen(active);
-            if (!active) resetZoom();
+        if (!isFullscreen) return;
+
+        const handleEsc = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                setIsFullscreen(false);
+                resetZoom();
+            }
         };
 
-        document.addEventListener('fullscreenchange', handleChange);
-        return () => document.removeEventListener('fullscreenchange', handleChange);
-    }, [resetZoom]);
+        document.addEventListener('keydown', handleEsc);
+        return () => document.removeEventListener('keydown', handleEsc);
+    }, [isFullscreen, resetZoom]);
+
+    // 풀스크린 시 body 스크롤 잠금
+    useEffect(() => {
+        if (isFullscreen) {
+            document.body.style.overflow = 'hidden';
+        } else {
+            document.body.style.overflow = '';
+        }
+        return () => { document.body.style.overflow = ''; };
+    }, [isFullscreen]);
 
     // 키보드 줌 + 전체화면 지원
     const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -204,7 +215,7 @@ export function Mermaid({ children, className, title }: MermaidProps) {
             ref={wrapperRef}
             className={cn(
                 'group relative w-full rounded-xl border border-slate-200/80 dark:border-slate-700/60 bg-gradient-to-b from-slate-50 to-white dark:from-slate-900 dark:to-slate-900/80 p-6 my-6 shadow-sm dark:shadow-slate-950/30',
-                isFullscreen && 'flex flex-col rounded-none border-none m-0 p-8',
+                isFullscreen && 'fixed inset-0 z-50 flex flex-col rounded-none border-none m-0 p-8 bg-white dark:bg-slate-900',
                 className,
             )}
         >

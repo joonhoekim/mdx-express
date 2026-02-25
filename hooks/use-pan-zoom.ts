@@ -33,7 +33,7 @@ interface UsePanZoomReturn {
  */
 export function usePanZoom(options: UsePanZoomOptions = {}): UsePanZoomReturn {
     const {
-        minScale = 1,
+        minScale = 0.25,
         maxScale = 4,
         zoomFactor = 0.15,
     } = options;
@@ -115,12 +115,7 @@ export function usePanZoom(options: UsePanZoomOptions = {}): UsePanZoomReturn {
         if (!container) return;
         const cx = container.clientWidth / 2;
         const cy = container.clientHeight / 2;
-        const newScale = scale * (1 - zoomFactor);
-        if (newScale <= 1) {
-            resetZoom();
-        } else {
-            applyZoom(newScale, cx, cy);
-        }
+        applyZoom(scale * (1 - zoomFactor), cx, cy);
     }, [scale, zoomFactor, applyZoom]);
 
     const resetZoom = useCallback(() => {
@@ -150,7 +145,7 @@ export function usePanZoom(options: UsePanZoomOptions = {}): UsePanZoomReturn {
                 if (newScale <= 1) {
                     setTranslateX(0);
                     setTranslateY(0);
-                    return 1;
+                    return newScale;
                 }
                 setTranslateX(prevTx => {
                     setTranslateY(prevTy => {
@@ -270,7 +265,7 @@ export function usePanZoom(options: UsePanZoomOptions = {}): UsePanZoomReturn {
         scale,
         translateX,
         translateY,
-        isZoomed: scale > 1,
+        isZoomed: scale !== 1,
         isGesturing,
         zoomIn,
         zoomOut,
