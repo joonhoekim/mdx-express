@@ -130,7 +130,9 @@ export function MDXRenderer({ content }: MDXRendererProps) {
       }
 
       // 언어 미지정 코드 블록도 CodeBlock으로 통일
-      if (props.children?.type === 'code') {
+      // MDX 컴포넌트 오버라이드로 인해 type이 'code' 문자열이 아닌 함수일 수 있으므로
+      // children의 props 존재 여부로 판별
+      if (props.children?.props?.children != null) {
         const codeContent = props.children.props.children;
         return (
           <CodeBlock language="plaintext">
@@ -139,10 +141,7 @@ export function MDXRenderer({ content }: MDXRendererProps) {
         );
       }
 
-      // 순수 pre 태그인 경우
-      return (
-        <pre className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-6 font-mono text-sm my-8 shadow-sm text-slate-700 dark:text-slate-300" {...props} />
-      );
+      return <pre {...props} />;
     },
     a: (props: any) => (
       <a className="font-medium text-blue-600 dark:text-blue-400 underline underline-offset-4 hover:text-blue-800 dark:hover:text-blue-300 transition-colors decoration-blue-300 dark:decoration-blue-600 hover:decoration-blue-600 dark:hover:decoration-blue-400" {...props} />
