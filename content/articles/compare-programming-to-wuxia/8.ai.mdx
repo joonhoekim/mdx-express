@@ -1,0 +1,146 @@
+# 7부: AI 무림
+
+*갑자기 판을 뒤집은 신흥 세력*
+
+---
+
+AI 무림은 기존 무림과 결이 완전히 달라. 백엔드, 프론트, 모바일... 이 무림들은 수십 년에 걸쳐 문파가 형성되고 세력 다툼을 했는데, AI 무림은 **갑자기 하늘에서 떨어졌어.**
+
+2022년 ChatGPT가 등장한 순간, 무림 전체의 판도가 바뀌었거든. 기존 무인들이 "이거 뭐야?" 하는 사이에 새로운 세력이 순식간에 중원을 장악했어.
+
+---
+
+## AI 무림의 양대 산맥
+
+<MugongCard
+    name="Python + PyTorch"
+    title="🔥 실전파 양대 산맥"
+    category="AI"
+    power={5}
+    difficulty={4}
+    practical={5}
+    popularity={5}
+    quote="연구도 하고 프로덕션도 넣는다. AI 무림의 진짜 표준."
+/>
+
+Meta가 만든 딥러닝 프레임워크인데, 연구자들이 먼저 채택하면서 사실상 AI 무림의 표준이 됐어. 동적 그래프가 직관적이라 실험하기 좋고, 논문 구현의 90%가 PyTorch로 나와.
+
+---
+
+<MugongCard
+    name="Python + TensorFlow"
+    title="📊 정파의 원로"
+    category="AI"
+    power={4}
+    difficulty={4}
+    practical={4}
+    popularity={3}
+    quote="한때 AI 무림을 지배했으나... PyTorch에게 왕좌를 내주었다."
+/>
+
+Google이 만든 원조 딥러닝 프레임워크야. TensorFlow 1 시절엔 표준이었는데, 사용성이 너무 복잡해서 PyTorch한테 연구 쪽을 다 빼앗겼어. TF 2.0에서 Keras를 흡수하면서 반격했지만, 이미 대세가 기울었어. 프로덕션 배포(TF Serving, TFLite)에서는 아직 강점이 있어.
+
+<Callout type="note" title="프레임워크 전쟁의 교훈">
+TensorFlow vs PyTorch는 프론트엔드의 Angular vs React랑 비슷해. 대기업이 만든 체계적인 프레임워크(TF, Angular)보다 직관적이고 유연한 도구(PyTorch, React)가 개발자 마음을 사로잡았다는 공통점이 있어.
+</Callout>
+
+---
+
+## 갑자기 나타난 천외마공
+
+<MugongCard
+    name="LLM (GPT, Claude, Gemini)"
+    title="🌀 천외마공"
+    category="AI"
+    power={5}
+    difficulty={3}
+    practical={5}
+    popularity={5}
+    quote="10년 수련할 내공을 프롬프트 한 줄로 흉내 낸다. 근데 그게 진짜 내공이냐?"
+/>
+
+Large Language Model. 거대 언어 모델이야. ChatGPT(OpenAI), Claude(Anthropic), Gemini(Google)가 삼강 구도를 형성하고 있어.
+
+이 무공이 무서운 건, **기존 무림의 수련 체계를 뿌리째 흔들었다**는 거야. 코딩, 글쓰기, 분석, 번역... 10년 걸리던 수련을 프롬프트 한 줄로 비슷한 결과를 뽑아내거든.
+
+> "이건 무공이 아니야. 무공을 흉내 내는 환술이야."
+> "흉내라도 실전에서 통하면 그게 무공 아닌가?"
+
+무림의 영원한 논쟁이 시작됐어.
+
+<Callout type="warning" title="AI 시대의 개발자 위기론">
+"AI가 개발자를 대체할까?"라는 질문은 "총이 발명되면 검객이 사라질까?"랑 같아.
+
+검객은 안 사라졌어. 대신 **총을 쓸 줄 아는 검객**이 살아남았지. AI 시대에도 코딩 자체가 없어지진 않아. 대신 AI를 도구로 쓸 줄 아는 개발자가 살아남을 거야.
+</Callout>
+
+---
+
+<MugongCard
+    name="LangChain"
+    title="🔗 AI 무공 조합술"
+    category="AI"
+    power={3}
+    difficulty={3}
+    practical={4}
+    popularity={4}
+    quote="LLM 하나론 부족하다. 여러 무공을 체인으로 엮어야 진짜 힘이 나온다."
+/>
+
+LLM을 단독으로 쓰는 게 아니라 여러 도구와 조합해서 복잡한 작업을 수행하게 만드는 프레임워크야. RAG(검색 증강 생성), 에이전트, 메모리 관리... LLM 활용의 표준 도구가 됐어.
+
+근데 추상화 레이어가 너무 많아서 "LangChain 없이 직접 API 호출하는 게 낫다"는 반발도 있어. 프레임워크의 숙명이야 — 편리함과 복잡함의 트레이드오프.
+
+---
+
+<MugongCard
+    name="Hugging Face"
+    title="🤗 무공 공유 장터"
+    category="AI"
+    power={4}
+    difficulty={3}
+    practical={5}
+    popularity={5}
+    quote="AI 무공을 독점하지 말고 나눠라. 그것이 오픈소스의 길이다."
+/>
+
+AI 모델의 GitHub라고 보면 돼. 수십만 개의 사전학습 모델, 데이터셋, 데모가 공유되는 장터야. 오픈소스 AI의 핵심 거점이고, Llama, Mistral, Stable Diffusion 같은 오픈 모델들이 여기서 배포돼.
+
+무협으로 치면 **무공 비급을 누구나 열람할 수 있는 장터**야. 예전엔 대문파(Google, OpenAI)만 가지고 있던 강력한 무공을 재야무인들도 쓸 수 있게 만든 거지.
+
+---
+
+<MugongCard
+    name="Cursor / GitHub Copilot"
+    title="🤖 AI 조력자"
+    category="AI"
+    power={3}
+    difficulty={1}
+    practical={5}
+    popularity={5}
+    quote="나는 너의 무공을 대신하는 게 아니야. 너의 수련을 돕는 거야."
+/>
+
+코딩할 때 AI가 실시간으로 도와주는 도구야. Copilot은 GitHub + OpenAI 합작이고, Cursor는 에디터 자체에 AI를 통합한 신생 세력이야.
+
+이 도구들이 바꾼 건 **수련 방식** 자체야. 예전엔 Stack Overflow 뒤지고 문서 읽고 했는데, 이제는 AI한테 물어보면서 코딩해. 보일러플레이트 코드, 테스트 작성, 리팩토링 제안... 반복 작업을 AI가 대신 해주니까 개발 속도가 확 올라.
+
+<Callout type="info" title="AI 도구의 함정">
+AI 코딩 도구에 너무 의존하면 **기본기가 안 쌓여.** AI가 제안하는 코드를 그냥 수락만 하면, 왜 그렇게 동작하는지 이해 못 하는 무인이 돼. 내공 없이 무기만 좋은 격이야.
+
+가장 잘 쓰는 사람은 "AI 제안을 비판적으로 검토할 수 있는 실력"을 가진 사람이야.
+</Callout>
+
+---
+
+## AI 무림 요약
+
+AI 무림은 **가장 빠르게 변화하는 전장**이야. 6개월마다 판도가 바뀌고, 새로운 모델이 나올 때마다 이전 것이 구식이 돼.
+
+근데 핵심은 변하지 않아: **AI는 도구야.** 도구를 잘 쓰는 사람이 강한 거지, 도구 자체가 무인을 대체하진 않아. 칼이 아무리 좋아도 칼을 쓰는 손이 없으면 소용없거든.
+
+기존 무림(백엔드, 프론트, 모바일, DB, DevOps)의 내공을 갖추고 AI를 도구로 활용하는 사람이 앞으로의 무림 최강자야.
+
+---
+
+_← [6부: DevOps/인프라 무림](/docs/articles/compare-programming-to-wuxia/7.devops-infra) | [결론: 무림 생존법](/docs/articles/compare-programming-to-wuxia/9.conclusion) →_

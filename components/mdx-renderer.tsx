@@ -26,7 +26,8 @@ import {
   Reference,
   ReferenceList,
   Icon,
-  MathCodeBridge
+  MathCodeBridge,
+  MugongCard
 } from '@/components/writing-ui';
 import { LUCIDE_ICONS } from '@/components/writing-ui/icon';
 
@@ -54,6 +55,7 @@ export function MDXRenderer({ content }: MDXRendererProps) {
     ReferenceList,
     Icon,
     MathCodeBridge,
+    MugongCard,
 
     // Lucide 아이콘들 (icon.tsx에서 단일 정의)
     ...LUCIDE_ICONS,

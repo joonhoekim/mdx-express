@@ -1,0 +1,115 @@
+# 3부: SSR/풀스택 무림
+
+*"어디서 싸울 거냐"의 전략 선택*
+
+---
+
+이 파트는 단순 무공이 아니야. "어디서 싸울 거냐"의 전략 선택이거든. 전장이 달라.
+
+프론트엔드 무림이 "어떻게 UI를 만드냐"의 싸움이라면, SSR/풀스택 무림은 "서버에서 할 거냐, 클라이언트에서 할 거냐, 아니면 둘 다 할 거냐"의 전략적 선택이야.
+
+---
+
+<MugongCard
+    name="Next.js"
+    title="🎭 팔방미인 용병대장"
+    category="SSR/풀스택"
+    power={4}
+    difficulty={4}
+    practical={5}
+    popularity={5}
+    quote="사부님, 저번에 가르쳐주신 getServerSideProps는요? — ...그건 구무공이다. 잊어라."
+/>
+
+서버에서도 싸우고 클라이언트에서도 싸워. SSR, SSG, ISR, RSC... 무공이 너무 많아서 입문자가 "이걸 언제 써야 해?"로 혼란이 와. Vercel이 뒤에서 계속 새 무공을 주입하는데 방향이 자꾸 바뀌어.
+
+그리고 버전이 올라갈 때마다 기존 무공이 deprecated돼.
+
+Pages Router 열심히 익혔더니 App Router 나오고, getServerSideProps 외웠더니 Server Component 나오고. 만능인데 그래서 오히려 철학이 없다는 비판을 받는 게 패자의 고민이야.
+
+<Callout type="warning" title="Next.js의 무공 변천사">
+- **Pages Router** → App Router로 대체
+- **getServerSideProps** → Server Components로 대체
+- **API Routes** → Route Handlers로 대체
+- **next/image** → 계속 API 변경
+
+매 메이저 버전마다 수련법이 바뀌어서 "어떤 Next.js를 배우냐"가 중요해졌어.
+</Callout>
+
+---
+
+<MugongCard
+    name="Astro"
+    title="🌙 정적 세계의 도인"
+    category="SSR/풀스택"
+    power={3}
+    difficulty={2}
+    practical={4}
+    popularity={3}
+    quote="나는 싸움을 피하는 게 최강의 무공이다."
+/>
+
+핵심 철학이 "JS를 최대한 브라우저에 보내지 않는다"야. Island Architecture라는 독특한 무공인데, 콘텐츠 위주 사이트에서 성능이 독보적이야. React, Vue, Svelte 무공을 전부 흡수해서 같이 쓸 수 있다는 것도 강점이고.
+
+근데 동적 앱을 만들려 하면 한계가 와. 도인이 전쟁터 나가면 어색한 것처럼.
+
+---
+
+<MugongCard
+    name="Remix"
+    title="📖 웹 표준 원리주의 무인"
+    category="SSR/풀스택"
+    power={4}
+    difficulty={3}
+    practical={3}
+    popularity={2}
+    quote="Web API 표준만으로 한다. 독자 무공 따위 필요 없다."
+/>
+
+Next.js가 독자 무공을 계속 만들 때 혼자 "Web API 표준만으로 한다"고 역주행했어. Form, fetch, Response... 브라우저 기본기로 다 해결해. 철학은 완벽한데 인지도 싸움에서 밀리는 중이야. Rails의 현대적 환생이라는 평가도 있어.
+
+<Callout type="note" title="React Router와의 합체">
+Remix가 React Router와 합쳐졌어. 이제 React Router v7이 사실상 Remix야. 무협으로 치면 두 문파가 합파한 거지. 이름은 React Router를 따라갔는데, 실체는 Remix의 철학이 남았어.
+</Callout>
+
+---
+
+<MugongCard
+    name="SvelteKit"
+    title="✨ Svelte의 풀스택 확장"
+    category="SSR/풀스택"
+    power={4}
+    difficulty={2}
+    practical={3}
+    popularity={2}
+    quote="무공 자체는 깔끔한데 아직 무림 주류가 되기엔..."
+/>
+
+Svelte가 무공 자체는 최강인데 생태계가 약하다고 했잖아. SvelteKit이 그 약점을 메우려는 시도야. 깔끔하고 빠른데 아직 무림 주류가 되기엔 제자가 부족해.
+
+---
+
+<MugongCard
+    name="Nuxt"
+    title="🟢 Vue 진영의 Next.js"
+    category="SSR/풀스택"
+    power={4}
+    difficulty={3}
+    practical={4}
+    popularity={3}
+    quote="Vue 쓰면 Nuxt 쓰는 거야. 선택이 아니라 필연이야."
+/>
+
+Vue 쓰는 사람들한테 Next.js 같은 경험을 주려고 만든 거야. Vue 생태계 안에선 표준이고 완성도가 높아. 근데 Vue 자체가 2인자다 보니 Nuxt도 2인자야.
+
+---
+
+## SSR/풀스택 무림 요약
+
+SSR/풀스택 무림은 **전략의 영역**이야. "이 프로젝트에 SSR이 필요한가?", "정적으로 충분한가?", "풀스택으로 갈 건가?"를 먼저 판단해야 해.
+
+Next.js가 만능이긴 한데 "만능이라서 복잡하다"는 역설이 있어. 콘텐츠 사이트면 Astro, 웹 표준 중시하면 Remix, Vue 진영이면 Nuxt. 전장에 맞는 전략을 선택하는 게 이 무림의 핵심이야.
+
+---
+
+_← [2부: 프론트엔드 무림](/docs/articles/compare-programming-to-wuxia/3.frontend) | [4부: 모바일 무림](/docs/articles/compare-programming-to-wuxia/5.mobile) →_

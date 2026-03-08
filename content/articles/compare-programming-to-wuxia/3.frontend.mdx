@@ -1,0 +1,290 @@
+# 2부: 프론트엔드 무림
+
+*종교전쟁 수준의 문파 싸움, 그리고 빌드툴/상태관리/CSS 내전*
+
+---
+
+프론트 무림이 백엔드 무림이랑 다른 점이 있어. 백엔드는 "어떤 문파든 결국 비슷한 일을 한다"인데, 프론트는 유저가 직접 보는 거라 철학 차이가 UX로 바로 드러나. 그래서 문파 싸움이 더 감정적이야. 종교전쟁 수준이라고 보면 돼.
+
+---
+
+## 프론트엔드 사대문파
+
+<MugongCard
+    name="Vanilla JavaScript"
+    title="📜 무공의 근본"
+    category="프론트엔드"
+    power={3}
+    difficulty={3}
+    practical={3}
+    popularity={5}
+    quote="프레임워크 배우기 전에 바닐라부터 해라. — 무림 불문율"
+/>
+
+문파가 없는 게 문파야. 모든 무공의 원천이라 이걸 모르면 다른 무공도 사상누각이거든. 근데 요즘 입문자들이 건너뛰고 시작해서 고수들한테 욕을 먹어.
+
+---
+
+<MugongCard
+    name="React"
+    title="👑 현 중원 패자"
+    category="프론트엔드"
+    power={4}
+    difficulty={3}
+    practical={5}
+    popularity={5}
+    quote="이게 맞는 방향이냐 논쟁이 끊이질 않아."
+/>
+
+Meta 문파 출신인데 지금은 사실상 독립 세력이야. 무림 점유율 1위라 일자리도 1위거든. 근데 너무 커져서 철학이 흔들리기 시작했어. Hooks 나왔을 때 내부 분열, Server Component 나왔을 때 또 분열. 이게 패자의 숙명이야.
+
+<Callout type="warning" title="패자의 고민">
+React 19, Server Components, use() hook, Actions... 새로운 무공이 계속 나오는데 기존 수련자들이 따라가기 벅차해. "이거 언제 다 배워?" 라는 한숨이 무림 곳곳에서 들려.
+</Callout>
+
+---
+
+<MugongCard
+    name="Vue.js"
+    title="🤝 중원 2인자 의협"
+    category="프론트엔드"
+    power={4}
+    difficulty={2}
+    practical={4}
+    popularity={4}
+    quote="나는 싸우러 온 게 아니라 더 나은 길을 제시하러 왔다."
+/>
+
+React보다 입문이 쉽고 철학이 일관돼. 창시자(에반 유)가 혼자 만들었다는 게 무협적으로 너무 멋있어. 동남아/중화권 무림에서 특히 강세야.
+
+---
+
+<MugongCard
+    name="Angular"
+    title="🏛️ 구파 정종 명문세가"
+    category="프론트엔드"
+    power={4}
+    difficulty={4}
+    practical={4}
+    popularity={3}
+    quote="규율 없는 무공은 무공이 아니다."
+/>
+
+Google 문파야. 규율이 엄격하고 무공 체계가 완전히 잡혀있어. TypeScript 강제, 구조 강제, 테스트 강제... 입문 난이도가 높아서 신입이 기피하는데 대형 프로젝트에서 진가를 발휘해. 소림사인데 Spring이랑 묘하게 닮았어.
+
+---
+
+<MugongCard
+    name="Svelte"
+    title="✨ 신흥 천재 무인"
+    category="프론트엔드"
+    power={4}
+    difficulty={2}
+    practical={3}
+    popularity={2}
+    quote="무공 자체는 최강인데 제자가 안 모인다."
+/>
+
+컴파일 타임에 다 처리해버리는 신공이야. 런타임 오버헤드가 없어서 성능이 독보적이고, 코드량도 적고 철학도 깔끔해. 근데 왜 안 크냐...
+
+---
+
+<MugongCard
+    name="jQuery"
+    title="📿 은퇴한 전설"
+    category="프론트엔드"
+    power={2}
+    difficulty={1}
+    practical={2}
+    popularity={3}
+    quote="지금은 레거시지만, 전 세계 웹사이트 77%에 아직 살아있다."
+/>
+
+전성기엔 전 무림 점유율 1위였어. 크로스브라우저 호환이 지옥이던 시절 혼자 무림을 구원했거든. 지금은 레거시 유지보수할 때만 등장하는 원로인데, 아직도 전 세계 웹사이트 77%에 살아있다는 게 함정이야 ㅋㅋ
+
+---
+
+<MugongCard
+    name="htmx"
+    title="🧙 도를 깨달은 기인"
+    category="프론트엔드"
+    power={3}
+    difficulty={1}
+    practical={3}
+    popularity={2}
+    quote="너희가 복잡하게 가는 동안 나는 단순함으로 돌아왔다."
+/>
+
+JS 거의 안 쓰고 HTML 속성만으로 동적 UI를 만들어. 무림 주류가 "JS 더 써야 한다"로 달려갈 때 혼자 역주행하는데, 이게 맞는 말이라 추종자가 생기고 있어.
+
+---
+
+## 빌드툴 무림 — 조연인데 존재감이 큼
+
+<MugongCard
+    name="Webpack"
+    title="📦 전 무림맹 총관"
+    category="프론트엔드"
+    power={4}
+    difficulty={4}
+    practical={3}
+    popularity={3}
+    quote="설정 한 번 잘못 건드리면 하루를 날린다."
+/>
+
+한때 표준이었는데 너무 복잡해져서 설정 한 번 잘못 건드리면 하루를 날려. 지금도 현역인데 다들 대안을 찾는 중이야.
+
+---
+
+<MugongCard
+    name="Vite"
+    title="⚡ 신흥 무림맹 총관"
+    category="프론트엔드"
+    power={4}
+    difficulty={2}
+    practical={5}
+    popularity={5}
+    quote="Webpack이 느리다고? 내가 해결해주지."
+/>
+
+Webpack 느리다고 욕하던 사람들이 만든 차세대 빌드툴인데, 빠르고 설정이 간단해서 빠르게 표준을 교체 중이야.
+
+---
+
+<MugongCard
+    name="Turbopack"
+    title="🥷 Vercel이 키우는 자객"
+    category="프론트엔드"
+    power={4}
+    difficulty={2}
+    practical={3}
+    popularity={2}
+    quote="Webpack 만든 사람이 Rust로 새로 만들었다. 완성되면 판이 바뀔 수도."
+/>
+
+Webpack 만든 사람이 Rust로 새로 만들었어. 아직 수련 중인데 완성되면 판도가 바뀔 수도 있어.
+
+---
+
+## 상태관리 무림 — 프론트 내전의 핵심
+
+<MugongCard
+    name="Redux"
+    title="📚 구시대 정통 내공"
+    category="프론트엔드"
+    power={3}
+    difficulty={4}
+    practical={3}
+    popularity={3}
+    quote="보일러플레이트가 너무 많다고? Redux Toolkit 써봐... 근데 이미 이미지가..."
+/>
+
+보일러플레이트가 너무 많아서 욕을 바가지로 먹었는데 Redux Toolkit 나오고 좀 나아졌어. 근데 이미 이미지가...
+
+---
+
+<MugongCard
+    name="Zustand"
+    title="🗡️ 경량 자객"
+    category="프론트엔드"
+    power={3}
+    difficulty={1}
+    practical={5}
+    popularity={5}
+    quote="Redux 복잡하다고? 코드 몇 줄로 끝내줄게."
+/>
+
+Redux 복잡하다고 만든 초경량 상태관리인데, 코드 몇 줄로 끝나서 요즘 제일 인기야.
+
+---
+
+<MugongCard
+    name="Jotai / Recoil"
+    title="⚛️ 원자 분열 무공"
+    category="프론트엔드"
+    power={3}
+    difficulty={3}
+    practical={3}
+    popularity={2}
+    quote="상태를 원자 단위로 쪼갠다. 우아하지만 대규모 검증은 아직."
+/>
+
+상태를 원자 단위로 쪼개는 철학인데, 개념은 우아하지만 대규모에서 검증이 아직 부족해.
+
+---
+
+## CSS 무림 — 이건 종교전쟁
+
+<MugongCard
+    name="Bootstrap"
+    title="🥋 은퇴한 무림맹주"
+    category="프론트엔드"
+    power={3}
+    difficulty={1}
+    practical={2}
+    popularity={2}
+    quote="한때 CSS 무림의 표준이었다. 모든 웹사이트가 나를 닮았던 시절이 있었지."
+/>
+
+Twitter(현 X)가 만든 CSS 프레임워크인데, 2010년대 초중반엔 사실상 **CSS 무림의 표준**이었어. 반응형 그리드, 버튼, 네비게이션바... Bootstrap 없이 웹사이트 만드는 게 이상하던 시절이 있었거든.
+
+근데 문제가 하나 있었어. **다 똑같이 생겼어.** Bootstrap으로 만들면 어떤 사이트를 가도 "아, 이거 Bootstrap이네" 티가 났거든. 무림에서 모든 문파가 같은 무복을 입고 있는 격이야 ㅋㅋ
+
+지금은 Tailwind한테 대세를 넘겼지만, 어드민 페이지나 프로토타이핑에선 아직 가끔 보여. 그리고 Bootstrap이 없었으면 "CSS 프레임워크"라는 개념 자체가 이렇게 빨리 발전했을까 싶어. jQuery처럼, 시대를 열었던 공로는 인정해야 해.
+
+---
+
+<MugongCard
+    name="Tailwind CSS"
+    title="🎨 인라인 무공파"
+    category="프론트엔드"
+    power={3}
+    difficulty={2}
+    practical={5}
+    popularity={5}
+    quote="클래스명 외우면 뭐든 된다. 처음엔 더럽지만 못 떠나."
+/>
+
+"클래스명 외우면 뭐든 된다"는 철학이거든. 처음 보면 HTML이 지저분해 보이는데 익숙해지면 못 떠나.
+
+---
+
+<MugongCard
+    name="CSS Modules"
+    title="🏠 은둔 정통파"
+    category="프론트엔드"
+    power={3}
+    difficulty={1}
+    practical={4}
+    popularity={3}
+    quote="스코프만 지켜줘도 행복하다."
+/>
+
+"스코프만 지켜줘도 행복하다"는 소박한 철학이야.
+
+---
+
+<MugongCard
+    name="styled-components"
+    title="🧪 CSS in JS 혁명파"
+    category="프론트엔드"
+    power={3}
+    difficulty={2}
+    practical={3}
+    popularity={2}
+    quote="JS 안에서 다 해결한다. 야망은 크지만 성능이..."
+/>
+
+"JS 안에서 다 해결한다"는 야망이 있어. 셋이 지금도 싸우는 중인데, 사실 어떤 게 맞냐는 답이 없어. 그래서 더 싸워 ㅋㅋ
+
+---
+
+## 프론트엔드 무림 요약
+
+프론트엔드 무림은 **철학 싸움**이야. 같은 결과물을 만들어도 "어떻게 만드느냐"에 대한 의견이 전부 달라. 그래서 문파 싸움이 가장 치열하고, 동시에 혁신도 가장 빠른 곳이야.
+
+지금은 React가 패자이고 Tailwind + Vite + Zustand 조합이 대세지만, 1~2년 뒤엔 또 바뀔 수 있어. 그게 프론트 무림의 매력이자 공포야.
+
+---
+
+_← [1부: 백엔드 무림](/docs/articles/compare-programming-to-wuxia/2.backend) | [3부: SSR/풀스택 무림](/docs/articles/compare-programming-to-wuxia/4.ssr-fullstack) →_

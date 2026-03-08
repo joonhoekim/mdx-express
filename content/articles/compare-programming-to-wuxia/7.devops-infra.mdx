@@ -1,0 +1,122 @@
+# 6부: DevOps/인프라 무림
+
+*코드 바깥의 전쟁터*
+
+---
+
+지금까지 무공(코드) 이야기만 했는데, 무림에는 **전장 자체를 준비하는 사람들**이 있어. 아무리 무공이 강해도 전장이 무너지면 싸울 수가 없거든.
+
+DevOps 무림은 개발자가 만든 코드를 실제로 세상에 내보내고, 안정적으로 굴리고, 문제가 생기면 빠르게 복구하는 영역이야. 무협으로 치면 **군사와 병참**에 해당해.
+
+---
+
+<MugongCard
+    name="Docker"
+    title="📦 봉인술의 대가"
+    category="DevOps"
+    power={4}
+    difficulty={2}
+    practical={5}
+    popularity={5}
+    quote="내 컴퓨터에서는 되는데요? — 그 말을 영원히 묻어버리겠다."
+/>
+
+애플리케이션을 컨테이너라는 봉인 용기에 가두는 술법이야. OS, 라이브러리, 설정까지 전부 봉인해서 어디서든 똑같이 동작하게 만들어. "내 컴퓨터에서는 되는데"라는 천년의 변명을 역사에서 지워버린 혁명적인 무공이야.
+
+<Callout type="success" title="Docker의 공적">
+Docker 이전에는 개발환경, 스테이징, 프로덕션 환경이 전부 달라서 배포할 때마다 기도메타를 써야 했어. Docker가 이 문제를 깔끔하게 해결했거든. 현대 DevOps의 기초 무공이라 해도 과언이 아니야.
+</Callout>
+
+---
+
+<MugongCard
+    name="Kubernetes"
+    title="☸️ 만군을 지휘하는 군사"
+    category="DevOps"
+    power={5}
+    difficulty={5}
+    practical={5}
+    popularity={5}
+    quote="컨테이너 하나는 Docker가 관리해. 컨테이너 수천 개는 내가 관리한다."
+/>
+
+Docker가 봉인술이라면 Kubernetes(K8s)는 봉인된 병사들을 지휘하는 군사야. 수천 개의 컨테이너를 자동으로 배포하고, 스케일링하고, 복구하고, 로드밸런싱해. Google이 내부에서 쓰던 Borg를 오픈소스로 풀어낸 거야.
+
+근데 수련 난이도가 **극악**이야. YAML 지옥이라는 별명이 괜히 있는 게 아님. Pod, Service, Deployment, Ingress, ConfigMap, Secret... 개념만 해도 머리가 터져.
+
+> "K8s를 이해했다고? 거짓말하지 마라. K8s는 아무도 완전히 이해 못 한다."
+
+---
+
+<MugongCard
+    name="GitHub Actions / CI/CD"
+    title="⚙️ 자동화 병기창"
+    category="DevOps"
+    power={3}
+    difficulty={2}
+    practical={5}
+    popularity={5}
+    quote="사람이 반복하면 실수한다. 기계가 반복하면 정확하다."
+/>
+
+코드 push하면 자동으로 테스트 돌리고, 빌드하고, 배포하는 자동화 파이프라인이야. GitHub Actions가 요즘 대세인데, Jenkins(원로), GitLab CI, CircleCI 등 다양한 도구가 있어.
+
+무협으로 치면 **무기를 자동으로 손질하고 전장에 배치하는 병기창**이야. 고수가 직접 칼을 갈 필요 없이 시스템이 알아서 해주는 거지.
+
+<Callout type="note" title="Jenkins의 현재">
+Jenkins는 CI/CD의 원조 고수야. 한때 표준이었는데 지금은 "복잡하다, 무겁다"는 평을 듣고 있어. GitHub Actions가 "YAML 몇 줄이면 되는데 왜 Jenkins 서버를 따로 돌려?"라고 도발 중이야. 근데 엔터프라이즈에선 아직 Jenkins가 현역이야.
+</Callout>
+
+---
+
+<MugongCard
+    name="AWS / GCP / Azure"
+    title="🏔️ 삼대 천하 세력"
+    category="DevOps"
+    power={5}
+    difficulty={4}
+    practical={5}
+    popularity={5}
+    quote="클라우드 없이 서비스 운영하겠다고? 혼자 산에서 수련하겠다는 거냐?"
+/>
+
+현대 무림의 삼대 세력이야. AWS(Amazon)가 선두, Azure(Microsoft)가 추격, GCP(Google)가 기술력으로 승부하는 구도야.
+
+이 세 세력이 무림의 **땅**을 지배하고 있어. 서버, 스토리지, 네트워크, DB, AI 서비스... 뭐든 클라우드 위에서 돌아가거든. 자체 서버실 운영하는 건 이제 무림에서 산에 들어가 은둔수련하는 거랑 같아.
+
+| 세력 | 특징 | 무림 포지션 |
+|------|------|-------------|
+| AWS | 서비스 200개+, 점유율 1위 | 중원 최대 세력 |
+| Azure | MS 생태계, 엔터프라이즈 강세 | 정파 대문파 |
+| GCP | K8s, BigQuery, AI 기술력 | 기술 특화 세력 |
+
+---
+
+<MugongCard
+    name="Terraform"
+    title="🗺️ 지형을 바꾸는 풍수사"
+    category="DevOps"
+    power={4}
+    difficulty={3}
+    practical={4}
+    popularity={4}
+    quote="인프라를 코드로 정의한다. 클릭 몇 번으로 만든 건 클릭 몇 번으로 무너진다."
+/>
+
+Infrastructure as Code(IaC)의 대표 주자야. 서버, 네트워크, DB를 코드로 정의하고 버전 관리하는 무공이거든. 콘솔에서 클릭클릭으로 인프라 만드는 건 무림에서 지도 없이 다니는 거야. Terraform은 지형 자체를 코드로 설계하는 풍수사야.
+
+<Callout type="warning" title="Terraform의 라이선스 사건">
+HashiCorp이 Terraform 라이선스를 BSL로 바꿔서 무림이 발칵 뒤집혔어. 그래서 오픈소스 진영이 OpenTofu라는 포크를 만들었거든. 오픈소스 무공이 상업화되면 의협들이 독립하는 전형적인 무림 패턴이야.
+</Callout>
+
+---
+
+## DevOps 무림 요약
+
+DevOps 무림은 **보이지 않는 곳에서 전장을 지키는 영역**이야. 화려한 무공 시연(UI)은 없지만, 이 사람들이 없으면 서비스가 돌아가지 않아.
+
+현대 개발에서 Docker + K8s + CI/CD + 클라우드는 거의 필수 내공이 됐어. 풀스택 개발자라면 최소한 Docker와 CI/CD는 할 줄 알아야 하고, 인프라 전문가를 꿈꾸면 K8s와 Terraform까지 마스터해야 해.
+
+---
+
+_← [5부: DB 무림](/docs/articles/compare-programming-to-wuxia/6.db) | [7부: AI 무림](/docs/articles/compare-programming-to-wuxia/8.ai) →_
