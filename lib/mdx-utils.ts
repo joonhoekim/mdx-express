@@ -5,6 +5,8 @@ import path from 'path';
 import matter from 'gray-matter';
 import { NavigationItem } from './navigation';
 import { naturalCompare, formatTitle } from './utils';
+import { getErrorMessage } from './get-error-message';
+import { buildDocsPath } from './build-docs-path';
 
 export interface MDXFile {
   slug: string;
@@ -29,20 +31,7 @@ export interface MDXFileNode {
   fullPath: string[]; // 전체 경로 배열 (예: ['guides', 'frontend', 'react'])
 }
 
-export interface MDXSubDirectory {
-  name: string;
-  slug: string;
-  title: string;
-  order?: number;
-}
-
-export interface MDXSection {
-  section: string;
-  files: MDXFile[];
-  directories: MDXSubDirectory[];
-}
-
-// 새로운 섹션 인터페이스 - 중첩 구조 지원
+// 섹션 인터페이스 - 중첩 구조 지원
 export interface MDXNestedSection {
   section: string;
   tree: MDXFileNode[];
@@ -115,8 +104,7 @@ export async function getMDXFile(filePath: string): Promise<MDXFile | null> {
       content: await sanitizeMDXContent(content), // MDX 파서 오류 방지를 위해 이스케이프 처리
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`[getMDXFile] ${filePath}: ${message}`);
+    console.error(`[getMDXFile] ${filePath}: ${getErrorMessage(error)}`);
     return null;
   }
 }
@@ -137,97 +125,6 @@ async function pathExists(targetPath: string): Promise<boolean> {
     return true;
   } catch {
     return false;
-  }
-}
-
-// 특정 섹션의 모든 MDX 파일 가져오기 - 서버 액션
-export async function getMDXFiles(sectionPath: string): Promise<MDXFile[]> {
-  try {
-    const fullPath = path.join(CONTENT_DIR, sectionPath);
-
-    if (!(await pathExists(fullPath))) {
-      return [];
-    }
-
-    const files = await fs.readdir(fullPath);
-    const mdxFiles: MDXFile[] = [];
-
-    for (const file of files) {
-      if (file.endsWith('.mdx')) {
-        const filePath = path.join(sectionPath, file);
-        const mdxFile = await getMDXFile(filePath);
-        if (mdxFile) {
-          mdxFiles.push(mdxFile);
-        }
-      }
-    }
-
-    return sortByOrderAndName(mdxFiles);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`[getMDXFiles] ${sectionPath}: ${message}`);
-    return [];
-  }
-}
-
-// 특정 섹션의 하위 디렉토리들 가져오기
-async function getSubDirectories(sectionPath: string): Promise<MDXSubDirectory[]> {
-  try {
-    const fullPath = path.join(CONTENT_DIR, sectionPath);
-
-    const dirents = await fs.readdir(fullPath, { withFileTypes: true });
-    const directories = dirents.filter((dirent) => dirent.isDirectory());
-
-    const result: MDXSubDirectory[] = [];
-
-    for (const dir of directories) {
-      const dirName = dir.name;
-      const indexPath = path.join(sectionPath, dirName, 'index.mdx');
-      const indexFile = await getMDXFile(indexPath);
-
-      result.push({
-        name: dirName,
-        slug: dirName,
-        title: indexFile?.title || formatTitle(dirName),
-        order: indexFile?.order,
-      });
-    }
-
-    return sortByOrderAndName(result);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`[getSubDirectories] ${sectionPath}: ${message}`);
-    return [];
-  }
-}
-
-// 모든 섹션의 MDX 파일들 가져오기 - 서버 액션
-export async function getAllMDXSections(): Promise<MDXSection[]> {
-  try {
-    await ensureContentDirectory();
-
-    if (!(await pathExists(CONTENT_DIR))) {
-      return [];
-    }
-
-    const dirents = await fs.readdir(CONTENT_DIR, { withFileTypes: true });
-    const sections = dirents
-      .filter((dirent) => dirent.isDirectory())
-      .map((dirent) => dirent.name)
-      .sort(naturalCompare);
-
-    const result: MDXSection[] = [];
-    for (const section of sections) {
-      const files = await getMDXFiles(section);
-      const directories = await getSubDirectories(section);
-      result.push({ section, files, directories });
-    }
-
-    return result;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`[getAllMDXSections] ${message}`);
-    return [];
   }
 }
 
@@ -300,8 +197,7 @@ export async function buildMDXTree(
 
     return sortByOrderAndName(nodes);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`[buildMDXTree] ${currentPath.join('/')}: ${message}`);
+    console.error(`[buildMDXTree] ${currentPath.join('/')}: ${getErrorMessage(error)}`);
     return [];
   }
 }
@@ -324,8 +220,7 @@ export async function getAllMDXNestedSections(): Promise<MDXNestedSection[]> {
 
     return result;
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`[getAllMDXNestedSections] ${message}`);
+    console.error(`[getAllMDXNestedSections] ${getErrorMessage(error)}`);
     return [];
   }
 }
@@ -345,8 +240,7 @@ export async function getMDXContentByPath(
 
     return await getMDXFile(mdxFilePath);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`[getMDXContentByPath] ${pathArray.join('/')}: ${message}`);
+    console.error(`[getMDXContentByPath] ${pathArray.join('/')}: ${getErrorMessage(error)}`);
     return null;
   }
 }
@@ -366,8 +260,7 @@ export async function getPathType(
 
     return null;
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`[getPathType] ${pathArray.join('/')}: ${message}`);
+    console.error(`[getPathType] ${pathArray.join('/')}: ${getErrorMessage(error)}`);
     return null;
   }
 }
@@ -398,84 +291,50 @@ export async function createMDXFile(
     await fs.writeFile(filePath, fileContent, 'utf8');
     return true;
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`[createMDXFile] ${section}/${slug}: ${message}`);
+    console.error(`[createMDXFile] ${section}/${slug}: ${getErrorMessage(error)}`);
     return false;
   }
 }
 
-// 현재 경로의 형제 파일들을 가져오는 함수
+// 현재 경로의 형제 파일들을 가져오는 함수 (중첩 경로 지원)
 export async function getSiblingFiles(
   pathname: string
 ): Promise<NavigationItem[]> {
   try {
-    // pathname에서 섹션과 현재 파일 추출
+    // pathname에서 경로 추출: /docs/section/sub/.../file → ['section', 'sub', ..., 'file']
     const pathSegments = pathname.split('/').filter(Boolean);
 
     if (pathSegments.length < 2 || pathSegments[0] !== 'docs') {
       return [];
     }
 
-    const section = pathSegments[1]; // 예: 'dashboard', 'guides', 'projects'
-    const sectionDir = path.join(CONTENT_DIR, section);
+    // 'docs' 이후의 세그먼트에서 마지막(현재 파일/디렉토리)을 제외한 부모 경로
+    const contentSegments = pathSegments.slice(1); // ['section', 'sub', ..., 'file']
+    const parentSegments = contentSegments.slice(0, -1); // ['section', 'sub', ...]
 
-    if (!(await pathExists(sectionDir))) {
+    // 부모 디렉토리가 없으면 content 루트의 섹션이므로 빈 배열
+    if (parentSegments.length === 0) {
       return [];
     }
 
-    const dirents = await fs.readdir(sectionDir, { withFileTypes: true });
-
-    // MDX 파일 처리
-    const mdxFiles: MDXFile[] = [];
-    for (const dirent of dirents) {
-      if (dirent.isFile() && dirent.name.endsWith('.mdx')) {
-        const filePath = path.join(section, dirent.name);
-        const mdxFile = await getMDXFile(filePath);
-        if (mdxFile) {
-          mdxFiles.push(mdxFile);
-        }
-      }
+    const parentDir = path.join(CONTENT_DIR, ...parentSegments);
+    if (!(await pathExists(parentDir))) {
+      return [];
     }
 
-    // 하위 디렉토리 처리
-    const subDirs: MDXSubDirectory[] = [];
-    for (const dirent of dirents) {
-      if (dirent.isDirectory()) {
-        const indexPath = path.join(section, dirent.name, 'index.mdx');
-        const indexFile = await getMDXFile(indexPath);
-        subDirs.push({
-          name: dirent.name,
-          slug: dirent.name,
-          title: indexFile?.title || formatTitle(dirent.name),
-          order: indexFile?.order,
-        });
-      }
-    }
+    // 부모 디렉토리의 tree를 빌드하여 형제 노드 가져오기
+    const siblings = await buildMDXTree('', parentSegments);
+    const basePath = parentSegments.join('/');
 
-    // 정렬
-    const sortedFiles = sortByOrderAndName(mdxFiles);
-    const sortedDirs = sortByOrderAndName(subDirs);
-
-    // NavigationItem으로 변환 후 합치기
-    const fileItems: NavigationItem[] = sortedFiles.map((mdxFile) => ({
-      title: mdxFile.title,
-      href: `/docs/${section}/${mdxFile.slug}`,
-    }));
-
-    const dirItems: NavigationItem[] = sortedDirs.map((dir) => ({
-      title: dir.title,
-      href: `/docs/${section}/${dir.slug}`,
-    }));
-
-    return [...fileItems, ...dirItems];
+    return siblings
+      .filter(node => node.slug !== 'index')
+      .map(node => ({
+        title: node.title,
+        href: buildDocsPath(basePath, node.slug),
+        type: node.type,
+      }));
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`[getSiblingFiles] ${message}`);
+    console.error(`[getSiblingFiles] ${getErrorMessage(error)}`);
     return [];
   }
-}
-
-// 현재 경로에서 섹션 제목을 포맷팅하는 함수
-export async function formatSectionTitle(section: string): Promise<string> {
-  return formatTitle(section);
 }

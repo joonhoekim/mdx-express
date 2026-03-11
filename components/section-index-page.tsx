@@ -1,17 +1,22 @@
-import { MDXFile, MDXFileNode } from '@/lib/mdx-utils';
+import { MDXFileNode } from '@/lib/mdx-utils';
+import { formatTitle } from '@/lib/utils';
+import { buildDocsPath } from '@/lib/build-docs-path';
 import { DocumentHeader } from '@/components/document-header';
 import { FileCard } from '@/components/file-card';
 
 interface SectionIndexPageProps {
     section: string;
-    files: MDXFile[];
-    directories?: MDXFileNode[];
+    items: MDXFileNode[];
     currentPath: string[];
 }
 
-export function SectionIndexPage({ section, files, directories = [], currentPath }: SectionIndexPageProps) {
-    const sectionTitle = section.charAt(0).toUpperCase() + section.slice(1) + ' 문서';
-    const totalCount = files.length + directories.length;
+export function SectionIndexPage({ section, items, currentPath }: SectionIndexPageProps) {
+    const sectionTitle = formatTitle(section) + ' 문서';
+
+    const directories = items.filter(n => n.type === 'directory');
+    const files = items.filter(n => n.type === 'file' && n.slug !== 'index');
+    const totalCount = directories.length + files.length;
+
     const sectionDescription = totalCount > 0
         ? `${directories.length}개의 카테고리와 ${files.length}개의 문서가 있습니다`
         : '아직 문서가 없습니다';
@@ -34,7 +39,7 @@ export function SectionIndexPage({ section, files, directories = [], currentPath
                                 title={directory.title}
                                 description={directory.description || `${directory.children?.length || 0}개의 하위 항목`}
                                 order={directory.order}
-                                href={`/docs/${[...currentPath, directory.slug].join('/')}`}
+                                href={buildDocsPath(...currentPath, directory.slug)}
                                 isDirectory={true}
                             />
                         ))}
@@ -46,7 +51,7 @@ export function SectionIndexPage({ section, files, directories = [], currentPath
                                 title={file.title}
                                 description={file.description}
                                 order={file.order}
-                                href={`/docs/${[...currentPath, file.slug].join('/')}`}
+                                href={buildDocsPath(...currentPath, file.slug)}
                             />
                         ))}
                     </>
@@ -59,4 +64,4 @@ export function SectionIndexPage({ section, files, directories = [], currentPath
             </div>
         </div>
     );
-} 
+}

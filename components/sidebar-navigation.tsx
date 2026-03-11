@@ -2,10 +2,10 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, Folder } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { NavigationItem } from "@/lib/navigation";
-import { isNavigationItemActiveSync, getIconComponent } from "@/lib/navigation-utils";
+import { isNavigationItemActive, getIconComponent } from "@/lib/navigation-utils";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -18,13 +18,13 @@ interface SidebarNavigationItemProps {
 }
 
 const SidebarNavigationItem = memo(({ item, pathname, level = 0 }: SidebarNavigationItemProps) => {
-  const [isOpen, setIsOpen] = useState(isNavigationItemActiveSync(item, pathname));
+  const [isOpen, setIsOpen] = useState(isNavigationItemActive(item, pathname));
 
   // 메모이제이션으로 불필요한 재계산 방지
   const { isActive, hasChildren, Icon } = useMemo(() => ({
     isActive: item.href === pathname,
     hasChildren: item.children && item.children.length > 0,
-    Icon: getIconComponent(item.icon)
+    Icon: getIconComponent(item.icon) || (item.type === 'directory' ? Folder : undefined)
   }), [item, pathname]);
 
   if (hasChildren) {
@@ -37,7 +37,7 @@ const SidebarNavigationItem = memo(({ item, pathname, level = 0 }: SidebarNaviga
               className={cn(
                 "w-full justify-start gap-2 h-auto min-h-9 whitespace-normal py-1.5 hover:bg-accent",
                 level > 0 && "ml-4",
-                isNavigationItemActiveSync(item, pathname) && "bg-accent"
+                isNavigationItemActive(item, pathname) && "bg-accent"
               )}
             >
               <div className="flex items-center gap-2 flex-1">

@@ -42,34 +42,13 @@ export default async function DocsPage({ params }: PageProps) {
 
   if (pathType === 'directory') {
     // 디렉토리인 경우: 섹션 인덱스 페이지 렌더링
-    const section = slug[slug.length - 1]; // 마지막 디렉토리명을 섹션으로 사용
-
-    // 해당 디렉토리의 파일들 가져오기
+    const section = slug[slug.length - 1];
     const tree = await buildMDXTree('', slug);
-
-    // 폴더가 비어있어도 접근 가능하도록 처리
-    // (빈 폴더도 유효한 카테고리로 간주)
-
-    // 하위 파일들을 기존 형식으로 변환 (SectionIndexPage 호환성 위해)
-    const files = tree
-      .filter(node => node.type === 'file')
-      .map(node => ({
-        slug: node.slug,
-        title: node.title,
-        description: node.description,
-        order: node.order || 0,
-        path: node.path,
-        content: node.content || '',
-      }));
-
-    // 하위 디렉토리들 추출
-    const directories = tree.filter(node => node.type === 'directory');
 
     return (
       <SectionIndexPage
         section={section}
-        files={files}
-        directories={directories}
+        items={tree}
         currentPath={slug}
       />
     );

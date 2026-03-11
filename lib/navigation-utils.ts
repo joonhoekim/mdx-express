@@ -42,7 +42,7 @@ export function findActiveTopLevelItem(
 }
 
 // 클라이언트에서 사용할 수 있는 네비게이션 아이템 활성 상태 확인 (동기)
-export function isNavigationItemActiveSync(
+export function isNavigationItemActive(
   item: NavigationItem,
   pathname: string
 ): boolean {
@@ -52,7 +52,7 @@ export function isNavigationItemActiveSync(
 
   if (item.children) {
     return item.children.some((child) =>
-      isNavigationItemActiveSync(child, pathname)
+      isNavigationItemActive(child, pathname)
     );
   }
 
