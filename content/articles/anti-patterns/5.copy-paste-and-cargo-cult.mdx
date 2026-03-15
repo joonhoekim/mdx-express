@@ -1,0 +1,380 @@
+# 복붙과 카고 컬트: 이해 없는 코딩
+
+*StackOverflow에서 복사한 그 코드, 진짜 이해하고 붙인 거임?*
+
+---
+
+개발자라면 누구나 복붙을 한다. 그건 사실이고, 부정할 필요도 없음. 문제는 **어떻게** 복붙하느냐다. 기존 코드의 패턴을 이해하고 응용하는 건 괜찮다. 근데 "왜 이렇게 동작하는지는 모르겠지만 일단 되니까" 식으로 코드를 가져다 쓰면? 그게 바로 이번 편에서 다루는 두 가지 안티패턴의 시작이다.
+
+**Copy-Paste Programming**은 같은 코드가 여러 곳에 복제되는 문제이고, **Cargo Cult Programming**은 동작 원리를 이해하지 못한 채 패턴을 맹목적으로 따라하는 문제다. 둘 다 "이해 없는 코딩"이라는 공통점이 있지만, 결과로 나타나는 증상은 꽤 다르다.
+
+---
+
+## 1. Copy-Paste Programming
+
+<Callout type="warning" title="정의">
+코드 재사용 대신 복사-붙여넣기로 동일한 로직을 여러 곳에 복제하는 패턴. 한 곳의 버그를 고쳐도 복사된 나머지 곳에는 같은 버그가 남아있게 됨.
+</Callout>
+
+### 이게 뭔데
+
+가장 흔한 시나리오는 이렇다. 유저 이메일 검증 로직이 필요해서 기존 코드에서 찾아보니 회원가입 쪽에 이미 있음. "오 이거 가져다 쓰면 되겠다" 하고 복사-붙여넣기. 다음 달에 관리자 페이지에서도 이메일 검증이 필요해서 또 복사. 그 다음 달에 API 엔드포인트에서도 필요해서 또 복사.
+
+시간이 지나면 코드베이스에 동일한 이메일 검증 로직이 4곳에 존재하게 된다. 근데 미묘하게 다름. 첫 번째는 원본이고, 두 번째는 복사하면서 trim()을 추가했고, 세 번째는 대소문자 구분을 빼먹었고, 네 번째는 RFC 5322 정규식으로 업그레이드했는데 이건 다른 세 곳에는 반영이 안 됐음. 이제 "이메일 검증 로직을 수정해주세요"라는 요청이 오면? 네 곳을 다 찾아서 수정해야 하는데, 한 곳을 빠뜨릴 확률이 매우 높다.
+
+### 이런 코드
+
+```typescript
+// signup-controller.ts
+async function handleSignup(req: Request) {
+  const { email, password, name } = req.body;
+
+  // 이메일 검증
+  if (!email || !email.includes("@")) {
+    return { error: "유효하지 않은 이메일" };
+  }
+  if (email.length > 254) {
+    return { error: "이메일이 너무 깁니다" };
+  }
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
+    return { error: "이메일 형식이 올바르지 않습니다" };
+  }
+
+  // 비밀번호 검증
+  if (!password || password.length < 8) {
+    return { error: "비밀번호는 8자 이상" };
+  }
+  if (!/[A-Z]/.test(password)) {
+    return { error: "대문자 포함 필요" };
+  }
+  if (!/[0-9]/.test(password)) {
+    return { error: "숫자 포함 필요" };
+  }
+
+  // ... 회원가입 로직
+}
+
+// profile-controller.ts
+async function handleProfileUpdate(req: Request) {
+  const { email, displayName } = req.body;
+
+  // 이메일 검증 (복붙 + 살짝 수정)
+  if (!email || !email.includes("@")) {
+    return { error: "Invalid email" };  // 어라? 영어로 바뀜
+  }
+  if (email.length > 254) {
+    return { error: "Email too long" };
+  }
+  // 정규식은 복사하다가 빠뜨림...
+
+  // ... 프로필 업데이트 로직
+}
+
+// admin-controller.ts
+async function handleAdminCreateUser(req: Request) {
+  const { email, password, role } = req.body;
+
+  // 이메일 검증 (또 복붙)
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
+    return { error: "이메일 형식 오류" };
+  }
+  // 길이 체크 빠짐, @ 체크 빠짐
+
+  // 비밀번호 검증 (또 복붙 + 기준이 다름)
+  if (!password || password.length < 6) {  // 어라? 6자로 바뀜
+    return { error: "비밀번호 너무 짧음" };
+  }
+  // 대문자, 숫자 체크 빠짐
+
+  // ... 관리자 유저 생성 로직
+}
+```
+
+세 파일에 걸쳐 이메일 검증이 3번, 비밀번호 검증이 2번 복제되어 있다. 그리고 각각 미묘하게 다르다. 에러 메시지 언어도 다르고, 검증 규칙도 다르고, 일부 검증은 빠져있다. 이건 실제 프로젝트에서 정말 자주 일어나는 일임.
+
+### 고친 코드
+
+```typescript
+// validation.ts — 검증 로직을 한 곳에 모음
+const EMAIL_MAX_LENGTH = 254;
+const PASSWORD_MIN_LENGTH = 8;
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+interface ValidationResult {
+  valid: boolean;
+  error?: string;
+}
+
+export function validateEmail(email: string): ValidationResult {
+  if (!email || !email.includes("@")) {
+    return { valid: false, error: "유효하지 않은 이메일" };
+  }
+  if (email.length > EMAIL_MAX_LENGTH) {
+    return { valid: false, error: "이메일이 너무 깁니다" };
+  }
+  if (!EMAIL_REGEX.test(email.trim())) {
+    return { valid: false, error: "이메일 형식이 올바르지 않습니다" };
+  }
+  return { valid: true };
+}
+
+export function validatePassword(password: string): ValidationResult {
+  if (!password || password.length < PASSWORD_MIN_LENGTH) {
+    return { valid: false, error: `비밀번호는 ${PASSWORD_MIN_LENGTH}자 이상` };
+  }
+  if (!/[A-Z]/.test(password)) {
+    return { valid: false, error: "대문자 포함 필요" };
+  }
+  if (!/[0-9]/.test(password)) {
+    return { valid: false, error: "숫자 포함 필요" };
+  }
+  return { valid: true };
+}
+
+// signup-controller.ts — 깔끔해짐
+async function handleSignup(req: Request) {
+  const { email, password, name } = req.body;
+
+  const emailResult = validateEmail(email);
+  if (!emailResult.valid) return { error: emailResult.error };
+
+  const passwordResult = validatePassword(password);
+  if (!passwordResult.valid) return { error: passwordResult.error };
+
+  // ... 회원가입 로직
+}
+```
+
+<Callout type="error" title="Copy-Paste의 문제점">
+- **버그가 복제됨**: 원본의 버그가 모든 복사본에 전파됨
+- **수정 시 모든 복사본을 찾아야 함**: 하나라도 빠뜨리면 불일치 발생
+- **미묘한 차이로 인한 혼란**: 복사하면서 조금씩 변형되어 "어디가 정확한 버전인지" 모르게 됨
+- **테스트 부담 폭증**: 같은 로직을 여러 곳에서 테스트해야 함
+- **에러 메시지 불일치**: 같은 검증인데 메시지가 다른 건 사용자 경험도 해침
+</Callout>
+
+<Callout type="success" title="개선 포인트">
+- **공통 유틸리티 함수로 추출**: DRY (Don't Repeat Yourself) 원칙
+- **단일 진실의 원천(Single Source of Truth)**: 검증 규칙이 한 곳에만 존재
+- **변경 시 한 곳만 수정**: 모든 호출처에 자동으로 반영됨
+- **테스트도 한 곳에서**: 유틸리티 함수만 테스트하면 됨
+</Callout>
+
+---
+
+## 2. Cargo Cult Programming
+
+<Callout type="warning" title="정의">
+동작 원리를 이해하지 못한 채 패턴이나 코드를 맹목적으로 따라하는 행위. 이름은 태평양 섬 원주민들이 비행기를 유인하려고 활주로 모형을 만든 **카고 컬트**에서 유래.
+</Callout>
+
+### 이게 뭔데
+
+2차 대전 당시 태평양 섬 원주민들은 미군 비행기가 물자(cargo)를 가져다주는 걸 봤다. 전쟁이 끝나고 비행기가 안 오자, 원주민들은 나무로 활주로를 만들고 코코넛으로 헤드폰을 만들어 관제탑 흉내를 냈다. 형태만 따라 하면 비행기가 다시 올 거라고 믿었던 것. 당연히 비행기는 안 왔다.
+
+프로그래밍에서도 똑같은 일이 일어난다. "시니어가 이렇게 하라고 해서", "StackOverflow에서 이게 답이래서", "다른 프로젝트에서 이렇게 해서 잘 됐으니까" 같은 이유로, **왜 그렇게 해야 하는지 이해하지 못한 채** 패턴을 따라한다. 동작하는 것처럼 보이지만, 실제로는 불필요하거나 심지어 해로운 코드가 추가된다.
+
+카고 컬트의 대표적인 증상들을 보자:
+
+- **try-catch 남용**: 모든 걸 try-catch로 감싸면서 에러를 삼켜버림 (에러 처리가 아니라 에러 은폐)
+- **무의미한 async/await**: 동기 함수에 async를 붙이고, await가 필요 없는 곳에 await를 씀
+- **이유 없는 패턴 적용**: Factory 패턴이 유행이래서 모든 객체 생성에 Factory를 만듦
+- **복사한 코드 주변의 "부적" 코드**: StackOverflow에서 답을 복사했는데, 실제 문제 해결과 관계없는 줄까지 그대로 가져옴
+
+### 이런 코드
+
+```typescript
+// 카고 컬트 프로그래밍의 전시장
+class UserService {
+  // 1. 의미 없는 async: 비동기 작업이 없는데 async를 붙임
+  async formatUserName(firstName: string, lastName: string): Promise<string> {
+    return `${firstName} ${lastName}`;
+  }
+
+  // 2. 에러를 삼키는 try-catch: 에러가 나도 아무 일도 안 한 것처럼 진행
+  async getUser(id: string) {
+    try {
+      const user = await db.users.findById(id);
+      return user;
+    } catch (error) {
+      // "에러 처리는 try-catch로 해야 해" ← 에러를 삼키는 건 처리가 아님
+      console.log(error);
+      return null;
+    }
+  }
+
+  // 3. 불필요한 .bind(): 화살표 함수에는 this 바인딩이 필요 없음
+  processUsers = (async (users: User[]) => {
+    return users.map((user) => this.formatUserName(user.firstName, user.lastName));
+  }).bind(this);
+
+  // 4. 의미 없는 toString(): 이미 문자열인 걸 다시 문자열로 변환
+  validateEmail(email: string): boolean {
+    const emailStr = email.toString();
+    return emailStr.includes("@");
+  }
+
+  // 5. 불필요한 스프레드: 이미 새 객체를 만들면서 또 스프레드
+  createResponse(user: User) {
+    const response = { ...{ id: user.id, name: user.name } };
+    return { ...response };
+  }
+
+  // 6. 빈 함수 오버라이드: 부모 메서드를 오버라이드하면서 부모를 그대로 호출
+  async save(user: User) {
+    return await super.save(user);  // 이 await도 불필요함 (return에 await)
+  }
+
+  // 7. 의미 없는 변수 할당: 바로 리턴하면 되는 걸 변수에 담았다가 리턴
+  async getUserAge(id: string): Promise<number> {
+    const user = await this.getUser(id);
+    const age = user?.age;
+    const result = age ?? 0;
+    return result;
+  }
+
+  // 8. 삼항 연산자로 boolean 반환: 이미 boolean인데 삼항 불필요
+  isActive(user: User): boolean {
+    return user.status === "active" ? true : false;
+  }
+}
+```
+
+이 코드의 모든 줄이 "뭔가 하고 있는 것처럼 보이지만" 실제로는 아무 가치도 추가하지 않는다. 코코넛 헤드폰을 쓰고 있는 거임.
+
+### 고친 코드
+
+```typescript
+class UserService {
+  // async 제거: 동기 함수는 동기 함수답게
+  formatUserName(firstName: string, lastName: string): string {
+    return `${firstName} ${lastName}`;
+  }
+
+  // 에러를 적절히 처리하거나, 호출자에게 전파
+  async getUser(id: string): Promise<User> {
+    // 여기서 잡을 이유가 없으면 try-catch를 쓰지 않음
+    // 에러는 호출자가 처리하도록 전파
+    return await db.users.findById(id);
+  }
+
+  // bind 제거: 화살표 함수는 자동으로 this가 바인딩됨
+  processUsers = async (users: User[]) => {
+    return users.map((user) => this.formatUserName(user.firstName, user.lastName));
+  };
+
+  // 불필요한 변환 제거
+  validateEmail(email: string): boolean {
+    return email.includes("@");
+  }
+
+  // 한 번만 스프레드
+  createResponse(user: User) {
+    return { id: user.id, name: user.name };
+  }
+
+  // 불필요한 오버라이드 제거 (부모와 동일하면 오버라이드하지 않음)
+  // save는 부모 클래스의 것을 그대로 사용
+
+  // 직접 반환
+  async getUserAge(id: string): Promise<number> {
+    const user = await this.getUser(id);
+    return user?.age ?? 0;
+  }
+
+  // 비교 결과가 이미 boolean
+  isActive(user: User): boolean {
+    return user.status === "active";
+  }
+}
+```
+
+<Callout type="error" title="카고 컬트의 문제점">
+- **코드 노이즈 증가**: 의미 없는 코드가 진짜 로직을 가림
+- **잘못된 학습 전파**: 주니어가 이 코드를 보고 "이렇게 하는 거구나" 하고 따라함
+- **디버깅 방해**: try-catch로 에러를 삼키면 문제의 원인을 찾을 수 없음
+- **성능 저하**: 불필요한 async/await는 마이크로태스크 큐를 한 번 더 거침
+- **리뷰어 혼란**: "이걸 왜 이렇게 했지? 내가 모르는 이유가 있나?" 하고 고민하게 만듦
+</Callout>
+
+<Callout type="success" title="개선 포인트">
+- **모든 코드 줄에 "왜?"를 물어라**: 설명할 수 없으면 제거 후보
+- **에러 처리는 의도적으로**: catch에서 에러를 삼키지 말고, 로깅/복구/전파 중 선택
+- **async는 필요할 때만**: await할 게 없으면 async를 붙이지 않음
+- **패턴은 이해한 후에 적용**: "왜 이 패턴이 여기서 필요한가?"를 먼저 답할 수 있어야 함
+</Callout>
+
+---
+
+## 복붙 vs 카고 컬트, 둘의 관계
+
+이 두 안티패턴은 자주 함께 나타남. StackOverflow에서 코드를 복사하는 건 Copy-Paste이고, 그 코드가 왜 동작하는지 이해하지 못한 채 사용하는 건 Cargo Cult다.
+
+<Tabs defaultValue="copy-paste">
+  <TabsList>
+    <TabsTrigger value="copy-paste">Copy-Paste</TabsTrigger>
+    <TabsTrigger value="cargo-cult">Cargo Cult</TabsTrigger>
+    <TabsTrigger value="both">둘 다 해당</TabsTrigger>
+  </TabsList>
+  <TabsContent value="copy-paste">
+    **핵심 문제**: 코드 중복
+
+    같은 코드가 여러 곳에 존재해서 유지보수가 어려움. 이해는 하고 있지만 재사용 가능한 형태로 추출하지 않은 것.
+
+    **해결법**: 공통 함수/모듈로 추출 (DRY 원칙)
+  </TabsContent>
+  <TabsContent value="cargo-cult">
+    **핵심 문제**: 이해 부족
+
+    코드가 왜 그렇게 작성되었는지 모르고 따라함. 중복은 없을 수도 있지만, 불필요하거나 해로운 코드가 포함됨.
+
+    **해결법**: 코드의 각 줄이 왜 필요한지 이해하기
+  </TabsContent>
+  <TabsContent value="both">
+    **최악의 조합**: StackOverflow 복붙
+
+    이해하지 못한 코드를 복사해서 여러 곳에 붙여넣기. 불필요한 코드가 복제되어 코드베이스 전체에 퍼짐.
+
+    **해결법**: 1) 먼저 이해하고 2) 필요한 부분만 추출해서 3) 재사용 가능한 형태로 작성
+  </TabsContent>
+</Tabs>
+
+---
+
+## 카고 컬트 자가진단
+
+<Callout type="note" title="카고 컬트 자가진단 체크리스트">
+아래 질문에 "네"가 3개 이상이면 카고 컬트 경고:
+
+- "왜 이렇게 했어?"라는 질문에 **"원래 이렇게 하는 거야"**라고 답한 적 있음
+- try-catch를 습관적으로 쓰면서 catch 블록에서 **console.log만** 하고 있음
+- async/await를 붙이는 기준이 **"비동기 함수인 것 같으니까"**임
+- StackOverflow 답변을 복사할 때 **설명은 안 읽고 코드만** 가져옴
+- 코드 리뷰에서 "이 줄은 왜 필요해?"라는 질문에 **답하지 못한 적** 있음
+- 디자인 패턴을 적용할 때 **"이 패턴이 유행이래서"**가 이유인 적 있음
+</Callout>
+
+카고 컬트에서 벗어나는 가장 좋은 방법은 단순하다. **"왜?"를 습관적으로 물어보는 것.** 이 try-catch가 왜 필요한지, 이 async가 왜 필요한지, 이 패턴이 왜 여기서 적절한지. "왜"에 답할 수 없는 코드는 제거 후보다.
+
+---
+
+## 실전에서 마주치는 패턴
+
+솔직히 말하면, 완벽한 개발자는 없다. 누구나 복붙하고, 누구나 이해 못 하는 코드를 쓸 때가 있음. 중요한 건 그걸 인식하고 개선하는 태도다.
+
+실무에서 도움이 되는 습관 몇 가지를 정리하면:
+
+1. **복붙하기 전에 3초만 생각**: "이거 함수로 빼야 하나?" 그 3초가 미래의 3시간을 절약함
+2. **외부 코드를 가져올 때 주석 달기**: "이 코드는 XYZ 문제를 해결하기 위해 [출처]에서 참고함" — 나중에 원본을 찾기 쉬움
+3. **PR에서 "왜?"를 물어보는 문화**: 코드 리뷰에서 의도를 물어보는 건 공격이 아니라 학습의 기회
+4. **같은 코드가 3번째 등장하면 추출**: 1번은 괜찮고, 2번은 주의, 3번째는 반드시 리팩토링 (Rule of Three)
+
+---
+
+다음 편에서는 없어도 될 복잡함을 스스로 만들어내는 세 가지 패턴을 다룬다. **Accidental Complexity**, **Arrow Anti-Pattern**, 그리고 **Speculative Generality**. "나중에 필요할 수도 있잖아"라는 말이 얼마나 위험한지 보게 될 거임.
+
+---
+
+_← [이전 글: 매직 넘버와 하드코딩](/docs/articles/anti-patterns/4.magic-and-hardcoding) | [다음 글: 복잡성과 추측성](/docs/articles/anti-patterns/6.complexity-and-speculation) →_

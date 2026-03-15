@@ -1,0 +1,334 @@
+# 벤더 종속과 은탄환: 기술 선택의 함정
+
+*"이 기술 하나면 다 해결됩니다" — 아, 네*
+
+---
+
+기술 선택은 개발의 시작이자 가장 오래 가는 결정이다. 프레임워크 하나, 클라우드 서비스 하나 고르는 게 몇 년 뒤의 운명을 결정하기도 한다. 이번 글에서는 기술 선택과 관련된 세 가지 안티패턴을 다룬다. Vendor Lock-in(벤더 종속), Silver Bullet(은탄환), 그리고 Architecture Astronaut(아키텍처 우주인). 셋 다 "기술에 대한 잘못된 태도"에서 비롯된다는 공통점이 있다.
+
+---
+
+## 1. Vendor Lock-in (벤더 종속)
+
+### 이게 뭔데
+
+<Callout type="warning" title="정의">
+특정 벤더의 기술, 서비스, 플랫폼에 과도하게 의존하여, 다른 벤더로의 전환 비용이 사실상 감당 불가능한 수준이 된 상태.
+</Callout>
+
+벤더 종속 자체가 나쁜 게 아니라, **의식하지 못한 채 빠지는 것**이 문제다.
+
+2024년 어느 스타트업의 아키텍처를 보자:
+
+```typescript
+// AWS에 완전히 종속된 서비스
+import { DynamoDBClient, PutItemCommand } from "@aws-sdk/client-dynamodb";
+import { SQSClient, SendMessageCommand } from "@aws-sdk/client-sqs";
+import { SNSClient, PublishCommand } from "@aws-sdk/client-sns";
+import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { LambdaClient, InvokeCommand } from "@aws-sdk/client-lambda";
+
+// 비즈니스 로직이 AWS SDK와 직접 결합
+async function createOrder(order: Order): Promise<void> {
+  // DynamoDB에 직접 저장
+  await dynamodb.send(new PutItemCommand({
+    TableName: "orders",
+    Item: { /* DynamoDB 형식 */ }
+  }));
+
+  // SQS로 이벤트 발행
+  await sqs.send(new SendMessageCommand({
+    QueueUrl: process.env.ORDER_QUEUE_URL,
+    MessageBody: JSON.stringify(order)
+  }));
+
+  // SNS로 알림
+  await sns.send(new PublishCommand({
+    TopicArn: process.env.ORDER_TOPIC_ARN,
+    Message: `새 주문: ${order.id}`
+  }));
+}
+```
+
+이 코드에서 AWS를 빼면 뭐가 남을까? 거의 없다. 비즈니스 로직조차 AWS API 형태에 맞춰서 작성되어 있다. "GCP로 옮기겠습니다"라고 하면? 사실상 전체 재작성이다.
+
+### 벤더 종속의 스펙트럼
+
+모든 벤더 종속이 같은 수준은 아니다. 스펙트럼이 있다:
+
+**가벼운 종속 (관리 가능):**
+- 클라우드 VM/컨테이너 사용 (EC2, GCE) — 이전 비교적 쉬움
+- 표준 프로토콜 기반 서비스 (S3 호환 스토리지)
+- 오픈소스 매니지드 서비스 (RDS PostgreSQL, Cloud SQL)
+
+**중간 종속 (이전 가능하지만 비용 큼):**
+- 서버리스 함수 (Lambda, Cloud Functions) — 코드 수정 필요
+- 독점 메시지 큐 (SQS, Cloud Pub/Sub) — 인터페이스 다름
+- CDN/Edge 서비스 (CloudFront, Vercel Edge)
+
+**깊은 종속 (사실상 이전 불가):**
+- 독점 DB (DynamoDB, Firestore, Cosmos DB) — 데이터 모델 자체가 다름
+- 전용 AI/ML 서비스 (SageMaker, Vertex AI)
+- 플랫폼 전체 생태계 (Firebase, Amplify)
+
+<Callout type="info" title="벤더 종속의 실체">
+벤더 종속은 기술적 문제이기도 하지만, 근본적으로는 **비즈니스 의사결정**이다. AWS Lambda를 쓰면 운영 비용이 절반으로 줄지만, 나중에 GCP로 이전할 때 6개월이 걸린다면? 그 트레이드오프를 인지하고 선택했느냐가 핵심이다. "모르고 빠진 것"과 "알고 선택한 것"은 완전히 다르다.
+</Callout>
+
+### 구체적 사례들
+
+**Firebase:** 인증, DB, 스토리지, 호스팅, 푸시 알림까지 원스톱. 프로토타입에 완벽하다. 근데 사용자가 100만 넘으면? 비용 폭탄. 다른 곳으로 이전하려면? Firestore의 데이터 모델을 SQL로 바꾸는 것부터 시작. 실시간 리스너 로직 전부 재작성. 인증 시스템 이전 시 사용자 비밀번호 해시 호환 문제.
+
+**Vercel:** Next.js 배포에 최적화. 원클릭 배포, 자동 프리뷰, Edge Functions. 하지만 Vercel의 미들웨어, ISR, 이미지 최적화에 의존하면 다른 플랫폼으로 옮기기 어려워진다. 특히 `next.config.js`에 Vercel 전용 설정이 잔뜩 들어가면.
+
+**Shopify API:** 이커머스 구축에 최고. 하지만 Shopify의 데이터 모델, 웹훅 구조, Liquid 템플릿에 맞춰서 전체 시스템을 만들면? WooCommerce로 이전할 때 상품 데이터 구조부터 다시 설계해야 한다.
+
+### 완화법
+
+<Callout type="success" title="벤더 종속 완화 전략">
+- **추상화 레이어로 벤더 코드 격리:** 비즈니스 로직은 벤더 API를 직접 호출하지 않고, 추상화된 인터페이스를 통해 접근
+- **벤더 전용 기능 사용 시 의식적 결정:** "이건 DynamoDB에서만 되는 건데, 감수하고 쓸 거야"라고 명시적으로 결정
+- **탈출 비용 계산 주기적으로 수행:** 분기마다 "지금 이전하면 얼마나 걸릴까?"를 추정
+- **But: 100% 벤더 독립은 비현실적이고 비효율적.** 핵심은 "의식적 선택"
+</Callout>
+
+```typescript
+// 나쁜 예: 비즈니스 로직에 AWS 직접 결합
+async function saveUser(user: User) {
+  await dynamodb.send(new PutItemCommand({
+    TableName: "users",
+    Item: marshallUser(user) // DynamoDB 형식 변환
+  }));
+}
+
+// 좋은 예: 추상화 레이어로 격리
+interface UserRepository {
+  save(user: User): Promise<void>;
+  findById(id: string): Promise<User | null>;
+}
+
+class DynamoDBUserRepository implements UserRepository {
+  async save(user: User): Promise<void> {
+    await this.client.send(new PutItemCommand({
+      TableName: "users",
+      Item: marshallUser(user)
+    }));
+  }
+  // ...
+}
+
+// 이전할 때 이것만 교체하면 됨
+class PostgresUserRepository implements UserRepository {
+  async save(user: User): Promise<void> {
+    await this.pool.query(
+      "INSERT INTO users (id, name, email) VALUES ($1, $2, $3)",
+      [user.id, user.name, user.email]
+    );
+  }
+  // ...
+}
+```
+
+간단한 패턴이지만, 이 차이가 나중에 이전 비용을 6개월에서 1개월로 줄여준다.
+
+---
+
+## 2. Silver Bullet (은탄환)
+
+### 이게 뭔데
+
+<Callout type="warning" title="정의">
+복잡한 소프트웨어 문제를 단일 기술, 도구, 방법론이 마법처럼 해결해줄 것이라는 비현실적 기대. Fred Brooks의 1986년 논문 "No Silver Bullet"에서 유래.
+</Callout>
+
+Brooks의 원래 주장은 이거다: 소프트웨어 개발의 복잡성에는 **본질적 복잡성(essential complexity)**과 **부수적 복잡성(accidental complexity)**이 있다. 도구와 기술은 부수적 복잡성을 줄일 수 있지만, 본질적 복잡성은 없앨 수 없다.
+
+근데 사람들은 이걸 자꾸 잊는다.
+
+"마이크로서비스로 전환하면 다 해결돼요."
+
+"AI 도입하면 생산성 10배."
+
+"Rust로 다시 쓰면 버그 없어요."
+
+"쿠버네티스 올리면 확장성 무한대."
+
+매년 새로운 은탄환이 등장한다. 그리고 매년 같은 실망이 반복된다.
+
+### 은탄환 증후군 갤러리
+
+역사를 돌아보면 은탄환으로 기대받았던 기술들이 쭉 이어진다:
+
+- **1990년대:** 객체지향 프로그래밍이면 모든 코드가 깔끔해질 거임 → 현실: God Object, 상속 지옥
+- **2000년대:** XML + SOAP + 엔터프라이즈 서비스 버스면 시스템 통합 끝 → 현실: XML 지옥, 설정 파일이 코드보다 많음
+- **2010년대 초:** NoSQL이면 스케일링 문제 끝 → 현실: 트랜잭션 없어서 데이터 불일치
+- **2010년대 중:** 마이크로서비스면 모놀리스 문제 해결 → 현실: 분산 모놀리스 (다음 글에서 다룸)
+- **2010년대 말:** GraphQL이면 REST의 모든 문제 해결 → 현실: N+1, 보안, 캐싱 새로운 문제
+- **2020년대 초:** TypeScript면 버그 없음 → 현실: `as any`의 유혹
+- **2020년대 중:** AI가 코딩을 대체 → 현실: AI가 생성한 코드의 유지보수는 누가?
+
+패턴이 보이는가? 각 기술은 **실제로 특정 문제를 잘 해결한다**. 문제는 그 기술이 **모든 문제를 해결한다**고 기대하는 것이다.
+
+<Callout type="error" title="은탄환 증후군의 핵심">
+- 기술 결정의 트레이드오프를 무시하고 장점만 봄
+- 기존 시스템의 문제가 새 기술로 마법처럼 사라질 거라 기대
+- 실제로는 기존 문제 + 새 기술의 학습 비용이 더해짐
+- 기술이 해결해주는 건 부수적 복잡성. 비즈니스 도메인의 본질적 복잡성은 어떤 기술을 써도 남아있음
+</Callout>
+
+### 은탄환에 대한 건강한 태도
+
+```typescript
+// 은탄환 사고방식
+const decision = {
+  problem: "API가 느림",
+  solution: "GraphQL로 전환",
+  expected: "모든 성능 문제 해결",
+  tradeoffs: "없음. GraphQL이 최고니까.",  // 🚨 위험
+};
+
+// 건강한 사고방식
+const decision = {
+  problem: "API가 느림 — over-fetching이 주 원인",
+  solution: "GraphQL 부분 도입",
+  expected: "over-fetching 해결로 평균 응답 시간 30% 개선",
+  tradeoffs: [
+    "N+1 쿼리 문제를 DataLoader로 관리해야 함",
+    "캐싱 전략 재수립 필요",
+    "팀 학습 비용 2-3주",
+    "기존 REST와 공존 기간 필요"
+  ],
+  alternativesConsidered: [
+    "REST에 sparse fieldset 적용",
+    "BFF(Backend for Frontend) 패턴"
+  ]
+};
+```
+
+은탄환은 없다. 있는 건 **적절한 트레이드오프**뿐이다.
+
+---
+
+## 3. Architecture Astronaut (아키텍처 우주인)
+
+### 이게 뭔데
+
+<Callout type="warning" title="정의">
+Joel Spolsky가 2001년에 명명. 실제 문제 해결보다 추상화와 아키텍처 설계 자체에 몰두하여, 실용성을 잃고 "우주로 날아가버린" 아키텍트. 지상의 문제는 안중에 없다.
+</Callout>
+
+Spolsky의 원문이 이거다:
+
+> "When you go too far up, abstraction-wise, you run out of oxygen. Sometimes smart thinkers just don't know when to stop, and they create these absurd, all-encompassing, high-level pictures of the universe that are all-encompassing and high-level but don't actually mean anything at all."
+
+너무 높이 올라가면 산소가 없다. 추상화의 고도를 너무 높이면 현실과 단절된다.
+
+### 이런 사람
+
+"범용 엔터프라이즈 서비스 버스 기반 이벤트 드리븐 아키텍처 위에 CQRS/ES 패턴을 적용한 마이크로서비스를 헥사고날 아키텍처로 구현하고, 각 서비스는 DDD의 Aggregate Root를 단위로 분리하되..."
+
+실제 필요한 건 TODO 앱인데.
+
+아키텍처 우주인의 결과물은 대략 이런 모양이다:
+
+```typescript
+// 실제 필요한 것: 유저 목록을 보여주는 API
+
+// 아키텍처 우주인의 설계
+interface IQueryHandler<TQuery extends IQuery, TResult> {
+  handle(query: TQuery): Promise<TResult>;
+}
+
+interface ICommandHandler<TCommand extends ICommand> {
+  handle(command: TCommand): Promise<void>;
+}
+
+interface IEventHandler<TEvent extends IDomainEvent> {
+  handle(event: TEvent): Promise<void>;
+}
+
+class GetUsersQuery implements IQuery {
+  constructor(
+    public readonly page: number,
+    public readonly limit: number,
+    public readonly correlationId: string = crypto.randomUUID()
+  ) {}
+}
+
+class GetUsersQueryHandler
+  implements IQueryHandler<GetUsersQuery, PaginatedResult<UserDto>>
+{
+  constructor(
+    private readonly userReadRepository: IUserReadRepository,
+    private readonly mapper: IMapper<UserEntity, UserDto>,
+    private readonly logger: ILogger,
+    private readonly cache: ICacheService,
+    private readonly metrics: IMetricsService
+  ) {}
+
+  async handle(
+    query: GetUsersQuery
+  ): Promise<PaginatedResult<UserDto>> {
+    this.logger.info("Handling GetUsersQuery", { correlationId: query.correlationId });
+    this.metrics.increment("queries.getUsers");
+    // ... 실제 DB 조회는 50줄 뒤에
+  }
+}
+
+// 실제로 필요한 코드
+async function getUsers(page: number, limit: number) {
+  return db.query("SELECT * FROM users LIMIT $1 OFFSET $2", [limit, page * limit]);
+}
+```
+
+위 코드에서 아래 세 줄이 실제로 필요한 전부다. 나머지는 전부 "나중에 혹시 필요할지도 모르는" 추상화다.
+
+<Callout type="note" title="아키텍처 우주인 자가진단">
+- 화이트보드 세션이 코딩 시간보다 길음
+- 아키텍처 문서가 실제 코드보다 복잡함
+- "확장성"이라는 단어를 하루에 10번 이상 사용
+- 아직 구현된 기능이 하나도 없는데 인프라는 완벽함
+- "이건 나중에 확장할 때 필요해"라고 매일 말하는데 그 "나중"은 안 옴
+- 디자인 패턴 이름을 하루에 5개 이상 사용
+- 실제 유저가 0명인데 "100만 유저 대응 아키텍처"를 설계 중
+</Callout>
+
+### 은탄환과의 관계
+
+아키텍처 우주인은 종종 은탄환 증후군과 결합한다. "이 아키텍처 패턴을 적용하면 모든 문제가 해결돼"라고 하면서 현실의 제약(시간, 인력, 예산)을 무시하는 거다. 둘이 합쳐지면 이런 결과가 나온다:
+
+1. 6개월간 아키텍처 설계 (실제 코드 0줄)
+2. 새로운 프레임워크/패턴 도입 (팀 학습 비용 3개월)
+3. 첫 기능 완성까지 9개월
+4. 기능은 동작하는데 아무도 아키텍처를 이해 못함
+5. 원래 모놀리스가 더 나았다는 결론
+
+<Callout type="success" title="지상에 머무르는 법">
+- **YAGNI (You Ain't Gonna Need It):** 지금 필요한 것만 만들어라
+- **3의 규칙:** 같은 패턴이 3번 반복될 때 추상화해라. 1번 보고 추상화하면 과잉
+- **가장 단순한 것부터:** "이 문제를 해결하는 가장 단순한 방법은?"을 먼저 물어라
+- **실제 요구사항 기반:** "100만 유저 대응"이 실제 요구사항인지, 상상인지 구분해라
+</Callout>
+
+---
+
+## 세 안티패턴의 교훈
+
+이 세 가지는 결국 하나의 공통된 실수에서 비롯된다: **기술에 대한 비현실적 기대.**
+
+벤더 종속은 "이 벤더가 우리의 모든 인프라를 해결해줄 거야"라는 기대. 은탄환은 "이 기술이 우리의 모든 문제를 해결해줄 거야"라는 기대. 아키텍처 우주인은 "이 아키텍처가 우리의 모든 미래를 대비해줄 거야"라는 기대.
+
+현실은 언제나 더 복잡하고, 더 지저분하고, 더 타협이 필요하다.
+
+건강한 기술 결정은 이렇다:
+1. 문제를 명확히 정의한다
+2. 여러 선택지의 트레이드오프를 비교한다
+3. 현재의 제약(시간, 인력, 예산)을 고려한다
+4. 결정과 그 이유를 문서화한다
+5. 나중에 틀렸을 때 돌아갈 수 있는 여지를 남긴다
+
+은탄환은 없다. 벤더는 영원하지 않다. 아키텍처는 지상에서 시작해야 한다.
+
+---
+
+_← [이전 글: Big Ball of Mud](/docs/articles/anti-patterns/13.big-ball-of-mud) | [다음 글: 마이크로서비스 안티패턴](/docs/articles/anti-patterns/15.microservice-antipatterns) →_

@@ -1,0 +1,552 @@
+# 상속 지옥: 거부, 병렬, 요요
+
+*상속을 잘못 쓰면 이런 지옥이 펼쳐진다*
+
+---
+
+상속은 OOP의 핵심 기능이다. 교과서에서 가장 먼저 배우는 것 중 하나이기도 하고. "동물 클래스를 만들고, 개 클래스가 상속받고..." 이런 예제 한 번쯤은 봤을 거다. 근데 현실은 그렇게 깔끔하지 않다.
+
+상속을 잘못 쓰면 코드베이스가 문자 그대로 지옥이 됨. 이번 편에서는 상속 계층 구조에서 발생하는 세 가지 안티패턴을 한번에 다룬다. **Refused Bequest**(거부된 유산), **Parallel Inheritance Hierarchies**(병렬 상속 계층), **Yo-yo Problem**(요요 문제). 이 셋은 각각 다른 증상이지만, 근본 원인은 같다: **상속을 과도하게, 또는 부적절하게 사용한 것.**
+
+"상속보다 합성을 선호하라(Favor composition over inheritance)"라는 격언이 괜히 나온 게 아님. 왜 그런지 하나씩 살펴보자.
+
+---
+
+## 1. Refused Bequest (거부된 유산)
+
+<Callout type="warning" title="정의">
+서브클래스가 부모로부터 상속받은 메서드나 데이터의 대부분을 사용하지 않거나, 오버라이드로 무력화하는 패턴. "이거 상속할 필요가 있었나?" 싶은 관계.
+</Callout>
+
+### 이게 뭔데
+
+부모가 재산을 물려줬는데 자식이 "이거 필요 없는데요?"하고 거부하는 상황이다. 코드로 치면, 부모 클래스의 메서드를 상속받았는데 대부분을 안 쓰거나, 아예 에러를 던지도록 오버라이드하는 것.
+
+가장 유명한 예시가 **정사각형-직사각형 문제**다. "정사각형은 직사각형이다"라는 수학적 명제는 맞지만, 프로그래밍에서는 완전히 틀린 관계가 된다. 왜? **행동이 다르니까.** 직사각형은 가로와 세로를 독립적으로 바꿀 수 있지만, 정사각형은 그러면 안 됨. 이게 바로 리스코프 치환 원칙(LSP) 위반이다.
+
+### 이런 코드
+
+```typescript
+class Rectangle {
+  constructor(
+    protected width: number,
+    protected height: number,
+  ) {}
+
+  setWidth(w: number) {
+    this.width = w;
+  }
+
+  setHeight(h: number) {
+    this.height = h;
+  }
+
+  getArea(): number {
+    return this.width * this.height;
+  }
+}
+
+// "정사각형은 직사각형이니까 상속하면 되겠지?"
+class Square extends Rectangle {
+  constructor(side: number) {
+    super(side, side);
+  }
+
+  // 부모의 setWidth를 오버라이드해서 height도 같이 바꿈
+  setWidth(w: number) {
+    this.width = w;
+    this.height = w; // 정사각형이니까...
+  }
+
+  // 부모의 setHeight도 마찬가지
+  setHeight(h: number) {
+    this.width = h;  // 정사각형이니까...
+    this.height = h;
+  }
+}
+
+// 문제 발생
+function doubleWidth(rect: Rectangle) {
+  const originalHeight = rect.getArea() / rect.getArea(); // 대충 높이 저장
+  rect.setWidth(rect.getArea() / 10 * 2); // 가로를 두 배로
+  // Rectangle이면 높이가 유지되지만, Square가 들어오면?
+  // 높이까지 바뀌어버림! → LSP 위반
+}
+```
+
+또 하나의 고전적인 예시. `Stack`이 `ArrayList`를 상속받는 경우:
+
+```typescript
+class ArrayList<T> {
+  protected items: T[] = [];
+
+  add(item: T): void { this.items.push(item); }
+  get(index: number): T { return this.items[index]; }
+  set(index: number, item: T): void { this.items[index] = item; }
+  remove(index: number): T { return this.items.splice(index, 1)[0]; }
+  size(): number { return this.items.length; }
+  contains(item: T): boolean { return this.items.includes(item); }
+  indexOf(item: T): number { return this.items.indexOf(item); }
+  sort(compareFn?: (a: T, b: T) => number): void { this.items.sort(compareFn); }
+}
+
+// Stack은 ArrayList인가? 아님. Stack은 LIFO 자료구조임.
+class Stack<T> extends ArrayList<T> {
+  push(item: T): void {
+    this.add(item);
+  }
+
+  pop(): T | undefined {
+    if (this.size() === 0) return undefined;
+    return this.remove(this.size() - 1);
+  }
+
+  peek(): T | undefined {
+    if (this.size() === 0) return undefined;
+    return this.get(this.size() - 1);
+  }
+
+  // 문제: get(0), set(2, x), sort(), indexOf() 등
+  // Stack에는 전혀 필요 없는 메서드들이 전부 노출됨
+  // 누군가 stack.get(3) 을 호출하면? Stack의 계약 위반!
+}
+```
+
+<Callout type="error" title="뭐가 문제냐면">
+- **LSP 위반**: 부모 타입으로 대체했을 때 예상과 다른 동작이 발생한다
+- **불필요한 API 노출**: Stack 사용자가 `get(index)`나 `sort()`를 호출할 수 있다
+- **오해 유발**: 상속 관계가 "is-a"를 암시하지만, 실제로는 그렇지 않다
+- **유지보수 위험**: 부모 클래스에 메서드가 추가되면 자식에도 자동으로 노출됨
+</Callout>
+
+### 고친 코드
+
+**합성(Composition)**을 사용한다. "is-a"가 아니라 "has-a" 관계로 전환:
+
+```typescript
+// Shape 인터페이스로 행동을 정의
+interface Shape {
+  getArea(): number;
+  getPerimeter(): number;
+}
+
+class Rectangle implements Shape {
+  constructor(private width: number, private height: number) {}
+
+  setWidth(w: number) { this.width = w; }
+  setHeight(h: number) { this.height = h; }
+  getArea(): number { return this.width * this.height; }
+  getPerimeter(): number { return 2 * (this.width + this.height); }
+}
+
+class Square implements Shape {
+  constructor(private side: number) {}
+
+  setSide(s: number) { this.side = s; }
+  getArea(): number { return this.side * this.side; }
+  getPerimeter(): number { return 4 * this.side; }
+}
+
+// Stack은 ArrayList를 내부에 "가지고" 있는 것
+class Stack<T> {
+  private items: T[] = [];
+
+  push(item: T): void { this.items.push(item); }
+  pop(): T | undefined { return this.items.pop(); }
+  peek(): T | undefined { return this.items[this.items.length - 1]; }
+  size(): number { return this.items.length; }
+  isEmpty(): boolean { return this.items.length === 0; }
+  // get(index), sort() 같은 건 아예 노출하지 않음!
+}
+```
+
+깔끔하다. `Square`는 자기만의 `setSide()`가 있고, 불필요한 `setWidth`/`setHeight`를 상속받지 않는다. `Stack`은 사용자에게 LIFO에 필요한 메서드만 노출한다.
+
+---
+
+## 2. Parallel Inheritance Hierarchies (병렬 상속 계층)
+
+<Callout type="warning" title="정의">
+한 계층에 클래스를 추가할 때마다 다른 계층에도 반드시 대응하는 클래스를 추가해야 하는 구조. 클래스가 항상 쌍(또는 그 이상)으로 태어남.
+</Callout>
+
+### 이게 뭔데
+
+새로운 도형을 하나 추가하고 싶을 뿐인데, 3개의 클래스를 동시에 만들어야 하는 상황. 한쪽 계층에서 뭔가가 태어나면, 다른 계층에서도 반드시 쌍둥이가 태어나야 한다. 안 그러면 시스템이 돌아가지 않음.
+
+처음에는 "구조적으로 깔끔하네"라고 느낄 수 있다. 각 클래스가 하나의 책임만 가지니까. 하지만 시스템이 커지면서 계층이 늘어날수록 **새로운 타입을 추가하는 비용이 계층의 수에 비례해서 증가**한다. 그리고 하나라도 빠뜨리면 런타임 에러가 터진다.
+
+### 이런 코드
+
+```typescript
+// ========= 도형 계층 =========
+abstract class Shape {
+  abstract getType(): string;
+}
+
+class Circle extends Shape {
+  constructor(public radius: number) { super(); }
+  getType() { return "circle"; }
+}
+
+class RectangleShape extends Shape {
+  constructor(public width: number, public height: number) { super(); }
+  getType() { return "rectangle"; }
+}
+
+class Triangle extends Shape {
+  constructor(public base: number, public height: number) { super(); }
+  getType() { return "triangle"; }
+}
+
+// ========= 렌더러 계층 (Shape마다 하나씩!) =========
+abstract class ShapeRenderer {
+  abstract render(shape: Shape): void;
+}
+
+class CircleRenderer extends ShapeRenderer {
+  render(shape: Circle) {
+    console.log(`Drawing circle with radius ${shape.radius}`);
+    // canvas API 호출...
+  }
+}
+
+class RectangleRenderer extends ShapeRenderer {
+  render(shape: RectangleShape) {
+    console.log(`Drawing rectangle ${shape.width}x${shape.height}`);
+  }
+}
+
+class TriangleRenderer extends ShapeRenderer {
+  render(shape: Triangle) {
+    console.log(`Drawing triangle base=${shape.base} height=${shape.height}`);
+  }
+}
+
+// ========= 직렬화 계층 (또 Shape마다 하나씩!) =========
+abstract class ShapeSerializer {
+  abstract serialize(shape: Shape): string;
+}
+
+class CircleSerializer extends ShapeSerializer {
+  serialize(shape: Circle) {
+    return JSON.stringify({ type: "circle", radius: shape.radius });
+  }
+}
+
+class RectangleSerializer extends ShapeSerializer {
+  serialize(shape: RectangleShape) {
+    return JSON.stringify({ type: "rectangle", w: shape.width, h: shape.height });
+  }
+}
+
+class TriangleSerializer extends ShapeSerializer {
+  serialize(shape: Triangle) {
+    return JSON.stringify({ type: "triangle", base: shape.base, h: shape.height });
+  }
+}
+
+// ========= 면적 계산 계층 (또또 Shape마다 하나씩!) =========
+abstract class AreaCalculator {
+  abstract calculate(shape: Shape): number;
+}
+
+class CircleAreaCalculator extends AreaCalculator {
+  calculate(shape: Circle) { return Math.PI * shape.radius ** 2; }
+}
+
+class RectangleAreaCalculator extends AreaCalculator {
+  calculate(shape: RectangleShape) { return shape.width * shape.height; }
+}
+
+class TriangleAreaCalculator extends AreaCalculator {
+  calculate(shape: Triangle) { return (shape.base * shape.height) / 2; }
+}
+```
+
+여기에 `Pentagon`(오각형)을 추가하려면? **4개의 클래스**를 동시에 만들어야 한다: `Pentagon`, `PentagonRenderer`, `PentagonSerializer`, `PentagonAreaCalculator`. 하나라도 빠뜨리면 런타임에서 "이 도형은 렌더링할 수 없습니다" 에러가 터짐. 10가지 도형 × 4개 계층 = 40개 클래스. 실화냐?
+
+<Callout type="error" title="뭐가 문제냐면">
+- **확장 비용 폭발**: 새 타입을 추가할 때마다 N개의 클래스를 만들어야 한다
+- **누락 위험**: 하나의 계층에서 대응 클래스를 빠뜨리면 런타임 에러
+- **변경 전파**: 한 계층의 인터페이스가 바뀌면 모든 대응 클래스를 수정해야 함
+- **코드 폭발**: 실질적 로직은 몇 줄인데 클래스 보일러플레이트가 대부분
+</Callout>
+
+### 고친 코드
+
+다형성과 전략 패턴으로 병렬 계층을 제거한다. **행동을 도형 자체에 위임하거나, 전략을 주입:**
+
+```typescript
+interface Shape {
+  getType(): string;
+  render(): void;
+  serialize(): string;
+  getArea(): number;
+}
+
+class Circle implements Shape {
+  constructor(public radius: number) {}
+  getType() { return "circle"; }
+  render() { console.log(`Drawing circle with radius ${this.radius}`); }
+  serialize() { return JSON.stringify({ type: "circle", radius: this.radius }); }
+  getArea() { return Math.PI * this.radius ** 2; }
+}
+
+class RectangleShape implements Shape {
+  constructor(public width: number, public height: number) {}
+  getType() { return "rectangle"; }
+  render() { console.log(`Drawing rectangle ${this.width}x${this.height}`); }
+  serialize() { return JSON.stringify({ type: "rect", w: this.width, h: this.height }); }
+  getArea() { return this.width * this.height; }
+}
+
+// Pentagon 추가? 클래스 하나만 만들면 됨!
+class Pentagon implements Shape {
+  constructor(public side: number) {}
+  getType() { return "pentagon"; }
+  render() { console.log(`Drawing pentagon with side ${this.side}`); }
+  serialize() { return JSON.stringify({ type: "pentagon", side: this.side }); }
+  getArea() { return (Math.sqrt(5 * (5 + 2 * Math.sqrt(5))) / 4) * this.side ** 2; }
+}
+```
+
+"근데 이러면 Shape 하나에 책임이 너무 많아지는 거 아닌가?"라는 생각이 들 수 있다. 맞는 지적이다. 렌더링 로직이 복잡해지면 **전략 패턴으로 분리**할 수 있다:
+
+```typescript
+interface RenderStrategy {
+  render(shape: Shape): void;
+}
+
+class CanvasRenderer implements RenderStrategy {
+  render(shape: Shape) { /* canvas로 그림 */ }
+}
+
+class SVGRenderer implements RenderStrategy {
+  render(shape: Shape) { /* SVG로 그림 */ }
+}
+
+// 도형은 렌더링 전략을 "사용"만 함
+class Circle {
+  constructor(public radius: number, private renderer: RenderStrategy) {}
+  render() { this.renderer.render(this); }
+}
+```
+
+핵심은, 새 도형을 추가할 때 **1개의 클래스만** 만들면 된다는 것.
+
+---
+
+## 3. Yo-yo Problem (요요 문제)
+
+<Callout type="warning" title="정의">
+상속 계층이 지나치게 깊고 분산되어, 코드 흐름을 파악하기 위해 계층을 끊임없이 오르내려야 하는 상황. 부모 → 자식 → 부모 → 조부모 → 다시 자식... 마치 요요처럼.
+</Callout>
+
+### 이게 뭔데
+
+상속 깊이가 5단계, 6단계를 넘어가면 코드를 읽는 게 고문이 됨. `User` 클래스의 `save()` 메서드가 어떻게 동작하는지 알고 싶은데, `save()`는 `AuditableEntity`에 정의되어 있고, 거기서 `beforeSave()`를 호출하는데 그건 `SoftDeletableEntity`에서 오버라이드되어 있고, `super.beforeSave()`를 부르면 다시 `TimestampedEntity`로 올라가고... IDE에서 "Go to Definition"을 연타하면서 파일을 왔다갔다하는 자신을 발견하게 된다.
+
+이 문제의 이름이 "요요"인 이유가 정확히 이것. 계층을 올라갔다 내려갔다 올라갔다 내려갔다. 멈출 수가 없다.
+
+### 이런 코드
+
+```typescript
+// 1단계: 가장 기본
+class BaseEntity {
+  id: string = crypto.randomUUID();
+
+  validate(): boolean {
+    // 기본 유효성 검사
+    return this.id.length > 0;
+  }
+
+  save(): Promise<void> {
+    if (!this.validate()) throw new Error("Validation failed");
+    // DB에 저장하는 로직...
+    return Promise.resolve();
+  }
+}
+
+// 2단계: 타임스탬프 추가
+class TimestampedEntity extends BaseEntity {
+  createdAt: Date = new Date();
+  updatedAt: Date = new Date();
+
+  save(): Promise<void> {
+    this.updatedAt = new Date(); // 저장할 때마다 갱신
+    return super.save();        // 부모로 올라감 ↑
+  }
+}
+
+// 3단계: 소프트 삭제 추가
+class SoftDeletableEntity extends TimestampedEntity {
+  deletedAt: Date | null = null;
+  isDeleted: boolean = false;
+
+  validate(): boolean {
+    if (this.isDeleted) return false; // 삭제된 건 저장 불가
+    return super.validate();          // 조부모로 올라감 ↑↑
+  }
+
+  softDelete(): Promise<void> {
+    this.isDeleted = true;
+    this.deletedAt = new Date();
+    return this.save();               // 자신의 save()? 부모의 save()? ↕
+  }
+}
+
+// 4단계: 감사(audit) 추가
+class AuditableEntity extends SoftDeletableEntity {
+  lastModifiedBy: string = "system";
+  changeLog: Array<{ field: string; oldValue: any; newValue: any }> = [];
+
+  save(): Promise<void> {
+    console.log(`[AUDIT] Modified by ${this.lastModifiedBy}`);
+    // 변경 이력 기록...
+    return super.save(); // TimestampedEntity.save()로 → 거기서 다시 BaseEntity.save()로 ↑↑↑
+  }
+}
+
+// 5단계: 드디어 실제 도메인 엔티티
+class User extends AuditableEntity {
+  constructor(
+    public name: string,
+    public email: string,
+    public role: "admin" | "user" = "user",
+  ) {
+    super();
+  }
+
+  validate(): boolean {
+    if (!this.email.includes("@")) return false;
+    return super.validate(); // SoftDeletableEntity.validate()로 → 거기서 다시 BaseEntity.validate()로 ↑↑
+  }
+
+  async save(): Promise<void> {
+    this.lastModifiedBy = this.name;
+    return super.save(); // AuditableEntity.save()로 → TimestampedEntity.save()로 → BaseEntity.save()로 ↑↑↑
+  }
+}
+```
+
+`User.save()`의 실행 흐름을 머릿속으로 따라가보자:
+
+1. `User.save()` → `lastModifiedBy` 설정 → `super.save()` 호출
+2. `AuditableEntity.save()` → 감사 로그 기록 → `super.save()` 호출
+3. `TimestampedEntity.save()` → `updatedAt` 갱신 → `super.save()` 호출
+4. `BaseEntity.save()` → `validate()` 호출 → ...잠깐, `validate()`는 어디꺼?
+5. `User.validate()` → 이메일 체크 → `super.validate()` 호출
+6. `SoftDeletableEntity.validate()` → 삭제 체크 → `super.validate()` 호출
+7. `BaseEntity.validate()` → ID 체크 → `true` 반환
+
+**7단계.** 하나의 `save()` 호출을 이해하기 위해 파일 5개를 왔다갔다해야 한다. 이게 요요 문제다.
+
+<Callout type="error" title="뭐가 문제냐면">
+- **인지 부하 폭발**: 한 메서드의 동작을 이해하려면 전체 계층을 머릿속에 들고 있어야 한다
+- **디버깅 지옥**: 버그가 어느 레벨에서 발생하는지 찾기 위해 모든 계층을 탐색해야 함
+- **수정 공포**: 중간 계층의 메서드를 바꾸면 하위 모든 클래스에 영향
+- **fragile base class**: 부모 클래스의 작은 변경이 자식 클래스들을 예상치 못한 방식으로 망가뜨림
+</Callout>
+
+### 고친 코드
+
+**합성과 믹스인**으로 평탄화한다. 깊이 대신 넓이로:
+
+```typescript
+// 기능별 독립 모듈
+interface Timestamps {
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+interface SoftDelete {
+  deletedAt: Date | null;
+  isDeleted: boolean;
+}
+
+interface Auditable {
+  lastModifiedBy: string;
+  changeLog: Array<{ field: string; oldValue: any; newValue: any }>;
+}
+
+// 기능별 유틸리티 함수
+function withTimestamps<T extends Timestamps>(entity: T): T {
+  entity.updatedAt = new Date();
+  return entity;
+}
+
+function canSoftDelete<T extends SoftDelete>(entity: T): T {
+  entity.isDeleted = true;
+  entity.deletedAt = new Date();
+  return entity;
+}
+
+function withAudit<T extends Auditable>(entity: T, modifiedBy: string): T {
+  entity.lastModifiedBy = modifiedBy;
+  console.log(`[AUDIT] Modified by ${modifiedBy}`);
+  return entity;
+}
+
+// User는 상속 없이, 필요한 기능만 조합
+class User implements Timestamps, SoftDelete, Auditable {
+  id: string = crypto.randomUUID();
+  createdAt: Date = new Date();
+  updatedAt: Date = new Date();
+  deletedAt: Date | null = null;
+  isDeleted: boolean = false;
+  lastModifiedBy: string = "system";
+  changeLog: Array<{ field: string; oldValue: any; newValue: any }> = [];
+
+  constructor(
+    public name: string,
+    public email: string,
+    public role: "admin" | "user" = "user",
+  ) {}
+
+  validate(): boolean {
+    if (this.isDeleted) return false;
+    if (!this.email.includes("@")) return false;
+    return this.id.length > 0;
+  }
+
+  async save(): Promise<void> {
+    if (!this.validate()) throw new Error("Validation failed");
+    withTimestamps(this);
+    withAudit(this, this.name);
+    // DB에 저장...
+  }
+}
+```
+
+`User.save()`의 흐름: `validate()` → `withTimestamps()` → `withAudit()` → 저장. **한 파일에서 전부 볼 수 있다.** 요요 탈 필요 없음.
+
+---
+
+## 공통 해결법
+
+세 가지 안티패턴 모두 결국 같은 곳으로 수렴한다:
+
+<Callout type="success" title="상속 지옥 탈출법">
+1. **"is-a" 관계가 확실할 때만 상속**: 정사각형은 직사각형이 아님 (행동이 다르니까)
+2. **상속 깊이 3단계 이하 유지**: 더 깊어지면 합성으로 전환을 고려하자
+3. **Composition over Inheritance**: 대부분의 경우 합성이 더 유연하다
+4. **Interface 활용**: 행동을 정의하고, 구현은 자유롭게
+5. **새 타입 추가 테스트**: "새로운 타입을 추가하려면 몇 개의 파일을 수정해야 하는가?" 답이 3 이상이면 설계를 재고
+</Callout>
+
+<Callout type="note" title="현실적인 조언">
+- Java의 `Stack extends Vector`는 실제로 JDK에 존재하는 Refused Bequest의 교과서적 사례. 공식 문서에서도 `Deque`를 대신 쓰라고 권장한다.
+- TypeScript/JavaScript에서는 클래스 상속보다 **인터페이스 + 함수 조합**이 더 자연스럽다. 프로토타입 기반 언어의 장점을 살려라.
+- 기존 깊은 계층을 리팩토링할 때는 **바닥부터 올라가지 말고, 리프 클래스에서 필요한 것만 뽑아서 새로 합성**하는 게 더 안전하다.
+</Callout>
+
+## 정리
+
+상속은 나쁜 도구가 아니다. 잘못 쓰면 나쁜 결과를 낳을 뿐. Refused Bequest는 "불필요한 상속", Parallel Inheritance는 "과도한 상속", Yo-yo Problem은 "깊은 상속"에서 발생한다. 세 가지 모두 **합성(Composition)**으로 해결할 수 있다는 공통점이 있고, 이건 우연이 아님.
+
+다음 글에서는 상속보다 더 근본적인 구조적 문제, **순환 의존성**을 다룬다. A가 B를 부르고, B가 C를 부르고, C가 다시 A를 부르면 어떻게 되는지 살펴보자.
+
+---
+
+_← [이전 글: 커플링 냄새](/docs/articles/anti-patterns/9.coupling-smells) | [다음 글: 순환 의존성](/docs/articles/anti-patterns/11.circular-dependency) →_

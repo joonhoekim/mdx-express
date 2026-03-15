@@ -1,0 +1,653 @@
+# 복잡성과 추측성: 없어도 될 복잡함을 만드는 방법
+
+*"나중에 필요할 수도 있잖아" — 그 나중은 안 옴*
+
+---
+
+개발자에게는 묘한 본능이 있다. 뭔가를 더 일반적으로, 더 확장 가능하게, 더 "제대로" 만들고 싶은 욕구. 이 본능 자체는 나쁘지 않음. 문제는 그 욕구가 **현재 요구사항과 무관하게** 발동할 때 생긴다.
+
+이번 편에서는 불필요한 복잡성을 만들어내는 세 가지 패턴을 다룬다. **Accidental Complexity**는 잘못된 구현 선택으로 추가된 복잡성, **Arrow Anti-Pattern**은 중첩 조건문의 지옥, **Speculative Generality**는 아직 필요하지 않은 추상화를 미리 만드는 문제다. 세 패턴 모두 공통적으로 "단순하게 풀 수 있는 문제를 복잡하게 만드는" 실수다.
+
+---
+
+## 1. Accidental Complexity (우발적 복잡성)
+
+<Callout type="warning" title="정의">
+문제 자체의 복잡성(Essential Complexity)이 아닌, 잘못된 구현 선택으로 추가된 불필요한 복잡성. Fred Brooks의 1986년 논문 "No Silver Bullet"에서 유래한 개념.
+</Callout>
+
+### 이게 뭔데
+
+<Callout type="info" title="Essential vs Accidental Complexity">
+Fred Brooks는 소프트웨어의 복잡성을 두 가지로 분류했다:
+
+- **Essential Complexity (본질적 복잡성)**: 문제 자체가 가진 복잡성. 아무리 잘 설계해도 줄일 수 없음. 예: 세금 계산 규칙 자체가 복잡한 건 소프트웨어 탓이 아님.
+- **Accidental Complexity (우발적 복잡성)**: 구현 과정에서 불필요하게 추가된 복잡성. 도구, 언어, 설계 선택 등에서 발생. 이건 줄일 수 있고, 줄여야 함.
+</Callout>
+
+우발적 복잡성의 핵심은 이거다: **문제는 간단한데 해결 방법이 복잡하다.** 불리언 하나를 토글하는 데 상태 머신, 이벤트 이미터, 옵저버 패턴을 동원한다면? 그건 문제가 복잡한 게 아니라 풀이가 복잡한 거다.
+
+실무에서 우발적 복잡성이 발생하는 전형적인 원인들:
+
+- **과도한 추상화**: 한 번만 쓰이는 로직을 3단계 추상화로 감쌈
+- **유행하는 패턴 맹목 적용**: "요즘 이벤트 드리븐이 대세래" 하고 단순 CRUD에 이벤트 시스템 도입
+- **프레임워크 과잉**: 10줄짜리 스크립트에 DI 컨테이너, 미들웨어 체인, 플러그인 시스템을 구축
+- **잘못된 기술 선택**: 단순 설정 파일에 YAML 대신 커스텀 DSL을 만듦
+
+### 이런 코드
+
+```typescript
+// 문제: 사용자 알림 설정을 켜고 끄는 기능이 필요함
+// ... 간단하지?
+
+// 우발적 복잡성의 결과물:
+interface NotificationState {
+  enabled: boolean;
+  lastChanged: Date;
+  changedBy: string;
+}
+
+interface StateTransition {
+  from: boolean;
+  to: boolean;
+  timestamp: Date;
+}
+
+type NotificationEventType = "ENABLE" | "DISABLE" | "TOGGLE" | "RESET";
+
+interface NotificationEvent {
+  type: NotificationEventType;
+  payload?: Partial<NotificationState>;
+  metadata: { source: string; correlationId: string };
+}
+
+type EventHandler = (event: NotificationEvent) => void;
+
+class NotificationEventEmitter {
+  private handlers: Map<NotificationEventType, EventHandler[]> = new Map();
+
+  on(type: NotificationEventType, handler: EventHandler) {
+    const existing = this.handlers.get(type) ?? [];
+    this.handlers.set(type, [...existing, handler]);
+  }
+
+  emit(event: NotificationEvent) {
+    const handlers = this.handlers.get(event.type) ?? [];
+    handlers.forEach((handler) => handler(event));
+  }
+}
+
+class NotificationStateMachine {
+  private state: NotificationState;
+  private history: StateTransition[] = [];
+  private emitter: NotificationEventEmitter;
+
+  constructor(initialState: boolean) {
+    this.state = {
+      enabled: initialState,
+      lastChanged: new Date(),
+      changedBy: "system",
+    };
+    this.emitter = new NotificationEventEmitter();
+    this.setupTransitions();
+  }
+
+  private setupTransitions() {
+    this.emitter.on("TOGGLE", (event) => {
+      const previousState = this.state.enabled;
+      this.state = {
+        enabled: !previousState,
+        lastChanged: new Date(),
+        changedBy: event.metadata.source,
+      };
+      this.history.push({
+        from: previousState,
+        to: this.state.enabled,
+        timestamp: new Date(),
+      });
+    });
+
+    this.emitter.on("ENABLE", () => {
+      if (!this.state.enabled) {
+        this.emitter.emit({
+          type: "TOGGLE",
+          metadata: { source: "enable-command", correlationId: crypto.randomUUID() },
+        });
+      }
+    });
+
+    this.emitter.on("DISABLE", () => {
+      if (this.state.enabled) {
+        this.emitter.emit({
+          type: "TOGGLE",
+          metadata: { source: "disable-command", correlationId: crypto.randomUUID() },
+        });
+      }
+    });
+  }
+
+  toggle(source: string) {
+    this.emitter.emit({
+      type: "TOGGLE",
+      metadata: { source, correlationId: crypto.randomUUID() },
+    });
+  }
+
+  getState(): NotificationState {
+    return { ...this.state };
+  }
+
+  getHistory(): StateTransition[] {
+    return [...this.history];
+  }
+}
+
+// 사용
+const machine = new NotificationStateMachine(false);
+machine.toggle("user-settings-page");
+console.log(machine.getState().enabled); // true
+```
+
+불리언 토글 하나에 70줄 이상의 코드가 필요한 상황. 인터페이스 4개, 클래스 2개, 이벤트 시스템까지 구축했다. 이건 건축 설계도를 그려서 전등 스위치를 만든 격이다.
+
+### 고친 코드
+
+```typescript
+// 사용자 알림 설정을 켜고 끄는 기능
+class NotificationSettings {
+  private enabled: boolean;
+
+  constructor(initialState = false) {
+    this.enabled = initialState;
+  }
+
+  toggle(): void {
+    this.enabled = !this.enabled;
+  }
+
+  isEnabled(): boolean {
+    return this.enabled;
+  }
+}
+
+// 사용
+const settings = new NotificationSettings(false);
+settings.toggle();
+console.log(settings.isEnabled()); // true
+```
+
+15줄. 끝. 나중에 히스토리가 **실제로** 필요해지면 그때 추가하면 된다. 이벤트 시스템이 **실제로** 필요해지면 그때 도입하면 된다. 지금은 토글만 하면 됨.
+
+<Callout type="error" title="우발적 복잡성의 문제점">
+- **온보딩 비용 폭증**: 새 팀원이 "이 70줄이 뭐 하는 건지" 파악하는 데 30분 소요
+- **버그 표면적 확대**: 코드가 많으면 버그도 많음. 이벤트 핸들러 순서가 꼬이면?
+- **변경 저항**: 간단한 기능 변경도 여러 클래스를 건드려야 함
+- **테스트 복잡도**: 상태 머신의 모든 전이를 테스트해야 함 (토글 하나 테스트하는 건데!)
+</Callout>
+
+---
+
+## 2. Arrow Anti-Pattern
+
+<Callout type="warning" title="정의">
+중첩된 조건문/반복문이 깊어져서 코드가 화살촉 모양(→)으로 들여쓰기되는 패턴. 코드 왼쪽에 거대한 삼각형이 생기고, 실제 비즈니스 로직은 가장 깊은 곳에 숨어있음.
+</Callout>
+
+### 이게 뭔데
+
+이 패턴의 이름은 코드를 옆으로 눕히면 화살표 모양이 되기 때문에 붙여졌다. 들여쓰기가 점점 깊어졌다가 다시 나오는 모양이 `→` 같다는 거임. 핵심 로직은 가장 깊숙한 곳에 숨어있고, 거기까지 도달하려면 조건문의 미로를 통과해야 한다.
+
+코드를 읽는 사람의 인지 부하가 급격히 증가한다. "이 시점에서 어떤 조건이 만족된 상태지?" 라는 질문에 답하려면 위쪽의 모든 if를 다 기억하고 있어야 함. 들여쓰기가 4레벨만 넘어가도 머리가 아프다.
+
+### 이런 코드
+
+```typescript
+// 주문 처리 함수 — 전형적인 화살표 안티패턴
+async function processOrder(orderId: string, userId: string) {
+  const user = await getUser(userId);
+  if (user) {
+    if (user.isActive) {
+      if (!user.isBanned) {
+        const order = await getOrder(orderId);
+        if (order) {
+          if (order.status === "pending") {
+            if (order.userId === userId) {
+              const items = await getOrderItems(orderId);
+              if (items.length > 0) {
+                const inventory = await checkInventory(items);
+                if (inventory.allAvailable) {
+                  const payment = await processPayment(order);
+                  if (payment.success) {
+                    await updateOrderStatus(orderId, "confirmed");
+                    await sendConfirmationEmail(user.email, orderId);
+                    return { success: true, orderId };
+                  } else {
+                    return { error: "결제 실패" };
+                  }
+                } else {
+                  return { error: "재고 부족" };
+                }
+              } else {
+                return { error: "주문 항목 없음" };
+              }
+            } else {
+              return { error: "주문 소유자 불일치" };
+            }
+          } else {
+            return { error: "처리할 수 없는 주문 상태" };
+          }
+        } else {
+          return { error: "주문을 찾을 수 없음" };
+        }
+      } else {
+        return { error: "차단된 사용자" };
+      }
+    } else {
+      return { error: "비활성 사용자" };
+    }
+  } else {
+    return { error: "사용자를 찾을 수 없음" };
+  }
+}
+```
+
+들여쓰기가 최대 10레벨까지 들어감. 핵심 로직(결제 처리 + 상태 변경 + 이메일 발송)은 코드 한가운데 깊숙이 파묻혀있고, 나머지 절반 이상이 에러 케이스 분기다. 이 함수를 수정하라고 하면? 올바른 들여쓰기 레벨을 찾는 것만으로도 눈이 아프다.
+
+### 고친 코드
+
+```typescript
+// Guard Clause 패턴으로 평탄화
+async function processOrder(orderId: string, userId: string) {
+  // 1단계: 사용자 검증
+  const user = await getUser(userId);
+  if (!user) {
+    return { error: "사용자를 찾을 수 없음" };
+  }
+  if (!user.isActive) {
+    return { error: "비활성 사용자" };
+  }
+  if (user.isBanned) {
+    return { error: "차단된 사용자" };
+  }
+
+  // 2단계: 주문 검증
+  const order = await getOrder(orderId);
+  if (!order) {
+    return { error: "주문을 찾을 수 없음" };
+  }
+  if (order.status !== "pending") {
+    return { error: "처리할 수 없는 주문 상태" };
+  }
+  if (order.userId !== userId) {
+    return { error: "주문 소유자 불일치" };
+  }
+
+  // 3단계: 재고 확인
+  const items = await getOrderItems(orderId);
+  if (items.length === 0) {
+    return { error: "주문 항목 없음" };
+  }
+
+  const inventory = await checkInventory(items);
+  if (!inventory.allAvailable) {
+    return { error: "재고 부족" };
+  }
+
+  // 4단계: 핵심 로직 (결제 + 확정)
+  const payment = await processPayment(order);
+  if (!payment.success) {
+    return { error: "결제 실패" };
+  }
+
+  await updateOrderStatus(orderId, "confirmed");
+  await sendConfirmationEmail(user.email, orderId);
+  return { success: true, orderId };
+}
+```
+
+같은 로직인데 최대 들여쓰기가 2레벨을 넘지 않는다. 비정상 케이스를 먼저 걸러내고 (Guard Clause), 모든 검증을 통과한 뒤에 핵심 로직이 함수의 가장 바깥 레벨에서 실행된다. 코드를 위에서 아래로 읽으면 자연스럽게 흐름이 이해됨.
+
+<Callout type="success" title="Guard Clause 패턴">
+조건을 뒤집어서 early return하면 화살표가 사라진다. 핵심 원칙은 간단함:
+
+1. **비정상 케이스를 먼저 처리**하고 return
+2. 모든 guard를 통과한 뒤에 **핵심 로직**이 실행
+3. 핵심 로직이 함수의 **가장 바깥 레벨**에 위치
+
+추가 팁: 검증 단계를 주석으로 구분하면 가독성이 더 좋아짐.
+</Callout>
+
+<Callout type="error" title="Arrow Anti-Pattern의 문제점">
+- **인지 부하 폭증**: 중첩이 깊으면 "지금 어떤 조건 하에 있지?"를 기억하기 어려움
+- **수정 위험**: 닫는 괄호를 잘못 매칭하면 로직이 완전히 바뀜
+- **코드 리뷰 불가**: diff에서 들여쓰기 변경과 로직 변경을 구분하기 어려움
+- **테스트 케이스 폭발**: 모든 분기 조합을 테스트하려면 경우의 수가 기하급수적으로 증가
+</Callout>
+
+---
+
+## 3. Speculative Generality (추측적 일반화)
+
+<Callout type="warning" title="정의">
+현재 요구사항이 없는데 "언젠가 필요할 것"이라는 가정으로 만들어진 추상화. YAGNI(You Aren't Gonna Need It) 원칙 위반의 정수.
+</Callout>
+
+### 이게 뭔데
+
+개발자가 미래를 예측하려고 하면 대부분 틀린다. "나중에 다른 DB로 바꿀 수도 있으니까 Repository 패턴을 도입하자", "나중에 다른 결제 수단을 추가할 수도 있으니까 Strategy 패턴을 쓰자", "나중에 다국어를 지원할 수도 있으니까 모든 문자열을 i18n으로 감싸자". 이 "나중에"가 실제로 오는 경우는 체감상 10%도 안 됨.
+
+그 결과, 코드베이스에는 아무도 사용하지 않는 추상 클래스, 구현체가 하나뿐인 인터페이스, 확장 포인트만 준비해놓고 아무도 확장하지 않는 플러그인 시스템이 남게 된다. 이런 코드는 유지보수 비용만 잡아먹고, 나중에 **실제로** 요구사항이 변경될 때는 예상과 다른 방향으로 변경되어서 기존 추상화가 오히려 방해가 된다.
+
+Martin Fowler의 말을 빌리면: "실제로 필요할 때 추가하라. 필요할 것 같을 때가 아니라."
+
+### 이런 코드
+
+```typescript
+// "나중에 다양한 알림 채널을 지원할 수도 있으니까..."
+// 현재 요구사항: 이메일 알림 보내기 (이게 전부임)
+
+interface NotificationChannel<T extends NotificationPayload = NotificationPayload> {
+  readonly channelId: string;
+  readonly priority: number;
+  send(recipient: string, payload: T): Promise<NotificationResult>;
+  validate(recipient: string): Promise<boolean>;
+  getStatus(): ChannelStatus;
+}
+
+interface NotificationPayload {
+  subject: string;
+  body: string;
+  metadata?: Record<string, unknown>;
+}
+
+interface NotificationResult {
+  success: boolean;
+  messageId?: string;
+  timestamp: Date;
+  channel: string;
+  retryable?: boolean;
+}
+
+type ChannelStatus = "active" | "degraded" | "inactive";
+
+interface NotificationStrategy {
+  selectChannels(
+    channels: NotificationChannel[],
+    recipient: string
+  ): Promise<NotificationChannel[]>;
+}
+
+class PriorityBasedStrategy implements NotificationStrategy {
+  async selectChannels(
+    channels: NotificationChannel[],
+    recipient: string
+  ): Promise<NotificationChannel[]> {
+    const validated = await Promise.all(
+      channels.map(async (ch) => ({
+        channel: ch,
+        valid: await ch.validate(recipient),
+      }))
+    );
+    return validated
+      .filter((v) => v.valid)
+      .sort((a, b) => b.channel.priority - a.channel.priority)
+      .map((v) => v.channel);
+  }
+}
+
+abstract class AbstractNotificationService<
+  TChannel extends NotificationChannel = NotificationChannel,
+> {
+  protected channels: Map<string, TChannel> = new Map();
+  protected strategy: NotificationStrategy;
+
+  constructor(strategy: NotificationStrategy) {
+    this.strategy = strategy;
+  }
+
+  registerChannel(channel: TChannel): void {
+    this.channels.set(channel.channelId, channel);
+  }
+
+  abstract notify(
+    recipient: string,
+    payload: NotificationPayload
+  ): Promise<NotificationResult[]>;
+}
+
+class NotificationService extends AbstractNotificationService {
+  async notify(
+    recipient: string,
+    payload: NotificationPayload
+  ): Promise<NotificationResult[]> {
+    const allChannels = Array.from(this.channels.values());
+    const selectedChannels = await this.strategy.selectChannels(
+      allChannels,
+      recipient
+    );
+    return Promise.all(
+      selectedChannels.map((channel) => channel.send(recipient, payload))
+    );
+  }
+}
+
+// 그런데 실제로 등록된 채널은... 이메일 하나.
+class EmailChannel implements NotificationChannel {
+  readonly channelId = "email";
+  readonly priority = 1;
+
+  async send(recipient: string, payload: NotificationPayload) {
+    await sendEmail(recipient, payload.subject, payload.body);
+    return {
+      success: true,
+      messageId: crypto.randomUUID(),
+      timestamp: new Date(),
+      channel: this.channelId,
+    };
+  }
+
+  async validate(recipient: string) {
+    return recipient.includes("@");
+  }
+
+  getStatus(): ChannelStatus {
+    return "active";
+  }
+}
+
+// 사용
+const service = new NotificationService(new PriorityBasedStrategy());
+service.registerChannel(new EmailChannel());
+await service.notify("user@example.com", {
+  subject: "안녕하세요",
+  body: "테스트입니다",
+});
+```
+
+이메일 하나 보내는 데 인터페이스 4개, 클래스 4개, 제네릭 타입 파라미터까지. 코드가 100줄에 육박하는데, 실제로 하는 일은 `sendEmail()` 호출 하나다. 나머지는 전부 "나중에 SMS, 푸시, 슬랙 알림을 추가할 수도 있으니까" 만들어놓은 인프라. 근데 그 나중은 2년째 안 오고 있음.
+
+### 고친 코드
+
+```typescript
+// 현재 요구사항: 이메일 알림 보내기
+async function sendNotification(
+  recipient: string,
+  subject: string,
+  body: string
+): Promise<void> {
+  if (!recipient.includes("@")) {
+    throw new Error("유효하지 않은 이메일 주소");
+  }
+  await sendEmail(recipient, subject, body);
+}
+
+// 사용
+await sendNotification("user@example.com", "안녕하세요", "테스트입니다");
+```
+
+10줄. 이메일 보내는 기능만 있음. 나중에 SMS가 **실제로** 필요해지면 그때 확장하면 된다. 그때쯤이면 실제 요구사항이 명확해져서 훨씬 더 적절한 추상화를 설계할 수 있다.
+
+<Callout type="error" title="추측적 일반화의 문제점">
+- **유지보수 비용 증가**: 사용하지 않는 추상화도 코드 변경 시 함께 수정해야 함
+- **가독성 저하**: 실제 로직을 찾으려면 추상화 레이어를 여러 겹 벗겨야 함
+- **잘못된 추상화 고착**: 미래를 잘못 예측해서 만든 추상화가 나중에 실제 변경을 방해함
+- **온보딩 비용**: 새 팀원이 "이 인터페이스 구현체가 하나밖에 없는데 왜 인터페이스가 있죠?" 하고 물어봄
+- **테스트 부담**: 아무도 쓰지 않는 추상 클래스의 테스트를 작성하고 유지해야 함
+</Callout>
+
+<Callout type="success" title="YAGNI를 지키는 법">
+- **구현체가 하나면 인터페이스가 필요 없다**: 두 번째 구현이 생길 때 추출해도 늦지 않음
+- **추상 클래스는 공통 코드가 있을 때만**: 공유할 코드가 없으면 그냥 구체 클래스로
+- **제네릭은 실제로 여러 타입에 쓸 때만**: `<T>`를 쓰면서 실제로 넘기는 타입이 하나면 의미 없음
+- **플러그인 시스템은 외부 확장이 필요할 때만**: 팀 내부에서만 쓰는 코드에는 과잉
+</Callout>
+
+---
+
+## 세 패턴의 관계: 복잡성 삼각형
+
+세 안티패턴은 서로 다른 형태로 나타나지만, 근본 원인은 같다: **필요 이상의 복잡성을 추가하는 것.**
+
+<Tabs defaultValue="comparison">
+  <TabsList>
+    <TabsTrigger value="comparison">비교</TabsTrigger>
+    <TabsTrigger value="detection">감지 방법</TabsTrigger>
+    <TabsTrigger value="prevention">예방법</TabsTrigger>
+  </TabsList>
+  <TabsContent value="comparison">
+    | 패턴 | 복잡성의 원인 | 증상 |
+    |------|-------------|------|
+    | Accidental Complexity | 잘못된 구현 선택 | 간단한 문제에 복잡한 해결책 |
+    | Arrow Anti-Pattern | 중첩된 조건문 | 깊은 들여쓰기, 화살표 모양 |
+    | Speculative Generality | 미래에 대한 추측 | 구현체 1개인 인터페이스, 사용되지 않는 추상화 |
+  </TabsContent>
+  <TabsContent value="detection">
+    **코드를 보면서 이런 신호가 보이면 의심하자:**
+
+    - "이 코드가 하는 일을 한 문장으로 설명할 수 있나?" → 없으면 Accidental Complexity
+    - "들여쓰기가 4레벨 이상인가?" → Arrow Anti-Pattern
+    - "이 인터페이스/추상 클래스의 구현체가 몇 개인가?" → 1개면 Speculative Generality
+    - "이 제네릭 타입 파라미터에 실제로 넘어오는 타입이 몇 종류인가?" → 1종류면 과잉
+  </TabsContent>
+  <TabsContent value="prevention">
+    **공통 원칙: 단순함이 최고의 설계다.**
+
+    1. **YAGNI**: 지금 필요한 것만 만들어라
+    2. **KISS**: Keep It Simple, Stupid
+    3. **Rule of Three**: 3번째 복제가 발생할 때 추상화하라 (1번째에 하지 마라)
+    4. **Guard Clause**: 조건 분기는 early return으로 평탄화
+    5. **빌드업이 아닌 컷다운**: 복잡하게 만든 후 단순화하지 말고, 처음부터 단순하게 시작
+  </TabsContent>
+</Tabs>
+
+---
+
+## 실무에서 자주 보이는 우발적 복잡성들
+
+이론적인 얘기만 하면 재미없으니까, 실무에서 흔히 마주치는 우발적 복잡성 패턴을 몇 가지 더 보자.
+
+### 설정 파일의 우발적 복잡성
+
+```typescript
+// 이건 너무 과한 거...
+const config = new ConfigBuilder()
+  .withEnvironment(process.env.NODE_ENV)
+  .withDefaults(defaultConfig)
+  .withOverrides(environmentConfig)
+  .withValidation(configSchema)
+  .withTransformation(configTransformer)
+  .withCaching(cacheStrategy)
+  .build();
+
+// 이렇게 하면 됨
+const config = {
+  port: parseInt(process.env.PORT ?? "3000"),
+  dbUrl: process.env.DATABASE_URL ?? "mongodb://localhost:27017/dev",
+  logLevel: process.env.LOG_LEVEL ?? "info",
+};
+```
+
+### 타입의 우발적 복잡성
+
+```typescript
+// 제네릭 지옥
+type ApiResponse<
+  T extends Record<string, unknown>,
+  E extends Error = Error,
+  M extends Record<string, unknown> = Record<string, never>,
+> = {
+  data: T | null;
+  error: E | null;
+  meta: M;
+  timestamp: number;
+};
+
+// 이렇게 하면 됨
+interface ApiResponse<T> {
+  data: T | null;
+  error: string | null;
+}
+```
+
+### 폴더 구조의 우발적 복잡성
+
+```
+// 파일 3개짜리 프로젝트에 이런 구조?
+src/
+  domain/
+    entities/
+    value-objects/
+    repositories/
+      interfaces/
+      implementations/
+  application/
+    use-cases/
+    services/
+    dto/
+  infrastructure/
+    persistence/
+    external-services/
+  presentation/
+    controllers/
+    middleware/
+    validators/
+
+// 이렇게 시작하면 됨
+src/
+  user.ts
+  order.ts
+  db.ts
+```
+
+폴더 구조는 프로젝트가 성장하면서 자연스럽게 분리하면 된다. 처음부터 Clean Architecture 폴더 구조를 만들어놓고 각 폴더에 파일 하나씩만 있는 건... 우발적 복잡성의 정석이다.
+
+---
+
+## 흔한 변명과 반박
+
+**"확장성을 미리 확보해두는 거야"**
+→ 실제 요구사항 없이 만든 확장 포인트는 90% 이상 잘못된 방향이다. 나중에 실제로 확장이 필요할 때 기존 추상화를 뜯어고치느라 더 많은 시간이 걸림.
+
+**"리팩토링보다 처음부터 잘 만드는 게 낫지 않아?"**
+→ "잘 만드는 것"과 "과도하게 만드는 것"은 다름. 잘 만드는 건 현재 요구사항에 딱 맞는 단순한 코드를 작성하는 것. 과도하게 만드는 건 미래의 가상 요구사항까지 수용하는 복잡한 코드를 작성하는 것.
+
+**"간단하게 짜면 나중에 고생하잖아"**
+→ 간단하게 짠 코드는 나중에 변경하기도 쉬움. 복잡하게 짠 코드가 나중에 변경하기 어려운 거다. 단순한 코드 → 변경 필요 → 리팩토링은 쉬움. 복잡한 코드 → 변경 필요 → 리팩토링 지옥.
+
+---
+
+<Callout type="note" title="세 패턴의 공통 교훈">
+**"단순함이 최고의 설계다."**
+
+복잡성은 문제가 요구할 때만 추가해야 한다. 미래를 예측하려는 시도는 대부분 틀린다. 지금 필요한 것만 만들어라. 내일 필요한 건 내일 만들면 된다. 그리고 그 내일은 대부분 오지 않는다.
+
+기억하자: 코드를 추가하는 것보다 **제거하는 것**이 더 어렵다. 처음부터 적게 쓰는 게 나중에 지우는 것보다 훨씬 쉽다.
+</Callout>
+
+---
+
+다음 편에서는 설계 레벨로 올라가서 **Anemic Domain Model**과 **Fat Controller** 패턴을 다룬다. 비즈니스 로직을 어디에 둬야 하는지, 양쪽 극단의 실패를 살펴보자.
+
+---
+
+_← [이전 글: 복붙과 카고 컬트](/docs/articles/anti-patterns/5.copy-paste-and-cargo-cult) | [다음 글: Anemic과 Fat](/docs/articles/anti-patterns/7.anemic-and-fat) →_

@@ -1,0 +1,428 @@
+# Anemic과 Fat: 비즈니스 로직은 어디에 있어야 하는가
+
+*너무 마른 모델과 너무 뚱뚱한 컨트롤러*
+
+---
+
+비즈니스 로직을 어디에 둘 것인가. 이 질문에 대한 답을 극단적으로 잘못 내린 두 가지 케이스가 있다. Anemic Domain Model은 도메인 객체를 영양실조 수준으로 굶기고, Fat Controller는 컨트롤러를 고도비만으로 만든다. 방향은 정반대인데 결과는 똑같다 — 유지보수 지옥.
+
+재밌는 건 이 둘이 종종 같은 코드베이스에 공존한다는 거임. 모델은 앙상하고 컨트롤러는 뚱뚱한 구조. "객체지향 프로그래밍을 합니다"라고 말하면서 실제로는 절차적 프로그래밍을 하는 전형적인 케이스다. 이번 글에서는 이 양극단을 하나씩 뜯어보고, 비즈니스 로직의 올바른 거처를 찾아본다.
+
+## 1. Anemic Domain Model (빈혈 도메인 모델)
+
+### 이게 뭔데
+
+Martin Fowler가 2003년에 명명한 안티패턴이다. 도메인 객체가 데이터(getter/setter)만 가지고 있고, 정작 비즈니스 로직은 전부 외부 서비스 클래스에 흩어져 있는 구조를 말한다. 쉽게 말하면 "객체"라고 부르기엔 민망한 수준의 데이터 주머니.
+
+<Callout type="warning" title="Anemic Domain Model이란">
+도메인 객체가 데이터(필드, getter/setter)만 보유하고, 해당 데이터에 대한 비즈니스 로직은 외부 서비스 레이어에 전부 위임되어 있는 설계 패턴. 객체지향의 핵심인 "데이터와 행위의 결합"을 정면으로 위반한다.
+</Callout>
+
+겉보기엔 OOP를 하는 것 같은데, 실상은 C 스타일 절차적 프로그래밍이다. 구조체(struct)에 데이터 넣고, 함수에서 그 구조체를 매개변수로 받아서 처리하는 거랑 뭐가 다른가? 클래스 키워드를 쓴다고 OOP가 되는 게 아님.
+
+### 이런 코드
+
+```typescript
+// 도메인 객체라고 부르기 민망한 데이터 주머니
+class Order {
+  id: string;
+  customerId: string;
+  items: OrderItem[] = [];
+  status: "pending" | "confirmed" | "shipped" | "cancelled" = "pending";
+  totalAmount: number = 0;
+  discountRate: number = 0;
+  shippingAddress: string = "";
+  createdAt: Date = new Date();
+
+  // getter/setter만 잔뜩
+  getId(): string { return this.id; }
+  getItems(): OrderItem[] { return this.items; }
+  getStatus(): string { return this.status; }
+  setStatus(status: Order["status"]): void { this.status = status; }
+  getTotalAmount(): number { return this.totalAmount; }
+  setTotalAmount(amount: number): void { this.totalAmount = amount; }
+  getDiscountRate(): number { return this.discountRate; }
+  setDiscountRate(rate: number): void { this.discountRate = rate; }
+}
+
+// 비즈니스 로직은 전부 여기에...
+class OrderService {
+  calculateTotal(order: Order): number {
+    let total = 0;
+    for (const item of order.getItems()) {
+      total += item.price * item.quantity;
+    }
+    const discount = total * order.getDiscountRate();
+    order.setTotalAmount(total - discount);
+    return order.getTotalAmount();
+  }
+
+  applyDiscount(order: Order, rate: number): void {
+    if (rate < 0 || rate > 0.5) {
+      throw new Error("할인율은 0~50% 사이여야 합니다");
+    }
+    order.setDiscountRate(rate);
+    this.calculateTotal(order);
+  }
+
+  validateOrder(order: Order): string[] {
+    const errors: string[] = [];
+    if (order.getItems().length === 0) errors.push("주문 항목이 비어있습니다");
+    if (!order.shippingAddress) errors.push("배송지가 없습니다");
+    if (order.getTotalAmount() <= 0) errors.push("주문 금액이 0 이하입니다");
+    return errors;
+  }
+
+  confirmOrder(order: Order): void {
+    const errors = this.validateOrder(order);
+    if (errors.length > 0) throw new Error(errors.join(", "));
+    this.calculateTotal(order);
+    order.setStatus("confirmed");
+  }
+
+  cancelOrder(order: Order): void {
+    if (order.getStatus() === "shipped") {
+      throw new Error("이미 배송된 주문은 취소할 수 없습니다");
+    }
+    order.setStatus("cancelled");
+  }
+
+  canBeCancelled(order: Order): boolean {
+    return order.getStatus() !== "shipped" && order.getStatus() !== "cancelled";
+  }
+}
+```
+
+봐봐. `Order` 클래스에는 아무런 행위가 없다. 자기 데이터에 대한 판단조차 못하는 거임. "이 주문 취소 가능한가?"라는 질문에 Order 자신이 대답을 못하고, 외부 서비스한테 물어봐야 한다. 이게 객체인가, 아니면 그냥 JSON인가?
+
+<Callout type="error" title="뭐가 문제냐면">
+- **응집도 파괴**: 데이터와 그 데이터를 다루는 로직이 분리되어 있어 응집도가 바닥
+- **캡슐화 위반**: 외부에서 setter로 내부 상태를 마음대로 조작 가능. 불변식(invariant) 보장 불가
+- **로직 중복**: 여러 서비스에서 같은 Order 검증 로직을 각자 구현하게 됨
+- **도메인 지식 유실**: Order의 비즈니스 규칙이 서비스 레이어 여기저기에 흩어져서 도메인 전문가와 대화가 안 됨
+</Callout>
+
+### 고친 코드
+
+```typescript
+// 진짜 도메인 객체 — 데이터와 행위가 함께
+class Order {
+  private readonly id: string;
+  private readonly customerId: string;
+  private items: OrderItem[] = [];
+  private status: "pending" | "confirmed" | "shipped" | "cancelled" = "pending";
+  private discountRate: number = 0;
+  private shippingAddress: string = "";
+
+  constructor(id: string, customerId: string) {
+    this.id = id;
+    this.customerId = customerId;
+  }
+
+  addItem(product: Product, quantity: number): void {
+    if (quantity <= 0) throw new Error("수량은 1 이상이어야 합니다");
+    if (this.status !== "pending") throw new Error("확정된 주문에는 항목을 추가할 수 없습니다");
+    this.items.push({ productId: product.id, name: product.name, price: product.price, quantity });
+  }
+
+  applyDiscount(rate: number): void {
+    if (rate < 0 || rate > 0.5) throw new Error("할인율은 0~50% 사이여야 합니다");
+    this.discountRate = rate;
+  }
+
+  get totalAmount(): number {
+    const subtotal = this.items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+    return subtotal * (1 - this.discountRate);
+  }
+
+  confirm(shippingAddress: string): void {
+    if (this.items.length === 0) throw new Error("주문 항목이 비어있습니다");
+    if (!shippingAddress) throw new Error("배송지가 필요합니다");
+    this.shippingAddress = shippingAddress;
+    this.status = "confirmed";
+  }
+
+  cancel(): void {
+    if (!this.canBeCancelled) throw new Error("이 주문은 취소할 수 없습니다");
+    this.status = "cancelled";
+  }
+
+  get canBeCancelled(): boolean {
+    return this.status !== "shipped" && this.status !== "cancelled";
+  }
+}
+
+// 서비스 레이어는 얇다 — 오케스트레이션만 담당
+class OrderApplicationService {
+  constructor(
+    private orderRepo: OrderRepository,
+    private paymentGateway: PaymentGateway,
+    private eventBus: EventBus,
+  ) {}
+
+  async placeOrder(customerId: string, items: CartItem[], address: string): Promise<string> {
+    const order = new Order(generateId(), customerId);
+    for (const item of items) order.addItem(item.product, item.quantity);
+    order.confirm(address);
+
+    await this.paymentGateway.charge(customerId, order.totalAmount);
+    await this.orderRepo.save(order);
+    this.eventBus.publish(new OrderPlacedEvent(order));
+
+    return order.id;
+  }
+}
+```
+
+차이가 보이는가? `Order` 객체 자체가 비즈니스 규칙을 알고 있다. "할인율은 50%를 넘을 수 없다", "확정된 주문에 항목을 추가할 수 없다", "배송된 주문은 취소할 수 없다" — 이런 규칙들이 Order 안에 캡슐화되어 있다. 서비스 레이어는 그냥 흐름을 조율하는 역할만 함.
+
+<Callout type="info" title="Anemic이 괜찮은 경우도 있다">
+솔직히 말하면, 모든 경우에 Rich Domain Model이 정답은 아니다. 단순 CRUD 앱이라면 Anemic Domain Model이 오히려 적합할 수 있다. 비즈니스 규칙이 "데이터 저장하고 불러오기"가 전부인데 굳이 도메인 객체에 메서드를 우겨넣을 필요는 없으니까. **핵심은 비즈니스 로직의 복잡도**다. 복잡한 도메인 로직이 있을 때만 Rich Domain Model이 진가를 발휘한다.
+</Callout>
+
+---
+
+## 2. Fat Controller (뚱뚱한 컨트롤러)
+
+### 이게 뭔데
+
+이번엔 반대 방향의 문제다. 비즈니스 로직이 컨트롤러에 다 들어가 있는 구조. MVC 패턴에서 M(Model)은 데이터 전달만, V(View)는 렌더링만, 그리고 C(Controller)가 모든 걸 처리한다. MVC의 C가 비대해져서 "Massive View Controller"라는 자조적인 별명까지 있다.
+
+<Callout type="warning" title="Fat Controller란">
+MVC 아키텍처에서 컨트롤러가 HTTP 요청/응답 처리뿐 아니라 비즈니스 로직, 데이터 검증, DB 조회, 외부 서비스 호출까지 전부 담당하게 되어 비대해진 상태. "여기에 다 넣으면 편하지"의 결과물.
+</Callout>
+
+이건 특히 Express나 Nest.js 같은 Node.js 프레임워크에서 많이 볼 수 있다. 라우터 핸들러 하나에 모든 로직을 때려넣는 거. 처음엔 10줄짜리 핸들러였는데, 6개월 후엔 200줄짜리 괴물이 되어 있다.
+
+### 이런 코드
+
+```typescript
+// Express 라우터 — 컨트롤러가 모든 걸 다 한다
+router.post("/orders", async (req: Request, res: Response) => {
+  try {
+    // 1. 인증 확인
+    const token = req.headers.authorization?.replace("Bearer ", "");
+    if (!token) return res.status(401).json({ error: "토큰이 없습니다" });
+    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as { userId: string };
+
+    // 2. 입력 검증
+    const { items, shippingAddress, couponCode } = req.body;
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: "주문 항목이 비어있습니다" });
+    }
+    if (!shippingAddress || typeof shippingAddress !== "string") {
+      return res.status(400).json({ error: "배송지가 필요합니다" });
+    }
+    for (const item of items) {
+      if (!item.productId || !item.quantity || item.quantity < 1) {
+        return res.status(400).json({ error: "잘못된 주문 항목입니다" });
+      }
+    }
+
+    // 3. 재고 확인
+    for (const item of items) {
+      const product = await db.query("SELECT * FROM products WHERE id = $1", [item.productId]);
+      if (!product) return res.status(404).json({ error: `상품 ${item.productId}를 찾을 수 없습니다` });
+      if (product.stock < item.quantity) {
+        return res.status(400).json({ error: `${product.name} 재고가 부족합니다` });
+      }
+    }
+
+    // 4. 금액 계산
+    let totalAmount = 0;
+    for (const item of items) {
+      const product = await db.query("SELECT price FROM products WHERE id = $1", [item.productId]);
+      totalAmount += product.price * item.quantity;
+    }
+
+    // 5. 쿠폰 적용
+    if (couponCode) {
+      const coupon = await db.query("SELECT * FROM coupons WHERE code = $1", [couponCode]);
+      if (!coupon) return res.status(400).json({ error: "유효하지 않은 쿠폰입니다" });
+      if (coupon.expiresAt < new Date()) return res.status(400).json({ error: "만료된 쿠폰입니다" });
+      if (coupon.usedCount >= coupon.maxUses) return res.status(400).json({ error: "소진된 쿠폰입니다" });
+      totalAmount = totalAmount * (1 - coupon.discountRate);
+      await db.query("UPDATE coupons SET used_count = used_count + 1 WHERE code = $1", [couponCode]);
+    }
+
+    // 6. 결제 처리
+    const user = await db.query("SELECT * FROM users WHERE id = $1", [decoded.userId]);
+    const charge = await stripe.charges.create({
+      amount: Math.round(totalAmount),
+      currency: "krw",
+      customer: user.stripeCustomerId,
+    });
+
+    // 7. 주문 저장
+    const orderId = generateId();
+    await db.query(
+      "INSERT INTO orders (id, customer_id, total, status, shipping_address) VALUES ($1, $2, $3, $4, $5)",
+      [orderId, decoded.userId, totalAmount, "confirmed", shippingAddress],
+    );
+
+    // 8. 재고 차감
+    for (const item of items) {
+      await db.query("UPDATE products SET stock = stock - $1 WHERE id = $2", [item.quantity, item.productId]);
+    }
+
+    // 9. 이메일 발송
+    await transporter.sendMail({
+      to: user.email,
+      subject: "주문이 완료되었습니다",
+      html: `<h1>주문 번호: ${orderId}</h1><p>총 금액: ${totalAmount}원</p>`,
+    });
+
+    // 10. 로깅
+    logger.info(`Order created: ${orderId} by user ${decoded.userId}, amount: ${totalAmount}`);
+
+    return res.status(201).json({ orderId, totalAmount, status: "confirmed" });
+  } catch (error) {
+    logger.error("Order creation failed", error);
+    return res.status(500).json({ error: "주문 처리 중 오류가 발생했습니다" });
+  }
+});
+```
+
+하나의 라우터 핸들러에 인증, 검증, 재고 확인, 금액 계산, 쿠폰 처리, 결제, DB 저장, 재고 차감, 이메일 발송, 로깅이 전부 들어가 있다. 이런 코드가 10개, 20개 쌓이면 라우터 파일 하나가 수천 줄이 됨.
+
+<Callout type="error" title="뭐가 문제냐면">
+- **테스트 불가**: 이 핸들러를 테스트하려면 HTTP 요청, JWT, DB, Stripe, SMTP 전부 모킹해야 함
+- **재사용 불가**: 주문 생성 로직을 다른 곳(배치 처리, 큐 워커 등)에서 쓰려면 HTTP 컨텍스트 없이 호출할 방법이 없다
+- **트랜잭션 관리 불가**: 결제는 됐는데 DB 저장이 실패하면? 이메일은 갔는데 재고 차감이 안 되면? 롤백 로직을 넣을 곳이 없음
+- **관심사 혼재**: HTTP 관련 코드(req, res)와 비즈니스 로직이 뒤섞여서 도메인 로직만 따로 읽을 수가 없다
+</Callout>
+
+### 고친 코드
+
+```typescript
+// 컨트롤러 — HTTP 관련 처리만 담당
+class OrderController {
+  constructor(private orderService: OrderService) {}
+
+  async createOrder(req: Request, res: Response): Promise<void> {
+    try {
+      const userId = req.user!.id; // 인증은 미들웨어에서 처리
+      const { items, shippingAddress, couponCode } = req.body;
+
+      const result = await this.orderService.placeOrder({
+        customerId: userId,
+        items,
+        shippingAddress,
+        couponCode,
+      });
+
+      res.status(201).json(result);
+    } catch (error) {
+      if (error instanceof ValidationError) {
+        res.status(400).json({ error: error.message });
+      } else if (error instanceof PaymentError) {
+        res.status(402).json({ error: error.message });
+      } else {
+        res.status(500).json({ error: "주문 처리 중 오류가 발생했습니다" });
+      }
+    }
+  }
+}
+
+// 서비스 — 비즈니스 로직 담당
+class OrderService {
+  constructor(
+    private orderRepo: OrderRepository,
+    private productRepo: ProductRepository,
+    private couponService: CouponService,
+    private paymentService: PaymentService,
+    private notifier: OrderNotifier,
+  ) {}
+
+  async placeOrder(dto: PlaceOrderDto): Promise<OrderResult> {
+    // 검증
+    this.validateItems(dto.items);
+
+    // 재고 확인 및 금액 계산
+    const orderItems = await this.resolveItems(dto.items);
+    let totalAmount = orderItems.reduce((sum, i) => sum + i.price * i.quantity, 0);
+
+    // 쿠폰 적용
+    if (dto.couponCode) {
+      totalAmount = await this.couponService.applyDiscount(dto.couponCode, totalAmount);
+    }
+
+    // 결제
+    const chargeId = await this.paymentService.charge(dto.customerId, totalAmount);
+
+    // 주문 저장 + 재고 차감 (트랜잭션)
+    const order = await this.orderRepo.createWithStockUpdate(dto, orderItems, totalAmount, chargeId);
+
+    // 알림 (비동기, 실패해도 주문은 유지)
+    this.notifier.sendConfirmation(order).catch(err => logger.warn("알림 실패", err));
+
+    return { orderId: order.id, totalAmount, status: order.status };
+  }
+
+  private validateItems(items: CartItem[]): void {
+    if (!items?.length) throw new ValidationError("주문 항목이 비어있습니다");
+    for (const item of items) {
+      if (!item.productId || !item.quantity || item.quantity < 1) {
+        throw new ValidationError("잘못된 주문 항목입니다");
+      }
+    }
+  }
+
+  private async resolveItems(items: CartItem[]): Promise<ResolvedItem[]> {
+    // 재고 확인 + 가격 조회를 한 번에
+    return Promise.all(items.map(async (item) => {
+      const product = await this.productRepo.findByIdOrThrow(item.productId);
+      if (product.stock < item.quantity) {
+        throw new ValidationError(`${product.name} 재고가 부족합니다`);
+      }
+      return { ...item, price: product.price, name: product.name };
+    }));
+  }
+}
+```
+
+컨트롤러는 딱 HTTP 레이어의 일만 한다. 요청 파싱, 응답 형식 결정, 에러 상태 코드 매핑. 비즈니스 로직은 서비스 레이어에서 처리하고, 서비스는 HTTP 컨텍스트를 전혀 모른다.
+
+<Callout type="success" title="뭐가 좋아졌냐면">
+- **독립 테스트**: `OrderService`를 HTTP 없이 단위 테스트할 수 있다. 컨트롤러는 서비스 모킹으로 간단하게 테스트
+- **재사용 가능**: CLI 도구, 큐 워커, 배치 작업에서도 `OrderService`를 그대로 호출 가능
+- **트랜잭션 관리**: `createWithStockUpdate`에서 DB 트랜잭션으로 원자성 보장
+- **관심사 분리**: HTTP 코드와 비즈니스 로직이 깔끔하게 분리되어 가독성이 올라감
+</Callout>
+
+---
+
+## 비교
+
+둘 다 비즈니스 로직의 위치가 잘못되었다는 공통점이 있지만, 방향이 정반대다.
+
+| | Anemic Domain Model | Fat Controller |
+|---|---|---|
+| **로직 위치** | 서비스 레이어에 산재 | 컨트롤러에 집중 |
+| **도메인 객체 역할** | 데이터 주머니 (getter/setter만) | 데이터 주머니 (DTO로만 사용) |
+| **주요 원인** | "객체는 데이터만 담는 거" 사고방식 | "일단 여기에 넣자" 편의주의 |
+| **주로 발생** | Java/C# 전통의 레이어드 아키텍처 | Express/Flask 같은 경량 프레임워크 |
+| **해결 방향** | 로직을 도메인 객체로 이동 (Rich Domain) | 로직을 서비스/도메인 레이어로 분리 |
+| **테스트 난이도** | 서비스에 의존성이 많아 모킹 지옥 | HTTP 컨텍스트 의존으로 통합테스트만 가능 |
+
+<Callout type="note" title="균형점 찾기">
+Anemic도, Fat도 극단이다. 좋은 설계는 그 사이 어딘가에 있다.
+
+- **도메인 객체**: 자기 데이터에 대한 비즈니스 규칙과 불변식을 가진다. "이 주문을 취소할 수 있는가?"는 Order가 안다.
+- **서비스 레이어**: 여러 도메인 객체를 오케스트레이션한다. "주문을 취소하고, 환불하고, 이메일을 보내라"는 서비스가 한다.
+- **컨트롤러**: HTTP 요청/응답만 담당한다. 비즈니스 로직은 한 줄도 없어야 한다.
+
+이 세 레이어의 책임이 명확하면 코드는 자연스럽게 깔끔해진다.
+</Callout>
+
+## 실무에서는
+
+솔직히 Anemic Domain Model은 업계 전체에 깊이 뿌리박혀 있다. 특히 Spring Boot + JPA 환경에서 Entity는 데이터만, Service는 로직만 하는 구조가 거의 표준처럼 쓰이고 있음. 이게 나쁘다는 게 아니라, 의식적으로 선택한 거냐 무의식적으로 그렇게 된 거냐의 차이다.
+
+Fat Controller도 마찬가지임. Express로 프로젝트를 시작할 때 `app.get('/users', async (req, res) => { ... })` 이렇게 시작하면, 그 핸들러가 자연스럽게 뚱뚱해진다. 처음엔 5줄이었는데 기능이 추가될 때마다 10줄, 20줄, 50줄... 어느 순간 "이거 좀 빼야 하는데"라는 생각이 들지만, 이미 100줄이 넘어가면 빼기가 무섭다.
+
+두 안티패턴 모두 프로젝트 초기에는 별 문제가 없다는 게 함정임. 기능이 3개일 때는 어디에 로직을 넣든 상관없다. 문제는 기능이 30개, 300개로 늘어날 때 드러난다. 그때가 되면 리팩토링 비용이 기하급수적으로 커져 있다. 결국 초기에 "비즈니스 로직의 위치"를 의식적으로 결정하는 게 중요하다.
+
+---
+
+_← [이전 글: 복잡성과 추측성](/docs/articles/anti-patterns/6.complexity-and-speculation) | [다음 글: 변경 전파 쌍](/docs/articles/anti-patterns/8.change-propagation) →_

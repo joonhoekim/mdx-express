@@ -1,0 +1,355 @@
+# 매직 넘버와 하드코딩: 코드 속 수수께끼
+
+*"이 86400은 뭐고 저 3은 또 뭐임?"*
+
+---
+
+코드를 읽다가 갑자기 `86400000`이 튀어나오면 어떤 기분임? 아마 "이게 뭐지..." 하면서 계산기를 켜거나 구글링을 하게 될 거다. 24 × 60 × 60 × 1000 = 86,400,000. 아, 하루를 밀리초로 환산한 거구나. 근데 이걸 코드만 보고 알 수 있는 사람이 몇이나 됨?
+
+이번 편에서는 서로 관련 있지만 다른 두 가지 안티패턴을 다룬다. **매직 넘버**는 "이 값이 뭔지 모르겠음" 문제이고, **하드코딩**은 "이 값이 환경마다 달라야 함" 문제다. 둘 다 코드를 읽기 어렵게 만들고, 유지보수를 지옥으로 보내는 공통점이 있다.
+
+---
+
+## 1. Magic Numbers / Magic Strings
+
+<Callout type="warning" title="정의">
+의미를 알 수 없는 리터럴 값이 코드 전반에 직접 사용되는 패턴. 숫자일 수도, 문자열일 수도 있다. 핵심은 **그 값의 의미를 코드만 보고는 알 수 없다**는 것.
+</Callout>
+
+### 이게 뭔데
+
+매직 넘버의 "매직"은 마법처럼 좋다는 뜻이 아님. **마법처럼 의미를 알 수 없다**는 뜻이다. 코드에 `3`이라고 적혀있으면 이게 재시도 횟수인지, 카테고리 ID인지, 아니면 원래 개발자의 행운의 숫자인지 전혀 알 수 없다. `"admin123"`이 하드코딩된 비밀번호인지 역할 코드인지도 모르겠고.
+
+가장 무서운 건, 같은 숫자가 다른 의미로 여러 곳에 쓰일 때다. 여기서 `7`은 일주일의 일수이고, 저기서 `7`은 페이지네이션 크기이고, 또 다른 곳에서 `7`은 에러 코드인 상황. 나중에 페이지네이션을 10개로 바꾸겠다고 `7`을 전부 찾아 바꾸면? 일주일이 10일이 되는 마법이 일어남.
+
+### 이런 코드
+
+```typescript
+// 주문 처리 서비스
+function processOrder(order: Order) {
+  // 주문 유효성 검사
+  if (order.items.length > 50) {
+    throw new Error("Too many items");
+  }
+
+  // 배송비 계산
+  if (order.total < 30000) {
+    order.shippingFee = 3000;
+  } else {
+    order.shippingFee = 0;
+  }
+
+  // 세금 계산
+  order.tax = order.total * 0.1;
+
+  // VIP 할인
+  if (order.customer.purchaseCount > 10) {
+    order.discount = order.total * 0.05;
+  }
+
+  // 배송 예상일 설정
+  order.estimatedDelivery = Date.now() + 259200000;
+
+  // 주문 상태 변경
+  order.status = 2;
+
+  // 재시도 로직
+  for (let i = 0; i < 3; i++) {
+    try {
+      await sendToPaymentGateway(order);
+      break;
+    } catch (e) {
+      if (i === 2) throw e;
+      await delay(1000 * Math.pow(2, i));
+    }
+  }
+
+  // 알림 발송
+  if (order.customer.type === "premium") {
+    await sendSMS(order.customer.phone, `주문 ${order.id} 확인`);
+  }
+}
+```
+
+이 코드를 처음 보는 사람의 머릿속: "50이 뭐지? 30000은? 0.1은 세금인 것 같긴 한데 부가세율인가? 259200000은 대체... 2는 무슨 상태? 3번 재시도하는 건 알겠는데 왜 3번? premium은 하드코딩해도 되나?"
+
+### 고친 코드
+
+```typescript
+// 주문 관련 상수 정의
+const ORDER_CONSTANTS = {
+  MAX_ITEMS_PER_ORDER: 50,
+  FREE_SHIPPING_THRESHOLD: 30_000,
+  STANDARD_SHIPPING_FEE: 3_000,
+  TAX_RATE: 0.1,
+  VIP_PURCHASE_THRESHOLD: 10,
+  VIP_DISCOUNT_RATE: 0.05,
+  ESTIMATED_DELIVERY_DAYS: 3,
+  MAX_PAYMENT_RETRIES: 3,
+} as const;
+
+const ORDER_STATUS = {
+  PENDING: 1,
+  CONFIRMED: 2,
+  SHIPPED: 3,
+  DELIVERED: 4,
+  CANCELLED: 5,
+} as const;
+
+const CUSTOMER_TYPE = {
+  STANDARD: "standard",
+  PREMIUM: "premium",
+} as const;
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+function processOrder(order: Order) {
+  if (order.items.length > ORDER_CONSTANTS.MAX_ITEMS_PER_ORDER) {
+    throw new Error("Too many items");
+  }
+
+  order.shippingFee = order.total < ORDER_CONSTANTS.FREE_SHIPPING_THRESHOLD
+    ? ORDER_CONSTANTS.STANDARD_SHIPPING_FEE
+    : 0;
+
+  order.tax = order.total * ORDER_CONSTANTS.TAX_RATE;
+
+  if (order.customer.purchaseCount > ORDER_CONSTANTS.VIP_PURCHASE_THRESHOLD) {
+    order.discount = order.total * ORDER_CONSTANTS.VIP_DISCOUNT_RATE;
+  }
+
+  order.estimatedDelivery =
+    Date.now() + ORDER_CONSTANTS.ESTIMATED_DELIVERY_DAYS * MS_PER_DAY;
+
+  order.status = ORDER_STATUS.CONFIRMED;
+
+  for (let i = 0; i < ORDER_CONSTANTS.MAX_PAYMENT_RETRIES; i++) {
+    try {
+      await sendToPaymentGateway(order);
+      break;
+    } catch (e) {
+      const isLastAttempt = i === ORDER_CONSTANTS.MAX_PAYMENT_RETRIES - 1;
+      if (isLastAttempt) throw e;
+      await delay(1000 * Math.pow(2, i));
+    }
+  }
+
+  if (order.customer.type === CUSTOMER_TYPE.PREMIUM) {
+    await sendSMS(order.customer.phone, `주문 ${order.id} 확인`);
+  }
+}
+```
+
+<Callout type="error" title="매직 넘버의 문제점">
+- **가독성 제로**: 코드를 읽는 사람이 숫자의 의미를 추측해야 함
+- **변경 위험**: 같은 숫자가 다른 의미로 쓰이면 일괄 변경이 불가능
+- **리뷰 불가**: PR에서 `if (count > 7)`을 보고 7이 맞는지 판단할 수가 없음
+- **테스트 누락**: 매직 넘버의 경계값이 뭔지 몰라서 테스트 케이스를 빠뜨림
+</Callout>
+
+<Callout type="success" title="개선 포인트">
+- **상수에 이름을 붙여라**: `MAX_RETRIES = 3`이면 의도가 명확해짐
+- **enum이나 const 객체 사용**: 상태값, 타입 구분 등에 적합
+- **관련 상수를 그룹핑**: `ORDER_CONSTANTS`처럼 도메인별로 묶으면 관리가 쉬움
+- **숫자 구분자 활용**: `30_000`은 `30000`보다 읽기 쉬움 (TypeScript/JS 지원)
+</Callout>
+
+---
+
+## 2. Hard Coding
+
+<Callout type="warning" title="정의">
+환경이나 설정에 따라 달라져야 할 값이 소스코드에 직접 박혀있는 패턴. URL, 포트, 비밀 키, 파일 경로 등이 대표적.
+</Callout>
+
+### 이게 뭔데
+
+개발할 때 `localhost:3000`으로 잘 되니까 그냥 코드에 박아넣음. 스테이징 서버로 배포하려면? 코드 수정. 프로덕션으로 배포하려면? 또 코드 수정. 코드를 수정한다는 건 커밋을 찍고 빌드를 다시 한다는 뜻이다. 환경마다 별도 브랜치를 관리하는 팀도 있는데, 그건 또 다른 지옥의 시작이다.
+
+더 심각한 케이스는 **시크릿 하드코딩**이다. API 키, DB 비밀번호, JWT 시크릿 같은 걸 코드에 직접 넣으면? Git에 푸시되는 순간 세상에 공개된다. GitHub에서 실수로 커밋된 AWS 키를 스캔하는 봇이 있는데, 커밋 후 수 분 내에 해당 키로 크립토 마이닝을 시작한다고 함. 무서운 세상이다.
+
+### 이런 코드
+
+```typescript
+// API 클라이언트
+class ApiClient {
+  private baseUrl = "http://localhost:3000/api";
+
+  async getUsers() {
+    const response = await fetch(`${this.baseUrl}/users`, {
+      headers: {
+        "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+        "X-API-Key": "sk-proj-abc123def456ghi789",
+      },
+    });
+    return response.json();
+  }
+}
+
+// 데이터베이스 연결
+async function connectDB() {
+  const client = new MongoClient(
+    "mongodb://admin:P@ssw0rd123@192.168.1.100:27017/production"
+  );
+  await client.connect();
+  return client;
+}
+
+// 파일 업로드
+async function uploadFile(file: Buffer) {
+  const s3 = new S3Client({
+    region: "ap-northeast-2",
+    credentials: {
+      accessKeyId: "AKIAIOSFODNN7EXAMPLE",
+      secretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+    },
+  });
+
+  await s3.send(new PutObjectCommand({
+    Bucket: "my-company-prod-uploads",
+    Key: `uploads/${file.name}`,
+    Body: file,
+  }));
+}
+
+// 이메일 발송
+async function sendEmail(to: string, subject: string) {
+  const transporter = createTransport({
+    host: "smtp.gmail.com",
+    port: 587,
+    auth: {
+      user: "noreply@mycompany.com",
+      pass: "MyEmailP@ss!",
+    },
+  });
+
+  await transporter.sendMail({ from: "noreply@mycompany.com", to, subject });
+}
+```
+
+이거 Git에 올리면 진짜 큰일 남.
+
+### 고친 코드
+
+```typescript
+// .env 파일 (gitignore에 추가!)
+// API_BASE_URL=http://localhost:3000/api
+// JWT_SECRET=your-jwt-secret
+// API_KEY=sk-proj-...
+// MONGODB_URI=mongodb://...
+// AWS_REGION=ap-northeast-2
+// AWS_ACCESS_KEY_ID=...
+// AWS_SECRET_ACCESS_KEY=...
+// S3_BUCKET=my-company-dev-uploads
+// SMTP_HOST=smtp.gmail.com
+// SMTP_PORT=587
+// SMTP_USER=noreply@mycompany.com
+// SMTP_PASS=...
+
+// config.ts — 환경 변수를 타입 안전하게 관리
+function getRequiredEnv(key: string): string {
+  const value = process.env[key];
+  if (!value) {
+    throw new Error(`Missing required environment variable: ${key}`);
+  }
+  return value;
+}
+
+export const config = {
+  api: {
+    baseUrl: getRequiredEnv("API_BASE_URL"),
+    key: getRequiredEnv("API_KEY"),
+  },
+  db: {
+    uri: getRequiredEnv("MONGODB_URI"),
+  },
+  aws: {
+    region: getRequiredEnv("AWS_REGION"),
+    s3Bucket: getRequiredEnv("S3_BUCKET"),
+  },
+  smtp: {
+    host: getRequiredEnv("SMTP_HOST"),
+    port: parseInt(getRequiredEnv("SMTP_PORT"), 10),
+    user: getRequiredEnv("SMTP_USER"),
+    pass: getRequiredEnv("SMTP_PASS"),
+  },
+} as const;
+
+// 사용 예시
+class ApiClient {
+  async getUsers() {
+    const response = await fetch(`${config.api.baseUrl}/users`, {
+      headers: {
+        "Authorization": `Bearer ${getRequiredEnv("JWT_SECRET")}`,
+        "X-API-Key": config.api.key,
+      },
+    });
+    return response.json();
+  }
+}
+```
+
+<Callout type="error" title="하드코딩의 문제점">
+- **환경별 배포 불가**: 개발/스테이징/프로덕션마다 코드를 수정해야 함
+- **시크릿 노출**: Git 히스토리에 비밀번호가 영원히 남음 (force push로 지워도 이미 늦음)
+- **코드 리뷰 위험**: PR에서 비밀번호가 평문으로 보임
+- **팀 협업 방해**: 다른 개발자가 자기 환경에 맞게 코드를 매번 수정해야 함
+- **보안 감사 실패**: 하드코딩된 시크릿은 보안 감사에서 즉시 탈락 사유
+</Callout>
+
+<Callout type="success" title="개선 포인트">
+- **환경 변수 사용**: `.env` 파일 + `process.env`로 환경별 분리
+- **config 모듈 분리**: 환경 변수 접근을 한 곳에서 관리
+- **필수값 검증**: 앱 시작 시점에 누락된 환경 변수를 즉시 에러로 잡음
+- **시크릿 매니저 활용**: AWS Secrets Manager, HashiCorp Vault 등으로 프로덕션 시크릿 관리
+- **.gitignore 필수**: `.env` 파일은 절대 Git에 올리지 않음
+</Callout>
+
+---
+
+## 매직 넘버 vs 하드코딩, 뭐가 다른 건데?
+
+두 패턴은 비슷해 보이지만 문제의 본질이 다르다.
+
+<Callout type="note" title="구분법">
+**Magic Number** = "이 값이 뭔지 모르겠음" → **가독성 문제**. 상수에 이름을 붙이면 해결.
+
+**Hard Coding** = "이 값이 환경마다 달라야 함" → **유연성 문제**. 환경 변수나 설정 파일로 외부화해야 해결.
+
+둘 다 해당하는 경우도 많음. 예를 들어 `"http://localhost:3000"`은 의미도 불분명하고(매직 스트링), 환경마다 달라야 하기도 함(하드코딩). 이런 경우 환경 변수로 빼면 두 문제가 동시에 해결됨.
+</Callout>
+
+실무에서 자주 보이는 케이스별 대처법을 정리하면 이렇다:
+
+| 값의 종류 | 매직 넘버? | 하드코딩? | 해결 방법 |
+|-----------|-----------|-----------|-----------|
+| `86400000` (하루 밀리초) | O | X | 상수 `MS_PER_DAY` |
+| `"mongodb://localhost"` | X | O | 환경 변수 `MONGODB_URI` |
+| `"sk-abc123..."` (API 키) | X | O | 시크릿 매니저 |
+| `0.1` (부가세율) | O | △ | 상수 + 필요시 설정 파일 |
+| `3` (재시도 횟수) | O | △ | 상수 + 필요시 환경 변수 |
+| `2` (주문 상태 코드) | O | X | enum 또는 const 객체 |
+
+---
+
+## 흔한 변명과 반박
+
+**"어차피 이 값 안 바뀌는데요"**
+→ 그건 지금 안 바뀌는 거지, 영원히 안 바뀐다는 보장이 없음. 그리고 안 바뀌더라도 **이름이 있으면 읽기 쉽다**는 장점은 남음.
+
+**"상수로 빼면 파일이 하나 더 생기잖아요"**
+→ 맞음. 근데 의미를 알 수 없는 숫자 하나 때문에 코드를 20분 동안 뒤지는 것보다 나음. 상수 파일 하나 열어보면 3초면 됨.
+
+**"환경 변수 관리가 귀찮아요"**
+→ 프로덕션에서 하드코딩된 DB 비밀번호가 Git에 노출되는 것보다는 덜 귀찮음. 진짜로.
+
+**"일단 동작하니까 나중에 정리할게요"**
+→ 그 "나중"은 절대 안 옴. 코드에 박힌 매직 넘버는 시간이 지날수록 의미를 해독하기 어려워짐. 원래 작성자가 퇴사하면? 고고학 수준의 분석이 필요해짐.
+
+---
+
+다음 편에서는 이해 없이 코드를 가져다 쓰는 두 가지 패턴, **Copy-Paste Programming**과 **Cargo Cult Programming**을 다룬다. "StackOverflow에서 복사해온 거 이해하고 붙인 거 맞음?"이라는 질문에 자신 있게 답할 수 있는지 한번 생각해보자.
+
+---
+
+_← [이전 글: 죽은 코드 3종](/docs/articles/anti-patterns/3.zombie-code) | [다음 글: 복붙과 카고 컬트](/docs/articles/anti-patterns/5.copy-paste-and-cargo-cult) →_
