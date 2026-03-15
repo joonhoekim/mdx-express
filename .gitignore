@@ -43,4 +43,4 @@ next-env.d.ts
 .playwright-mcp
 
 # 초안 md 파일들
-.md
+*.md
