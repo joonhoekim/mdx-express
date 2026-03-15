@@ -56,7 +56,7 @@ title: '제목'
 <Steps>
   <Step title="Writing UI 컴포넌트">
     모든 커스텀 컴포넌트를 바로 사용할 수 있습니다.
-    
+
     - `Callout` - 알림 박스
     - `CodeBlock` - 코드 블록 (자동 렌더링)
     - `Mermaid` - 다이어그램
@@ -68,57 +68,42 @@ title: '제목'
     - `Reference`, `ReferenceList` - 참고자료
     - `Icon` - 동적 아이콘 로더
   </Step>
-  
-  <Step title="Lucide 아이콘 (자주 사용)">
-    약 80개의 자주 사용하는 아이콘을 직접 사용할 수 있습니다.
-    
+
+  <Step title="Lucide 아이콘 (Icon 컴포넌트)">
+    `Icon` 컴포넌트를 사용하면 1,000개 이상의 모든 Lucide 아이콘을 사용할 수 있습니다.
+
     <div className="grid grid-cols-4 gap-4 my-4">
       <div className="flex items-center gap-2">
-        <Star className="h-5 w-5 text-yellow-500" />
+        <Icon name="Star" className="h-5 w-5 text-yellow-500" />
         <code>Star</code>
       </div>
       <div className="flex items-center gap-2">
-        <Code className="h-5 w-5 text-blue-500" />
+        <Icon name="Code" className="h-5 w-5 text-blue-500" />
         <code>Code</code>
       </div>
       <div className="flex items-center gap-2">
-        <Zap className="h-5 w-5 text-yellow-400" />
+        <Icon name="Zap" className="h-5 w-5 text-yellow-400" />
         <code>Zap</code>
       </div>
       <div className="flex items-center gap-2">
-        <Rocket className="h-5 w-5 text-purple-500" />
+        <Icon name="Rocket" className="h-5 w-5 text-purple-500" />
         <code>Rocket</code>
       </div>
       <div className="flex items-center gap-2">
-        <CheckCircle className="h-5 w-5 text-green-500" />
-        <code>CheckCircle</code>
+        <Icon name="CircleCheckBig" className="h-5 w-5 text-green-500" />
+        <code>CircleCheckBig</code>
       </div>
       <div className="flex items-center gap-2">
-        <AlertTriangle className="h-5 w-5 text-orange-500" />
-        <code>AlertTriangle</code>
+        <Icon name="TriangleAlert" className="h-5 w-5 text-orange-500" />
+        <code>TriangleAlert</code>
       </div>
       <div className="flex items-center gap-2">
-        <Info className="h-5 w-5 text-blue-400" />
+        <Icon name="Info" className="h-5 w-5 text-blue-400" />
         <code>Info</code>
       </div>
       <div className="flex items-center gap-2">
-        <Lightbulb className="h-5 w-5 text-yellow-300" />
+        <Icon name="Lightbulb" className="h-5 w-5 text-yellow-300" />
         <code>Lightbulb</code>
-      </div>
-    </div>
-    
-    <Callout type="note" title="전체 목록">
-      자주 사용하는 아이콘의 전체 목록은 `components/writing-ui/README.md`를 참고하세요.
-    </Callout>
-  </Step>
-  
-  <Step title="동적 아이콘 (모든 Lucide 아이콘)">
-    `Icon` 컴포넌트를 사용하면 1,000개 이상의 모든 Lucide 아이콘을 사용할 수 있습니다!
-    
-    <div className="grid grid-cols-4 gap-4 my-4">
-      <div className="flex items-center gap-2">
-        <Icon name="Rocket" className="h-5 w-5 text-purple-500" />
-        <code>Rocket</code>
       </div>
       <div className="flex items-center gap-2">
         <Icon name="Sparkles" className="h-5 w-5 text-pink-500" />
@@ -129,43 +114,35 @@ title: '제목'
         <code>Heart</code>
       </div>
       <div className="flex items-center gap-2">
-        <Icon name="Coffee" className="h-5 w-5 text-brown-500" />
+        <Icon name="Coffee" className="h-5 w-5 text-amber-700" />
         <code>Coffee</code>
       </div>
       <div className="flex items-center gap-2">
         <Icon name="Flame" className="h-5 w-5 text-orange-500" />
         <code>Flame</code>
       </div>
-      <div className="flex items-center gap-2">
-        <Icon name="Award" className="h-5 w-5 text-yellow-500" />
-        <code>Award</code>
-      </div>
-      <div className="flex items-center gap-2">
-        <Icon name="Smile" className="h-5 w-5 text-green-500" />
-        <code>Smile</code>
-      </div>
-      <div className="flex items-center gap-2">
-        <Icon name="Glasses" className="h-5 w-5 text-gray-500" />
-        <code>Glasses</code>
-      </div>
     </div>
-    
+
     ```mdx
     <!-- 사용 예시 -->
     <Icon name="Rocket" className="h-6 w-6 text-purple-500" />
     <Icon name="Sparkles" size={32} color="pink" />
     ```
+
+    <Callout type="note" title="아이콘 이름 찾기">
+      [Lucide Icons 사이트](https://lucide.dev/icons/)에서 아이콘 이름을 검색할 수 있습니다. 이름을 PascalCase로 변환하여 `name` prop에 전달하면 됩니다.
+    </Callout>
   </Step>
-  
+
   <Step title="Shadcn UI 컴포넌트">
     일부 Shadcn UI 컴포넌트도 사용할 수 있습니다.
-    
+
     - `Button`
     - `ShadcnCard`, `CardContent`, `CardHeader`, `CardTitle`
     - `ShadcnBadge`
     - `Alert`, `AlertDescription`, `AlertTitle`
     - `Separator`
-    
+
     <div className="flex gap-2 my-4">
       <Button variant="default">기본 버튼</Button>
       <Button variant="outline">외곽선 버튼</Button>
@@ -227,19 +204,19 @@ title: '제목'
   <Card
     title='빠른 성능'
     description='Next.js의 최적화된 성능을 경험하세요'
-    icon={<Zap className='h-5 w-5 text-yellow-500' />}
+    icon={<Icon name='Zap' className='h-5 w-5 text-yellow-500' />}
   />
 
   <Card
     title='타입 안전'
     description='TypeScript로 안전한 개발을 하세요'
-    icon={<Shield className='h-5 w-5 text-blue-500' />}
+    icon={<Icon name='Shield' className='h-5 w-5 text-blue-500' />}
   />
 
   <Card
     title='아름다운 UI'
     description='Tailwind CSS로 스타일링하세요'
-    icon={<Palette className='h-5 w-5 text-purple-500' />}
+    icon={<Icon name='Palette' className='h-5 w-5 text-purple-500' />}
   />
 </div>
 
@@ -248,19 +225,19 @@ title: '제목'
   <Card
     title='빠른 성능'
     description='Next.js의 최적화된 성능을 경험하세요'
-    icon={<Zap className='h-5 w-5 text-yellow-500' />}
+    icon={<Icon name='Zap' className='h-5 w-5 text-yellow-500' />}
   />
 
   <Card
     title='타입 안전'
     description='TypeScript로 안전한 개발을 하세요'
-    icon={<Shield className='h-5 w-5 text-blue-500' />}
+    icon={<Icon name='Shield' className='h-5 w-5 text-blue-500' />}
   />
 
   <Card
     title='아름다운 UI'
     description='Tailwind CSS로 스타일링하세요'
-    icon={<Palette className='h-5 w-5 text-purple-500' />}
+    icon={<Icon name='Palette' className='h-5 w-5 text-purple-500' />}
   />
 </div>
 ```
@@ -298,7 +275,7 @@ title: '제목'
 <div className='grid grid-cols-1 md:grid-cols-2 gap-4 my-4'>
   <div className='p-4 border rounded-lg'>
     <div className='flex items-center gap-2 mb-2'>
-      <CheckCircle className='h-5 w-5 text-green-500' />
+      <Icon name='CircleCheckBig' className='h-5 w-5 text-green-500' />
       <h3 className='font-semibold'>코드 간결성</h3>
     </div>
     <p className='text-sm text-gray-600 dark:text-gray-400'>
@@ -308,7 +285,7 @@ title: '제목'
 
   <div className='p-4 border rounded-lg'>
     <div className='flex items-center gap-2 mb-2'>
-      <CheckCircle className='h-5 w-5 text-green-500' />
+      <Icon name='CircleCheckBig' className='h-5 w-5 text-green-500' />
       <h3 className='font-semibold'>일관성</h3>
     </div>
     <p className='text-sm text-gray-600 dark:text-gray-400'>
@@ -318,7 +295,7 @@ title: '제목'
 
   <div className='p-4 border rounded-lg'>
     <div className='flex items-center gap-2 mb-2'>
-      <CheckCircle className='h-5 w-5 text-green-500' />
+      <Icon name='CircleCheckBig' className='h-5 w-5 text-green-500' />
       <h3 className='font-semibold'>번들 최적화</h3>
     </div>
     <p className='text-sm text-gray-600 dark:text-gray-400'>
@@ -328,7 +305,7 @@ title: '제목'
 
   <div className='p-4 border rounded-lg'>
     <div className='flex items-center gap-2 mb-2'>
-      <CheckCircle className='h-5 w-5 text-green-500' />
+      <Icon name='CircleCheckBig' className='h-5 w-5 text-green-500' />
       <h3 className='font-semibold'>타입 안전성</h3>
     </div>
     <p className='text-sm text-gray-600 dark:text-gray-400'>
@@ -359,7 +336,7 @@ const IconComponent = lazy(() =>
   </Step>
 
   <Step title='에러 처리'>
-    존재하지 않는 아이콘 이름을 사용하면 폴백 아이콘(HelpCircle)을 표시합니다.
+    존재하지 않는 아이콘 이름을 사용하면 폴백 아이콘을 표시합니다.
   </Step>
 </Steps>
 

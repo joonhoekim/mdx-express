@@ -28,7 +28,6 @@ import {
   MathCodeBridge,
   MugongCard
 } from '@/components/writing-ui';
-import { LUCIDE_ICONS } from '@/components/writing-ui/icon';
 import { mdxHtmlElements } from './mdx-html-elements';
 
 interface MDXRendererProps {
@@ -56,9 +55,6 @@ export function MDXRenderer({ content }: MDXRendererProps) {
     Icon,
     MathCodeBridge,
     MugongCard,
-
-    // Lucide 아이콘들 (icon.tsx에서 단일 정의)
-    ...LUCIDE_ICONS,
 
     // Shadcn UI 컴포넌트들
     Button,

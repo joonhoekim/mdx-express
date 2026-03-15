@@ -17,13 +17,13 @@ const loadIcon = (name: string): ComponentType<LucideProps> => {
                 const IconComponent = (mod as any)[name];
                 if (!IconComponent) {
                     console.warn(`Icon "${name}" not found in lucide-react. Using fallback.`);
-                    return { default: mod.HelpCircle };
+                    return { default: mod.CircleHelp };
                 }
                 return { default: IconComponent };
             })
             .catch(() => {
                 console.error(`Failed to load icon "${name}"`);
-                return import('lucide-react').then((mod) => ({ default: mod.HelpCircle }));
+                return import('lucide-react').then((mod) => ({ default: mod.CircleHelp }));
             })
     );
 };
@@ -50,7 +50,7 @@ function getOrLoadIcon(name: string): ComponentType<LucideProps> {
  * ```mdx
  * <Icon name="Star" className="h-5 w-5 text-yellow-500" />
  * <Icon name="ArrowRight" size={24} />
- * <Icon name="CheckCircle" color="green" />
+ * <Icon name="CircleCheckBig" color="green" />
  * ```
  */
 export function Icon({ name, className, size = 24, ...props }: IconProps) {
@@ -62,61 +62,3 @@ export function Icon({ name, className, size = 24, ...props }: IconProps) {
         </Suspense>
     );
 }
-
-// 자주 사용하는 아이콘들을 한 곳에서 정의
-import {
-    Star, Code, Palette, Zap, FileText, ArrowRight,
-    Info, AlertTriangle, CheckCircle, XCircle, Lightbulb,
-    HelpCircle, ExternalLink, Copy, Check, ChevronRight,
-    ChevronLeft, ChevronDown, ChevronUp, X, Menu, Search,
-    Home, Settings, User, Mail, Github, Twitter, Linkedin,
-    Youtube, Book, BookOpen, Bookmark, Calendar, Clock,
-    Download, Upload, Eye, EyeOff, Heart, MessageCircle,
-    Share2, ThumbsUp, TrendingUp, Trash2, Edit, Plus,
-    Minus, Save, Send, Filter, SortAsc, SortDesc,
-    RefreshCw, Loader2, AlertCircle, Lock, Unlock, Key,
-    Shield, Bell, BellOff, Globe, Link2, MapPin, Phone,
-    Tag, Folder, File, Image, Video, Music, Archive,
-    Database, Server, Terminal, Package, Cpu,
-    HardDrive, Wifi, WifiOff, Battery, Power, Sun, Moon,
-    Cloud, CloudRain, Sunrise, Sunset, Rocket,
-} from 'lucide-react';
-
-// MDX에서 사용할 아이콘 맵 (단일 정의)
-export const LUCIDE_ICONS = {
-    Star, Code, Palette, Zap, FileText, ArrowRight,
-    Info, AlertTriangle, CheckCircle, XCircle, Lightbulb,
-    HelpCircle, ExternalLink, Copy, Check, ChevronRight,
-    ChevronLeft, ChevronDown, ChevronUp, X, Menu, Search,
-    Home, Settings, User, Mail, Github, Twitter, Linkedin,
-    Youtube, Book, BookOpen, Bookmark, Calendar, Clock,
-    Download, Upload, Eye, EyeOff, Heart, MessageCircle,
-    Share2, ThumbsUp, TrendingUp, Trash2, Edit, Plus,
-    Minus, Save, Send, Filter, SortAsc, SortDesc,
-    RefreshCw, Loader2, AlertCircle, Lock, Unlock, Key,
-    Shield, Bell, BellOff, Globe, Link2, MapPin, Phone,
-    Tag, Folder, File, Image, Video, Music, Archive,
-    Database, Server, Terminal, PackageIcon: Package, Cpu,
-    HardDrive, Wifi, WifiOff, Battery, Power, Sun, Moon,
-    Cloud, CloudRain, Sunrise, Sunset, Rocket,
-} as const;
-
-// 개별 re-export (기존 코드 호환)
-export {
-    Star, Code, Palette, Zap, FileText, ArrowRight,
-    Info, AlertTriangle, CheckCircle, XCircle, Lightbulb,
-    HelpCircle, ExternalLink, Copy, Check, ChevronRight,
-    ChevronLeft, ChevronDown, ChevronUp, X, Menu, Search,
-    Home, Settings, User, Mail, Github, Twitter, Linkedin,
-    Youtube, Book, BookOpen, Bookmark, Calendar, Clock,
-    Download, Upload, Eye, EyeOff, Heart, MessageCircle,
-    Share2, ThumbsUp, TrendingUp, Trash2, Edit, Plus,
-    Minus, Save, Send, Filter, SortAsc, SortDesc,
-    RefreshCw, Loader2, AlertCircle, Lock, Unlock, Key,
-    Shield, Bell, BellOff, Globe, Link2, MapPin, Phone,
-    Tag, Folder, File, Image as ImageIcon, Video, Music, Archive,
-    Database, Server, Terminal, Package, Cpu,
-    HardDrive, Wifi, WifiOff, Battery, Power, Sun, Moon,
-    Cloud, CloudRain, Sunrise, Sunset, Rocket,
-};
-

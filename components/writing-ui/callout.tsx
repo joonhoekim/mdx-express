@@ -1,5 +1,5 @@
 import React from 'react'
-import { AlertTriangle, Info, CheckCircle, XCircle, Lightbulb } from 'lucide-react'
+import { TriangleAlert, Info, CircleCheckBig, CircleX, Lightbulb } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface CalloutProps {
@@ -39,9 +39,9 @@ const calloutStyles = {
 
 const iconMap = {
     info: Info,
-    warning: AlertTriangle,
-    error: XCircle,
-    success: CheckCircle,
+    warning: TriangleAlert,
+    error: CircleX,
+    success: CircleCheckBig,
     note: Lightbulb
 }
 
