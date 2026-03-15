@@ -6,7 +6,10 @@ import { Separator } from '@/components/ui/separator';
 import { MDXRemote } from 'next-mdx-remote/rsc';
 import remarkGfm from 'remark-gfm';
 import remarkCjkFriendly from 'remark-cjk-friendly';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
 import rehypeRaw from 'rehype-raw';
+import 'katex/dist/katex.min.css';
 
 // Writing UI 컴포넌트들 import
 import {
@@ -80,8 +83,9 @@ export function MDXRenderer({ content }: MDXRendererProps) {
         options={{
           blockJS: false,
           mdxOptions: {
-            remarkPlugins: [remarkCjkFriendly, remarkGfm],
+            remarkPlugins: [remarkCjkFriendly, remarkMath, remarkGfm],
             rehypePlugins: [
+              [rehypeKatex, { strict: false }],
               [rehypeRaw, {
                 passThrough: [
                   'mdxFlowExpression',

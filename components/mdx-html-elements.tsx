@@ -38,14 +38,21 @@ export const mdxHtmlElements = {
     <code className="relative rounded-md bg-slate-100 dark:bg-slate-800 px-2 py-1 font-mono text-sm font-semibold text-blue-600 dark:text-blue-400 border border-slate-200 dark:border-slate-700 before:content-none after:content-none" {...props} />
   ),
   pre: (props: any) => {
+    const childClassName = props.children?.props?.className || '';
+
     // Mermaid 다이어그램인 경우
-    if (props.children?.props?.className?.includes('language-mermaid')) {
+    if (childClassName.includes('language-mermaid')) {
       const codeContent = props.children.props.children;
       return <Mermaid>{codeContent}</Mermaid>;
     }
 
+    // math 블록은 rehype-katex가 처리하도록 패스스루
+    if (childClassName.includes('math-display')) {
+      return <pre {...props} />;
+    }
+
     // 코드 블록인 경우 writing-ui CodeBlock 컴포넌트 사용
-    if (props.children?.props?.className?.includes('language-')) {
+    if (childClassName.includes('language-')) {
       const className = props.children.props.className;
       const language = className.replace('language-', '');
       const codeContent = props.children.props.children;
