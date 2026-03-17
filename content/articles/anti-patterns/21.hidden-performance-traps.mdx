@@ -1,0 +1,517 @@
+# 보이지 않는 성능 함정: N+1 쿼리와 지수적 복사
+
+*"코드는 맞는데 왜 느리지?" — 프레임워크가 숨긴 비용을 찾아서*
+
+---
+
+지금까지의 안티패턴이 "이렇게 짜면 안 된다"였다면, 이번 편은 **"이렇게 되고 있는 줄도 몰랐다"**에 가깝다. 프레임워크가 추상화해버린 동작 뒤에서 조용히 성능을 갉아먹는 패턴들. 안티패턴과 에러의 경계에 있는 녀석들이다.
+
+God Object를 만들면 "이거 뭔가 잘못됐다"는 감이라도 온다. 근데 루프 안에서 개별 호출이 조용히 수백 번 반복되고 있거나, 스프레드 연산자가 메모리를 기하급수적으로 복사하고 있으면? 코드만 봐서는 모른다. 로그를 켜거나 프로파일러를 돌려야 비로소 보이는 유형의 문제다.
+
+이 글에서는 두 가지를 다룬다:
+
+1. **N+1 쿼리** — 한 번에 가져올 수 있는 데이터를 N번 나눠서 개별 호출하는 **언더페칭(underfetching)** 문제. [15편 Chatty I/O](/docs/articles/anti-patterns/15.microservice-antipatterns)에서 SQL 관점으로 다뤘다면, 여기서는 본질적인 패턴과 다양한 발생 지점을 짚는다.
+2. **지수적 복사 (Exponential Copy)** — 불변 업데이트, 깊은 복사, 상태 관리에서 데이터가 기하급수적으로 복제되는 문제.
+
+---
+
+## 1. N+1 쿼리 — 언더페칭이 만든 폭탄
+
+### 이게 뭔데
+
+<Callout type="warning" title="정의">
+한 번의 호출로 가져올 수 있는 데이터를 N번 개별 호출로 나눠서 가져오는 문제. 본질은 **언더페칭(underfetching)** — 필요한 데이터를 한 번에 충분히 요청하지 않고, 하나씩 따로따로 요청하는 것이다.
+</Callout>
+
+N+1 하면 보통 ORM이나 DB를 떠올린다. 근데 ORM은 이 문제가 잘 드러나는 **환경**일 뿐이고, 본질은 더 단순하다. **"반복문 안에서 개별 I/O를 하고 있는가?"** — 이게 N+1의 전부다. DB든, API든, 파일이든, 프론트엔드 fetch든 상관없다. 한 번에 모아서 가져올 수 있는 걸 하나씩 따로 가져오고 있으면 N+1이다.
+
+### 패턴: 반복문 + 개별 호출
+
+가장 기본적인 형태부터 보자. ORM 없이, 순수한 코드에서도 발생한다.
+
+```typescript
+// API 서버에서 주문 목록과 사용자 정보를 조합
+async function getOrderSummaries(): Promise<OrderSummary[]> {
+  const orders = await orderRepository.findRecent(100);
+
+  const summaries: OrderSummary[] = [];
+  for (const order of orders) {
+    // 각 주문마다 사용자 정보를 개별 조회 🚨
+    const user = await userRepository.findById(order.userId);
+    // 각 주문마다 배송 상태를 개별 조회 🚨
+    const shipping = await shippingApi.getStatus(order.trackingId);
+
+    summaries.push({
+      orderId: order.id,
+      userName: user.name,
+      shippingStatus: shipping.status,
+    });
+  }
+  return summaries;
+  // 주문 100건 → 1 + 100 + 100 = 201번의 I/O
+}
+```
+
+`orderRepository`, `userRepository`가 ORM이든 직접 SQL이든 HTTP 클라이언트든 상관없다. 루프 안에서 개별 호출을 하고 있으니 N+1이다. 이건 **도구의 문제가 아니라 접근 방식의 문제**다.
+
+### 해결 원칙: Preload (한 번에 미리 가져오기)
+
+```typescript
+// 해결: 필요한 데이터를 미리 모아서 한 번에
+async function getOrderSummaries(): Promise<OrderSummary[]> {
+  const orders = await orderRepository.findRecent(100);
+
+  // 필요한 ID를 먼저 수집
+  const userIds = [...new Set(orders.map((o) => o.userId))];
+  const trackingIds = orders.map((o) => o.trackingId);
+
+  // 한 번에 가져오기 (preload)
+  const [users, shippings] = await Promise.all([
+    userRepository.findByIds(userIds),           // 1번의 호출
+    shippingApi.getBulkStatus(trackingIds),       // 1번의 호출
+  ]);
+
+  // 메모리에서 조합
+  const userMap = new Map(users.map((u) => [u.id, u]));
+  const shippingMap = new Map(shippings.map((s) => [s.trackingId, s]));
+
+  return orders.map((order) => ({
+    orderId: order.id,
+    userName: userMap.get(order.userId)!.name,
+    shippingStatus: shippingMap.get(order.trackingId)!.status,
+  }));
+  // 총 I/O: 1 + 1 + 1 = 3번. 201번 → 3번.
+}
+```
+
+201번이 3번으로. 핵심은 간단하다: **루프를 돌기 전에, 필요한 데이터를 한 번에 가져와라.** ID를 모으고, 배치로 요청하고, 메모리에서 매핑한다. 이 패턴은 DB, API, 파일 I/O 어디서든 동일하게 적용된다.
+
+### ORM에서 특히 잘 안 보이는 이유
+
+같은 N+1인데 ORM에서는 왜 더 안 보일까? 루프와 호출이 코드에서 분리되기 때문이다.
+
+```typescript
+// ORM Lazy Loading — 코드에서는 개별 호출이 보이지 않음
+async function getTeamDashboard(teamId: string) {
+  const members = await prisma.member.findMany({
+    where: { teamId },
+  });
+
+  const dashboard = [];
+  for (const member of members) {
+    // findMany로 매번 개별 쿼리 — 언더페칭
+    const recentTasks = await prisma.task.findMany({
+      where: { assigneeId: member.id },
+      orderBy: { updatedAt: "desc" },
+      take: 5,
+    });
+
+    // 중첩 루프에서 또 개별 호출 — N×M 으로 폭발
+    for (const task of recentTasks) {
+      const project = await prisma.project.findUnique({
+        where: { id: task.projectId },
+      });
+      task.project = project;
+    }
+
+    dashboard.push({ member, recentTasks });
+  }
+  return dashboard;
+  // 멤버 20명, 작업 5개씩 → 1 + 20 + 100 = 121번
+}
+```
+
+```typescript
+// 해결: include로 preload (ORM이 JOIN/IN으로 변환)
+async function getTeamDashboard(teamId: string) {
+  const members = await prisma.member.findMany({
+    where: { teamId },
+    include: {
+      tasks: {
+        orderBy: { updatedAt: "desc" },
+        take: 5,
+        include: { project: true },
+      },
+    },
+  });
+
+  return members.map((member) => ({
+    member,
+    recentTasks: member.tasks,
+  }));
+  // Prisma가 내부적으로 2~3번의 쿼리로 최적화
+}
+```
+
+ORM의 `include`/`eager loading`은 결국 preload의 ORM 버전이다. 원리는 같다 — **"나중에 하나씩 가져오지 말고, 처음에 한 번에 가져와라."**
+
+### 프론트엔드에서도 똑같다
+
+N+1은 백엔드만의 문제가 아니다. 컴포넌트마다 개별 fetch를 하면 같은 패턴이 브라우저에서 재현된다.
+
+```tsx
+// 각 카드가 개별 fetch — 언더페칭
+function MemberCard({ memberId }: { memberId: string }) {
+  const [member, setMember] = useState<Member | null>(null);
+
+  useEffect(() => {
+    // 이 컴포넌트가 20개 렌더링되면 → 20번의 API 호출!
+    fetch(`/api/members/${memberId}`)
+      .then((res) => res.json())
+      .then(setMember);
+  }, [memberId]);
+
+  if (!member) return <Skeleton />;
+  return <Card>{member.name}</Card>;
+}
+
+function TeamPage({ memberIds }: { memberIds: string[] }) {
+  return (
+    <div>
+      {memberIds.map((id) => (
+        <MemberCard key={id} memberId={id} /> // 각각 fetch 🚨
+      ))}
+    </div>
+  );
+}
+```
+
+```tsx
+// 해결: 부모에서 preload하고 내려주기
+function TeamPage({ memberIds }: { memberIds: string[] }) {
+  const [members, setMembers] = useState<Member[]>([]);
+
+  useEffect(() => {
+    // 한 번의 배치 API 호출
+    fetch(`/api/members?ids=${memberIds.join(",")}`)
+      .then((res) => res.json())
+      .then(setMembers);
+  }, [memberIds]);
+
+  return (
+    <div>
+      {members.map((member) => (
+        <MemberCard key={member.id} member={member} />
+      ))}
+    </div>
+  );
+}
+```
+
+네트워크 탭에 같은 엔드포인트로 ID만 다른 요청이 수십 개 보이면, 그게 프론트엔드 N+1이다.
+
+<Callout type="note" title="N+1 감지 — 하나의 질문으로 충분하다">
+**"루프 안에서 I/O를 하고 있는가?"**
+
+이 질문 하나로 대부분 잡힌다. 구체적으로:
+
+- **코드 리뷰:** `for`/`map` 안에 `await`가 보이면 → 그 안에 DB, API, 파일 I/O가 있는지 확인
+- **프론트엔드:** 컴포넌트 안에 `useEffect + fetch`가 있고, 그 컴포넌트가 목록으로 렌더링되면 → N+1
+- **해결 원칙:** ID를 모아서 → 배치/preload로 한 번에 → 메모리에서 매핑. 환경(ORM, API, fetch)에 관계없이 이 공식은 동일하다
+</Callout>
+
+---
+
+## 2. 지수적 복사 — 스프레드 연산자의 배신
+
+### 이게 뭔데
+
+<Callout type="warning" title="정의">
+중첩된 객체를 불변(immutable)하게 업데이트하기 위해 각 레벨을 복사하다 보면, 변경하지 않은 부분까지 반복적으로 복사되어 메모리와 CPU 사용량이 기하급수적으로 증가하는 현상.
+</Callout>
+
+불변성은 좋은 원칙이다. 상태를 직접 수정하지 않고 새 객체를 만들면 변경 추적이 쉽고, React에서는 리렌더링 최적화에도 필수다. 근데 이 원칙을 **깊게 중첩된 객체**에 무작정 적용하면, 성능이 눈에 띄게 나빠진다. 문제는 스프레드 연산자(`...`)가 너무 편리해서 비용을 의식하지 못한다는 거다.
+
+### 깊은 중첩 상태 업데이트
+
+```typescript
+// 조직도 같은 깊게 중첩된 상태
+interface Organization {
+  departments: {
+    [deptId: string]: {
+      name: string;
+      teams: {
+        [teamId: string]: {
+          name: string;
+          members: {
+            [memberId: string]: {
+              name: string;
+              role: string;
+              skills: string[];
+            };
+          };
+        };
+      };
+    };
+  };
+}
+
+// 멤버 한 명의 역할을 바꾸려면?
+function updateMemberRole(
+  org: Organization,
+  deptId: string,
+  teamId: string,
+  memberId: string,
+  newRole: string
+): Organization {
+  return {
+    ...org,                              // Organization 전체 복사
+    departments: {
+      ...org.departments,               // 모든 부서 복사
+      [deptId]: {
+        ...org.departments[deptId],      // 해당 부서 복사
+        teams: {
+          ...org.departments[deptId].teams,  // 모든 팀 복사
+          [teamId]: {
+            ...org.departments[deptId].teams[teamId],  // 해당 팀 복사
+            members: {
+              ...org.departments[deptId].teams[teamId].members,  // 모든 멤버 복사
+              [memberId]: {
+                ...org.departments[deptId].teams[teamId].members[memberId],
+                role: newRole,           // 바꾸는 건 이거 하나
+              },
+            },
+          },
+        },
+      },
+    },
+  };
+}
+```
+
+역할 하나를 바꾸는데 **6단계의 스프레드**가 필요하다. 각 스프레드는 해당 레벨의 모든 키를 얕은 복사한다. 부서가 10개고, 팀이 부서당 5개고, 멤버가 팀당 20명이면?
+
+```
+1단계: Organization 복사 (1개 객체)
+2단계: departments 복사 (10개 부서의 참조)
+3단계: 해당 부서 복사 (5개 팀의 참조)
+4단계: teams 복사 (해당 부서의 5개 팀 참조)
+5단계: 해당 팀 복사 (20개 멤버의 참조)
+6단계: members 복사 (해당 팀의 20개 멤버 참조)
+7단계: 해당 멤버 복사 → role 변경
+```
+
+한 번이면 그래도 괜찮다. 근데 이걸 **루프에서 하면** 지수적으로 폭발한다.
+
+### 루프에서의 지수적 복사
+
+```typescript
+// 전체 멤버의 역할을 일괄 업데이트 — 여기서 터진다
+function bulkUpdateRoles(
+  org: Organization,
+  updates: { deptId: string; teamId: string; memberId: string; newRole: string }[]
+): Organization {
+  let result = org;
+
+  for (const update of updates) {
+    // 매 반복마다 전체 트리를 다시 복사! 🚨
+    result = updateMemberRole(
+      result,
+      update.deptId,
+      update.teamId,
+      update.memberId,
+      update.newRole
+    );
+  }
+
+  return result;
+  // 100명 업데이트 → 6단계 복사 × 100번 = 수백 번의 객체 생성
+  // 이전 반복에서 만든 객체가 다음 반복에서 또 복사됨
+}
+```
+
+100명의 역할을 바꾸면, 매번 전체 트리가 복사된다. 이전 반복에서 만든 새 객체가 다음 반복에서 다시 복사되니까, 불필요한 중간 객체가 쌓인다. GC(가비지 컬렉터)가 비명을 지르고, 체감 성능이 뚝 떨어진다.
+
+### 고친 코드
+
+```typescript
+// 해결 1: Immer — 구조적 공유(structural sharing) 자동 적용
+import { produce } from "immer";
+
+function updateMemberRole(
+  org: Organization,
+  deptId: string,
+  teamId: string,
+  memberId: string,
+  newRole: string
+): Organization {
+  return produce(org, (draft) => {
+    // 직접 수정하는 것처럼 써도 불변 업데이트가 됨
+    // 변경된 경로만 새 객체, 나머지는 원본 참조 유지
+    draft.departments[deptId].teams[teamId].members[memberId].role = newRole;
+  });
+}
+
+// 일괄 업데이트도 한 번의 produce 안에서
+function bulkUpdateRoles(
+  org: Organization,
+  updates: { deptId: string; teamId: string; memberId: string; newRole: string }[]
+): Organization {
+  return produce(org, (draft) => {
+    for (const { deptId, teamId, memberId, newRole } of updates) {
+      draft.departments[deptId].teams[teamId].members[memberId].role = newRole;
+    }
+    // 100번 수정해도 produce는 한 번 → 중간 객체 없음
+  });
+}
+```
+
+```typescript
+// 해결 2: 구조 자체를 평탄화 (정규화)
+// 깊은 중첩 대신 ID 기반 참조
+
+interface NormalizedOrg {
+  departments: Record<string, { name: string; teamIds: string[] }>;
+  teams: Record<string, { name: string; deptId: string; memberIds: string[] }>;
+  members: Record<string, { name: string; teamId: string; role: string; skills: string[] }>;
+}
+
+// 멤버 역할 업데이트 — 1단계 스프레드로 끝
+function updateMemberRole(
+  org: NormalizedOrg,
+  memberId: string,
+  newRole: string
+): NormalizedOrg {
+  return {
+    ...org,
+    members: {
+      ...org.members,
+      [memberId]: { ...org.members[memberId], role: newRole },
+    },
+  };
+  // 2단계 복사. 6단계 → 2단계.
+  // departments와 teams는 참조만 복사되므로 비용 거의 없음
+}
+```
+
+<Callout type="info" title="정규화 vs Immer — 언제 뭘 쓰나">
+- **Immer:** 기존 구조를 바꾸기 어려울 때, API 응답을 그대로 상태로 쓸 때. 빠르게 적용 가능
+- **정규화:** 새로 설계할 때, 같은 데이터를 여러 곳에서 참조할 때. Redux 공식 권장 패턴
+- **둘 다 안 쓰면:** 3단계 이상 중첩된 스프레드가 보이면 위험 신호
+</Callout>
+
+### React 상태에서의 지수적 복사
+
+React에서 이 문제가 특히 잘 보인다. `useState`로 복잡한 객체를 관리하면서 매번 스프레드로 업데이트하는 패턴.
+
+```tsx
+// 폼 상태가 깊어지면 스프레드 지옥
+function ProfileForm() {
+  const [form, setForm] = useState({
+    personal: {
+      name: { first: "", last: "" },
+      contacts: {
+        emails: [{ address: "", verified: false }],
+        phones: [{ number: "", type: "mobile" }],
+      },
+    },
+    preferences: {
+      notifications: { email: true, sms: false, push: true },
+    },
+  });
+
+  // 이메일 하나 수정하려면...
+  const updateEmail = (index: number, address: string) => {
+    setForm({
+      ...form,
+      personal: {
+        ...form.personal,
+        contacts: {
+          ...form.personal.contacts,
+          emails: form.personal.contacts.emails.map((e, i) =>
+            i === index ? { ...e, address } : e
+          ),
+        },
+      },
+    });
+    // 이메일 주소 하나 바꾸는데 4단계 스프레드 + map
+    // 타이핑할 때마다 이게 실행됨 🚨
+  };
+
+  return <input onChange={(e) => updateEmail(0, e.target.value)} />;
+}
+```
+
+키보드를 칠 때마다 전체 폼 상태가 복사된다. 폼 필드가 몇 개면 상관없지만, 복잡한 어드민 페이지에서 중첩 5단계짜리 상태를 매 키 입력마다 전체 복사하면 입력 지연이 체감된다.
+
+```tsx
+// 해결: useImmer 또는 상태 분리
+import { useImmer } from "use-immer";
+
+function ProfileForm() {
+  const [form, updateForm] = useImmer(initialFormState);
+
+  const updateEmail = (index: number, address: string) => {
+    updateForm((draft) => {
+      draft.personal.contacts.emails[index].address = address;
+      // 끝. 변경된 경로만 새 객체, 나머지는 원본 유지
+    });
+  };
+
+  return <input onChange={(e) => updateEmail(0, e.target.value)} />;
+}
+```
+
+---
+
+## JSON 깊은 복사: 마지막 함정
+
+지수적 복사의 또 다른 형태. `JSON.parse(JSON.stringify(obj))`는 가장 흔한 깊은 복사 방법이지만, 모든 레벨을 무조건 복사한다. 바꿀 필요 없는 데이터도 전부.
+
+```typescript
+// 설정 객체 업데이트 — JSON 깊은 복사
+function updateConfig(config: AppConfig, path: string, value: unknown): AppConfig {
+  const copy = JSON.parse(JSON.stringify(config)); // 전체 깊은 복사 🚨
+
+  // lodash set으로 경로 업데이트
+  _.set(copy, path, value);
+  return copy;
+}
+
+// 설정 항목이 100개인데 하나만 바꿔도 100개를 전부 직렬화 → 파싱
+// Date, Map, Set, undefined, 함수 등은 소실됨 (보너스 버그)
+```
+
+```typescript
+// 해결: structuredClone이라도 (ES2022+), 또는 변경 경로만 복사
+function updateConfig(config: AppConfig, path: string, value: unknown): AppConfig {
+  // 변경이 필요한 경로만 복사하는 방식
+  return produce(config, (draft) => {
+    _.set(draft, path, value);
+  });
+}
+
+// structuredClone은 JSON보다 정확하지만 (Date, Map 보존)
+// 여전히 전체 복사라는 근본 문제는 동일
+```
+
+<Callout type="error" title="JSON.parse(JSON.stringify) 함정">
+- 전체 객체를 문자열로 직렬화 후 다시 파싱 — CPU와 메모리 양쪽에서 비용
+- `Date` → 문자열로 변환 (복원 시 Date가 아닌 string)
+- `Map`, `Set`, `RegExp` → 빈 객체 `{}`
+- `undefined` → 소실
+- 함수, Symbol → 소실
+- 순환 참조 → 런타임 에러
+- 대안: `structuredClone`(전체 복사가 필요할 때), Immer(부분 업데이트일 때)
+</Callout>
+
+---
+
+## 안티패턴인가, 에러인가
+
+이 두 패턴은 기존 안티패턴과 성격이 다르다.
+
+| | 전통적 안티패턴 | N+1 / 지수적 복사 |
+|---|---|---|
+| **인지 시점** | 코드 작성할 때 "이건 좀..." | 성능 문제 터진 후에야 인지 |
+| **코드 리뷰** | 구조를 보면 잡힘 | 개별 코드는 정상으로 보임 |
+| **원인** | 잘못된 설계 선택 | 개별 코드가 자연스러워서 전체 비용이 안 보임 |
+| **해결** | 구조 변경 | preload/batch 또는 접근 방식 전환 |
+
+God Object는 만들면서 "이게 맞나?"라는 생각이라도 든다. N+1은 반복문 안의 개별 호출이 각각은 너무 자연스러워서 문제로 안 보인다. ORM이 숨겨주면 더 안 보이고, 프론트엔드 컴포넌트로 분산되면 더더욱 안 보인다. 지수적 복사는 스프레드 연산자가 너무 깔끔해 보여서 비용을 의식하지 못한다.
+
+그래서 이 패턴들을 잡으려면 코드 리뷰만으로는 부족하다. **쿼리 로그**, **프로파일러**, **Network 탭**을 습관적으로 들여다보는 수밖에 없다. 코드가 맞고 틀리고의 문제가 아니라, 코드 뒤에서 일어나는 일을 알고 모르고의 문제다.
+
+---
+
+_← [이전 글: 보안 안티패턴](/docs/articles/anti-patterns/20.security-antipatterns) | [시리즈 목차](/docs/articles/anti-patterns/0.series) →_
