@@ -46,11 +46,8 @@ async function collectMDXFiles(dir: string): Promise<SearchEntry[]> {
             .trim()
             .slice(0, 2000);
 
-          // index.mdx → 디렉토리 경로, 그 외 → 파일명 경로
           const basename = path.basename(dirent.name, '.mdx');
-          const slugPath = basename === 'index'
-            ? currentPath
-            : (currentPath ? `${currentPath}/${basename}` : basename);
+          const slugPath = currentPath ? `${currentPath}/${basename}` : basename;
 
           entries.push({
             id: id++,

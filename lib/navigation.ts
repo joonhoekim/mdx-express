@@ -52,7 +52,6 @@ export const getTopLevelItems = cache(async (): Promise<NavigationItem[]> => {
 // MDXFileNode 트리를 NavigationItem 트리로 재귀 변환
 function convertTreeToNavItems(nodes: MDXFileNode[], basePath: string): NavigationItem[] {
   return nodes
-    .filter(node => node.type === 'file' ? node.slug !== 'index' : true)
     .map(node => ({
       title: node.title,
       href: buildDocsPath(basePath, node.slug),

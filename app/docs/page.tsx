@@ -19,7 +19,7 @@ export default async function DocsIndexPage() {
 
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
         {sections.map((section) => {
-          const items = section.tree.filter(node => node.slug !== 'index');
+          const items = section.tree;
           const fileCount = items.filter(n => n.type === 'file').length;
           const dirCount = items.filter(n => n.type === 'directory').length;
           const countParts = [];

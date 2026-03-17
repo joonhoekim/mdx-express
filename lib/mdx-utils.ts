@@ -185,18 +185,13 @@ export async function buildMDXTree(
 
       const children = await buildMDXTree(basePath, dirPath);
 
-      // 디렉토리에 index.mdx가 있는지 확인
-      const indexFile = await getMDXFile([...dirPath, 'index.mdx'].join('/'));
-
       nodes.push({
         type: 'directory',
         name: dirName,
         slug: dirName,
-        title: indexFile?.title || formatTitle(dirName),
-        description: indexFile?.description,
-        order: indexFile?.order || 0,
+        title: formatTitle(dirName),
+        order: 0,
         path: dirPath.join('/'),
-        content: indexFile?.content,
         children,
         fullPath: dirPath,
       });
@@ -283,11 +278,11 @@ export interface AdjacentArticles {
   next: AdjacentArticle | null;
 }
 
-// MDXFileNode 트리를 depth-first로 평탄화 (파일만, index 제외)
+// MDXFileNode 트리를 depth-first로 평탄화 (파일만)
 function flattenTree(nodes: MDXFileNode[]): MDXFileNode[] {
   const result: MDXFileNode[] = [];
   for (const node of nodes) {
-    if (node.type === 'file' && node.slug !== 'index') {
+    if (node.type === 'file') {
       result.push(node);
     } else if (node.type === 'directory' && node.children) {
       result.push(...flattenTree(node.children));
@@ -382,7 +377,6 @@ export async function getSiblingFiles(
     const basePath = parentSegments.join('/');
 
     return siblings
-      .filter(node => node.slug !== 'index')
       .map(node => ({
         title: node.title,
         href: buildDocsPath(basePath, node.slug),

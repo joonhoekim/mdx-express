@@ -8,21 +8,18 @@ interface SectionIndexPageProps {
     section: string;
     items: MDXFileNode[];
     currentPath: string[];
-    indexTitle?: string;
-    indexDescription?: string;
 }
 
-export function SectionIndexPage({ section, items, currentPath, indexTitle, indexDescription }: SectionIndexPageProps) {
-    const sectionTitle = indexTitle || formatTitle(section);
+export function SectionIndexPage({ section, items, currentPath }: SectionIndexPageProps) {
+    const sectionTitle = formatTitle(section);
 
     const directories = items.filter(n => n.type === 'directory');
-    const files = items.filter(n => n.type === 'file' && n.slug !== 'index');
+    const files = items.filter(n => n.type === 'file');
     const totalCount = directories.length + files.length;
 
-    const sectionDescription = indexDescription
-        || (totalCount > 0
-            ? `${directories.length}개의 카테고리와 ${files.length}개의 문서가 있습니다`
-            : '아직 문서가 없습니다');
+    const sectionDescription = totalCount > 0
+        ? `${directories.length}개의 카테고리와 ${files.length}개의 문서가 있습니다`
+        : '아직 문서가 없습니다';
 
     return (
         <div className="space-y-6">

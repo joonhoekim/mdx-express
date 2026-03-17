@@ -1,7 +1,6 @@
 import { notFound } from 'next/navigation';
 import {
   getMDXContentByPath,
-  getMDXFile,
   getPathType,
   buildMDXTree,
   getAllMDXNestedSections
@@ -44,18 +43,13 @@ export default async function DocsPage({ params }: PageProps) {
   if (pathType === 'directory') {
     // 디렉토리인 경우: 섹션 인덱스 페이지 렌더링
     const section = slug[slug.length - 1];
-    const [tree, indexFile] = await Promise.all([
-      buildMDXTree('', slug),
-      getMDXFile([...slug, 'index.mdx'].join('/')),
-    ]);
+    const tree = await buildMDXTree('', slug);
 
     return (
       <SectionIndexPage
         section={section}
         items={tree}
         currentPath={slug}
-        indexTitle={indexFile?.title}
-        indexDescription={indexFile?.description}
       />
     );
   }
