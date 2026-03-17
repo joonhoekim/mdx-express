@@ -1,12 +1,12 @@
 # 보이지 않는 성능 함정: N+1 쿼리와 지수적 복사
 
-*"코드는 맞는데 왜 느리지?" — 프레임워크가 숨긴 비용을 찾아서*
+*"시스템이 불안정해. 느리거나 죽어.." 도대체, 왜, 어째서...*
 
 ---
 
-지금까지의 안티패턴이 "이렇게 짜면 안 된다"였다면, 이번 편은 **"이렇게 되고 있는 줄도 몰랐다"**에 가깝다. 프레임워크가 추상화해버린 동작 뒤에서 조용히 성능을 갉아먹는 패턴들. 안티패턴과 에러의 경계에 있는 녀석들이다.
+"시스템이 느려요." "API 응답이 간헐적으로 타임아웃 나요." "트래픽 좀 몰리면 서버가 뻗어요." — 프로덕션에서 이런 리포트가 올 때, 원인을 추적해보면 놀랍도록 자주 같은 곳에 도달한다. 잘못된 아키텍처도 아니고, 부족한 인프라도 아니고, 루프 안에서 DB를 한 번씩 더 찌르고 있는 코드 몇 줄.
 
-God Object를 만들면 "이거 뭔가 잘못됐다"는 감이라도 온다. 근데 루프 안에서 개별 호출이 조용히 수백 번 반복되고 있거나, 스프레드 연산자가 메모리를 기하급수적으로 복사하고 있으면? 코드만 봐서는 모른다. 로그를 켜거나 프로파일러를 돌려야 비로소 보이는 유형의 문제다.
+지금까지의 안티패턴이 "이렇게 짜면 안 된다"였다면, 이번 편은 **"이렇게 되고 있는 줄도 몰랐다"**에 가깝다. 안티패턴과 에러의 경계에 있는 녀석들이다. God Object를 만들면 "이거 뭔가 잘못됐다"는 감이라도 온다. 근데 루프 안에서 개별 호출이 조용히 수백 번 반복되고 있으면? 코드만 봐서는 모른다. 쿼리 로그를 켜거나 프로파일러를 돌려야 비로소 보인다. 그리고 대부분은 프로덕션에서 장애가 터진 뒤에야 들여다본다.
 
 이 글에서는 두 가지를 다룬다:
 
@@ -53,6 +53,24 @@ async function getOrderSummaries(): Promise<OrderSummary[]> {
 ```
 
 `orderRepository`, `userRepository`가 ORM이든 직접 SQL이든 HTTP 클라이언트든 상관없다. 루프 안에서 개별 호출을 하고 있으니 N+1이다. 이건 **도구의 문제가 아니라 접근 방식의 문제**다.
+
+### 느린 게 아니라 죽는다
+
+N+1이 단순한 성능 문제라고 생각하면 위험하다. 프로덕션에서는 **시스템 전체를 죽이는 장애**로 이어진다.
+
+핵심은 **DB Connection Pool**이다. 대부분의 애플리케이션은 DB 연결을 풀로 관리한다. 풀 크기는 보통 10~50개. N+1 쿼리가 하나의 요청에서 커넥션을 오래 점유하고 있으면, 다른 요청들이 커넥션을 받지 못하고 대기한다.
+
+```
+[요청 A] 주문 100건 조회 → 201번 쿼리 → 커넥션 1개를 ~2초 점유
+[요청 B] 같은 API → 커넥션 1개를 ~2초 점유
+[요청 C~Z] 동시 접속 24명 → 커넥션 24개 점유
+
+풀 크기 25개 → 남은 커넥션: 1개
+→ 26번째 요청부터 "Connection pool exhausted" 타임아웃
+→ 로그인, 결제, 검색 등 DB를 쓰는 모든 API가 함께 죽음
+```
+
+N+1이 있는 API 하나가 트래픽을 받는 순간, 그 API뿐 아니라 **같은 DB를 쓰는 모든 서비스**가 연쇄적으로 응답 불능에 빠진다. 개발 환경에서는 동시 요청이 1~2개라 안 보이다가, 프로덕션에서 동시 접속이 늘어나는 순간 터진다. 새벽 3시 PagerDuty 알림의 단골 원인이다.
 
 ### 해결 원칙: Preload (한 번에 미리 가져오기)
 
@@ -451,6 +469,155 @@ function ProfileForm() {
   return <input onChange={(e) => updateEmail(0, e.target.value)} />;
 }
 ```
+
+### 서버에서 터지면: 스냅샷 복사가 DB를 죽이는 과정
+
+클라이언트 사이드에서 지수적 복사가 발생하면? 해당 사용자의 브라우저 탭이 버벅거리거나, 최악의 경우 그 페이지가 죽는다. 한 명의 문제로 끝난다.
+
+근데 이게 **서버 사이드에서 DB를 타고 발생하면** 이야기가 완전히 달라진다. 스냅샷, 버전 관리, 템플릿 복사 같은 기능에서 실제로 자주 등장하는 패턴이다.
+
+```typescript
+// 프로젝트 스냅샷(버전 저장) 기능
+// 프로젝트 → 섹션 → 블록 → 에셋(이미지, 파일) 트리 구조
+
+async function createProjectSnapshot(projectId: string): Promise<string> {
+  const project = await db.project.findUnique({
+    where: { id: projectId },
+    include: { sections: { include: { blocks: true } } },
+  });
+
+  // 프로젝트 복사
+  const snapshotProject = await db.project.create({
+    data: {
+      ...omit(project, "id"),
+      title: `${project.title} (스냅샷)`,
+      originalId: project.id,
+    },
+  });
+
+  for (const section of project.sections) {
+    // 섹션 복사
+    const snapshotSection = await db.section.create({
+      data: { ...omit(section, "id"), projectId: snapshotProject.id },
+    });
+
+    for (const block of section.blocks) {
+      // 블록 복사
+      const snapshotBlock = await db.block.create({
+        data: { ...omit(block, "id"), sectionId: snapshotSection.id },
+      });
+
+      // 블록에 연결된 에셋도 복사 🚨
+      const assets = await db.asset.findMany({
+        where: { blockId: block.id },
+      });
+      for (const asset of assets) {
+        await db.asset.create({
+          data: { ...omit(asset, "id"), blockId: snapshotBlock.id },
+        });
+      }
+    }
+  }
+
+  return snapshotProject.id;
+}
+```
+
+루프마다 개별 INSERT니까 N+1이기도 하다. 근데 이 코드의 **진짜 치명적인 문제**는 N+1이 아니다. 배치 INSERT로 바꿔도 죽는다. 문제는 **복사하는 데이터의 양 자체가 지수적으로 폭발**한다는 것이다.
+
+```typescript
+// 블록을 삭제했는데 에셋 레코드는 남아있으면? (고아 레코드)
+// 스냅샷은 트리를 통째로 복사하니까 고아 에셋도 함께 복사됨
+// 스냅샷의 스냅샷을 만들면? 고아가 또 복사됨
+
+// 원본: 정상 에셋 50개 + 고아 에셋 20개
+// 스냅샷 1: 70개 복사 (고아 포함)
+// 스냅샷 2: 스냅샷 1을 복사 → 고아가 또 복사되어 누적
+// ...반복할 때마다 고아가 눈덩이처럼 불어남
+```
+
+<Callout type="error" title="17번의 저주">
+스냅샷 기능을 만들 때는 아무도 걱정하지 않는다. "에셋 50개짜리 프로젝트인데 뭘." 근데 고아 레코드가 매 스냅샷마다 누적 복제되면, 17번째 스냅샷 즈음에서 에셋 테이블에 **13만 개가 넘는 레코드**가 들어있는 걸 발견하게 된다. "분명히 별로 없을 것 같았는데?" — 지수 함수는 직관을 배신한다.
+
+```
+스냅샷 횟수   에셋 레코드 수    누적 INSERT
+1            70              70
+5            ~200            ~600
+10           ~500            ~2,500
+15           ~1,500          ~10,000
+17           ~3,000+         ~25,000+
+              에셋 테이블 전체: 130,000+ 레코드
+```
+
+4Core 16GB DB에서, 이 시점의 단일 스냅샷 트랜잭션이 만드는 write 볼륨이 DB를 압도한다. 스냅샷 API 하나가 호출되는 순간 디스크 I/O가 치솟고, 같은 DB를 쓰는 로그인, 검색, 결제 API가 전부 응답 불능에 빠진다. 16번째까지는 "좀 느리네" 수준이다가 17번째에서 갑자기 서버 전체가 뻗는다. 지수 함수의 특성상 "점점 느려지다가 죽는" 게 아니라 **"괜찮다가 갑자기 죽는다."**
+</Callout>
+
+N+1을 고쳐서 배치 INSERT로 바꿔도, 한 번에 3,000개 레코드를 INSERT하는 건 마찬가지다. **I/O 방식이 아니라 데이터 볼륨 자체가 문제**인 거다. 쿼리가 1번이든 3,000번이든, DB가 한 트랜잭션에서 감당할 수 없는 양의 write를 하면 디스크 I/O가 폭증하고, 다른 모든 요청이 멈춘다.
+
+이 코드의 문제는 두 레이어가 겹쳐 있다:
+1. **지수적 복사** — 고아 레코드가 스냅샷마다 누적 복제되어 볼륨 폭발 (이게 근본 원인)
+2. **참조 무결성 부재** — 삭제된 블록의 에셋이 정리되지 않아 고아가 발생 (이게 시발점)
+
+N+1은 덤으로 얹혀 있는 문제일 뿐, 고쳐도 터진다.
+
+```typescript
+// 해결: 고아 정리가 핵심, 배치 INSERT는 부차적
+async function createProjectSnapshot(projectId: string): Promise<string> {
+  return await db.$transaction(async (tx) => {
+    // 1. 고아 레코드 먼저 정리 — 이게 근본 해결
+    //    ON DELETE CASCADE가 걸려 있었으면 애초에 안 생겼을 문제
+    await tx.asset.deleteMany({
+      where: {
+        block: { section: { projectId } },
+        blockId: { notIn:
+          (await tx.block.findMany({
+            where: { section: { projectId } },
+            select: { id: true },
+          })).map(b => b.id)
+        },
+      },
+    });
+
+    // 2. 전체 트리를 한 번에 로드
+    const project = await tx.project.findUnique({
+      where: { id: projectId },
+      include: {
+        sections: {
+          include: { blocks: { include: { assets: true } } },
+        },
+      },
+    });
+
+    // 3. nested create로 배치 INSERT (N+1도 같이 해결)
+    const snapshot = await tx.project.create({
+      data: {
+        ...omit(project, "id"),
+        title: `${project.title} (스냅샷)`,
+        originalId: project.id,
+        sections: {
+          create: project.sections.map((section) => ({
+            ...omit(section, "id", "projectId"),
+            blocks: {
+              create: section.blocks.map((block) => ({
+                ...omit(block, "id", "sectionId"),
+                assets: {
+                  create: block.assets.map((asset) =>
+                    omit(asset, "id", "blockId")
+                  ),
+                },
+              })),
+            },
+          })),
+        },
+      },
+    });
+
+    return snapshot.id;
+  });
+}
+```
+
+핵심은 배치 INSERT가 아니라 **고아 정리**다. 고아를 정리하면 스냅샷을 아무리 반복해도 레코드 수가 일정하게 유지된다. 그리고 애초에 FK에 `ON DELETE CASCADE`를 걸어놨으면 고아 자체가 생기지 않았을 문제다. 스키마 설계에서 참조 무결성을 빠뜨린 대가가 프로덕션 장애로 돌아온 셈이다.
 
 ---
 
