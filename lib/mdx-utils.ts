@@ -95,9 +95,16 @@ export async function getMDXFile(filePath: string): Promise<MDXFile | null> {
 
     const frontmatter = data as MDXFrontmatter;
 
+    // frontmatter title이 없으면 본문의 첫 번째 # 제목을 추출
+    let title = frontmatter.title;
+    if (!title) {
+      const headingMatch = content.match(/^#\s+(.+)$/m);
+      title = headingMatch ? headingMatch[1].trim() : formatTitle(path.basename(filePath, '.mdx'));
+    }
+
     return {
       slug: path.basename(filePath, '.mdx'),
-      title: frontmatter.title || path.basename(filePath, '.mdx'),
+      title,
       description: frontmatter.description,
       order: frontmatter.order || 0,
       path: filePath,
@@ -262,6 +269,54 @@ export async function getPathType(
   } catch (error) {
     console.error(`[getPathType] ${pathArray.join('/')}: ${getErrorMessage(error)}`);
     return null;
+  }
+}
+
+// 인접 글 (이전/다음) 조회
+export interface AdjacentArticle {
+  title: string;
+  href: string;
+}
+
+export interface AdjacentArticles {
+  prev: AdjacentArticle | null;
+  next: AdjacentArticle | null;
+}
+
+// MDXFileNode 트리를 depth-first로 평탄화 (파일만, index 제외)
+function flattenTree(nodes: MDXFileNode[]): MDXFileNode[] {
+  const result: MDXFileNode[] = [];
+  for (const node of nodes) {
+    if (node.type === 'file' && node.slug !== 'index') {
+      result.push(node);
+    } else if (node.type === 'directory' && node.children) {
+      result.push(...flattenTree(node.children));
+    }
+  }
+  return result;
+}
+
+export async function getAdjacentArticles(slug: string[]): Promise<AdjacentArticles> {
+  try {
+    const section = slug[0];
+    const tree = await buildMDXTree(section, [section]);
+    const flat = flattenTree(tree);
+    const currentKey = slug.join('/');
+    const currentIndex = flat.findIndex(n => n.fullPath.join('/') === currentKey);
+
+    if (currentIndex === -1) return { prev: null, next: null };
+
+    const prev = currentIndex > 0
+      ? { title: flat[currentIndex - 1].title, href: buildDocsPath(...flat[currentIndex - 1].fullPath) }
+      : null;
+    const next = currentIndex < flat.length - 1
+      ? { title: flat[currentIndex + 1].title, href: buildDocsPath(...flat[currentIndex + 1].fullPath) }
+      : null;
+
+    return { prev, next };
+  } catch (error) {
+    console.error(`[getAdjacentArticles] ${getErrorMessage(error)}`);
+    return { prev: null, next: null };
   }
 }
 
