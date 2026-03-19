@@ -162,6 +162,33 @@ interface MDXFrontmatter { title, description, order, author, date, tags }
 interface NavigationItem { title, href, icon?, children?, isActive? }
 ```
 
+## 코드 퀄리티 규칙
+
+### 파일 크기
+
+- 컴포넌트/유틸리티 파일은 **200줄 이하** 유지 (Shadcn UI 제외)
+- 초과 시 관심사별로 분리 (렌더링 / 인터랙션 / 데이터 로직)
+
+### 컴포넌트 설계
+
+- **단일 관심사 원칙:** 하나의 컴포넌트는 하나의 역할만 담당
+- **선언적 코딩:** 조건부 렌더링은 early return 또는 맵 객체 활용, 명령형 DOM 조작 최소화
+- Named Export 사용, 모든 컴포넌트는 `className` prop 수용
+- 복잡한 인터랙션 로직은 커스텀 훅으로 분리
+
+### 재사용성
+
+- 아이콘/색상/스타일 맵은 `constants.ts`로 중앙 관리
+- 2회 이상 사용되는 유틸리티 함수는 `lib/`로 추출
+- 도메인 특화 로직은 커스텀 훅으로 격리
+
+### lib/ 분할 기준
+
+- 파일 I/O → `mdx-file.ts`
+- 트리 빌드 → `mdx-tree.ts`
+- 인접 글/형제 파일 → `mdx-navigation.ts`
+- 공통 타입/상수 → `mdx-types.ts`
+
 ## 주요 의존성
 
 - `next-mdx-remote` 6.0.0 — MDX 렌더링 (RSC 모드)

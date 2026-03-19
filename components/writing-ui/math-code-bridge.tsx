@@ -2,6 +2,7 @@
 
 import React from 'react'
 import { cn } from '@/lib/utils'
+import { getTextContent } from '@/lib/react-children-utils'
 
 type ConnectionItem = { mathLabel: string; codeLabel: string }
 
@@ -24,15 +25,6 @@ function parseConnections(connections: ConnectionItem[] | string): ConnectionIte
         const [mathLabel, codeLabel] = pair.split('::').map(s => s.trim())
         return { mathLabel: mathLabel ?? '', codeLabel: codeLabel ?? '' }
     }).filter(c => c.mathLabel && c.codeLabel)
-}
-
-function getTextContent(node: React.ReactNode): string {
-    if (typeof node === 'string') return node
-    if (Array.isArray(node)) return node.map(getTextContent).join('')
-    if (React.isValidElement(node)) {
-        return getTextContent((node.props as any).children)
-    }
-    return String(node ?? '')
 }
 
 function extractFromChildren(children: React.ReactNode): {

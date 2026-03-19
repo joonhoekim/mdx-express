@@ -3,26 +3,9 @@
 import React, { useMemo, useState } from 'react';
 import { Copy, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { getTextContent } from '@/lib/react-children-utils';
 import hljs from 'highlight.js';
 import 'highlight.js/styles/github-dark.css';
-
-// children을 문자열로 변환하는 순수 함수 (컴포넌트 외부 — 매 렌더마다 재생성 방지)
-function getCodeString(children: React.ReactNode): string {
-    if (typeof children === 'string') {
-        return children;
-    }
-
-    if (Array.isArray(children)) {
-        return children.map(child => getCodeString(child)).join('');
-    }
-
-    if (React.isValidElement(children)) {
-        const element = children as React.ReactElement<any>;
-        return getCodeString(element.props.children);
-    }
-
-    return String(children);
-}
 
 import { LANGUAGE_ALIASES, LANGUAGE_BADGE_COLORS } from './constants';
 
@@ -48,7 +31,7 @@ export function CodeBlock({
     showCopy = true
 }: CodeBlockProps) {
     const [copied, setCopied] = useState(false);
-    const codeString = getCodeString(children);
+    const codeString = getTextContent(children);
     const effectiveLanguage = resolveLanguage(language);
 
     const highlightedHtml = useMemo(() => {

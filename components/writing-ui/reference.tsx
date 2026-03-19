@@ -1,6 +1,7 @@
 import React from 'react'
 import { BookOpen, ExternalLink, FileText, Link2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { REFERENCE_COLORS } from './constants'
 
 interface ReferenceProps {
     title: string
@@ -26,14 +27,6 @@ const referenceIcons = {
     link: Link2
 }
 
-const referenceColors = {
-    article: 'text-blue-600 bg-blue-50 dark:text-blue-400 dark:bg-blue-950/30',
-    documentation: 'text-green-600 bg-green-50 dark:text-green-400 dark:bg-green-950/30',
-    tutorial: 'text-purple-600 bg-purple-50 dark:text-purple-400 dark:bg-purple-950/30',
-    reference: 'text-orange-600 bg-orange-50 dark:text-orange-400 dark:bg-orange-950/30',
-    link: 'text-gray-600 bg-gray-50 dark:text-gray-400 dark:bg-gray-950/30'
-}
-
 export function Reference({
     title,
     description,
@@ -44,7 +37,7 @@ export function Reference({
     className
 }: ReferenceProps) {
     const Icon = referenceIcons[type] || Link2
-    const colorClasses = referenceColors[type] || referenceColors.link
+    const colorClasses = REFERENCE_COLORS[type] || REFERENCE_COLORS.link
 
     const content = (
         <div className={cn(

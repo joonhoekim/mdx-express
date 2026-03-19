@@ -5,11 +5,12 @@ import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { FloatingBubbles } from './_components/floating-bubbles';
+import { CursorFollower } from './_components/cursor-follower';
 
 export default function NotFound() {
     const [isVisible, setIsVisible] = useState(false);
     const [currentTip, setCurrentTip] = useState(0);
-    const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
 
     const tips = [
         "💡 URL을 다시 확인해보세요",
@@ -32,12 +33,10 @@ export default function NotFound() {
     useEffect(() => {
         setIsVisible(true);
 
-        // 팁 로테이션
         const tipInterval = setInterval(() => {
             setCurrentTip((prev) => (prev + 1) % tips.length);
         }, 3000);
 
-        // 메시지 로테이션
         const messageInterval = setInterval(() => {
             setCurrentMessage((prev) => (prev + 1) % funnyMessages.length);
         }, 4000);
@@ -48,51 +47,14 @@ export default function NotFound() {
         };
     }, []);
 
-    useEffect(() => {
-        const handleMouseMove = (e: MouseEvent) => {
-            setMousePosition({ x: e.clientX, y: e.clientY });
-        };
-
-        window.addEventListener('mousemove', handleMouseMove);
-        return () => window.removeEventListener('mousemove', handleMouseMove);
-    }, []);
-
     return (
         <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900 flex items-center justify-center p-4 overflow-hidden relative">
-            {/* 배경 애니메이션 요소들 */}
-            <div className="absolute inset-0 overflow-hidden">
-                {[...Array(20)].map((_, i) => (
-                    <div
-                        key={i}
-                        className="absolute rounded-full bg-blue-200/20 dark:bg-blue-400/10 animate-float"
-                        style={{
-                            left: `${Math.random() * 100}%`,
-                            top: `${Math.random() * 100}%`,
-                            width: `${Math.random() * 100 + 20}px`,
-                            height: `${Math.random() * 100 + 20}px`,
-                            animationDelay: `${Math.random() * 5}s`,
-                            animationDuration: `${Math.random() * 10 + 10}s`,
-                        }}
-                    />
-                ))}
-            </div>
-
-            {/* 마우스 따라다니는 요소 */}
-            <div
-                className="fixed pointer-events-none z-10 transition-all duration-300 ease-out"
-                style={{
-                    left: mousePosition.x - 10,
-                    top: mousePosition.y - 10,
-                    transform: 'translate(-50%, -50%)',
-                }}
-            >
-                <div className="w-5 h-5 bg-blue-400/30 rounded-full blur-sm animate-pulse" />
-            </div>
+            <FloatingBubbles />
+            <CursorFollower />
 
             <div className={`max-w-2xl w-full transition-all duration-1000 ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10'}`}>
                 <Card className="backdrop-blur-sm bg-white/80 dark:bg-slate-800/80 border-0 shadow-2xl">
                     <CardHeader className="text-center pb-4">
-                        {/* 404 숫자 애니메이션 */}
                         <div className="relative mb-6">
                             <div className="text-8xl md:text-9xl font-bold bg-gradient-to-r from-blue-600 via-purple-600 to-indigo-600 bg-clip-text text-transparent animate-pulse">
                                 404
@@ -114,7 +76,6 @@ export default function NotFound() {
                     </CardHeader>
 
                     <CardContent className="space-y-6">
-                        {/* 팁 섹션 */}
                         <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-slate-700 dark:to-slate-600 rounded-lg p-4 border border-blue-200 dark:border-slate-500">
                             <div className="flex items-center gap-2 mb-2">
                                 <span className="text-sm font-medium text-blue-700 dark:text-blue-300">
@@ -129,7 +90,6 @@ export default function NotFound() {
                             </p>
                         </div>
 
-                        {/* 액션 버튼들 */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <Link href="/docs" className="group">
                                 <Button
@@ -153,7 +113,6 @@ export default function NotFound() {
                             </Link>
                         </div>
 
-                        {/* 추가 정보 */}
                         <div className="text-center pt-4 border-t border-slate-200 dark:border-slate-600">
                             <p className="text-sm text-slate-500 dark:text-slate-400 mb-2">
                                 문제가 지속되면 다음을 시도해보세요:
@@ -171,7 +130,6 @@ export default function NotFound() {
                             </div>
                         </div>
 
-                        {/* 재미있는 통계 */}
                         <div className="bg-slate-50 dark:bg-slate-700 rounded-lg p-4 text-center">
                             <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">
                                 🎯 재미있는 사실
@@ -183,7 +141,6 @@ export default function NotFound() {
                     </CardContent>
                 </Card>
 
-                {/* 하단 장식 요소 */}
                 <div className="mt-8 text-center">
                     <div className="inline-flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
                         <span>Made with</span>
@@ -192,16 +149,6 @@ export default function NotFound() {
                     </div>
                 </div>
             </div>
-
-            <style jsx>{`
-        @keyframes float {
-          0%, 100% { transform: translateY(0px) rotate(0deg); }
-          50% { transform: translateY(-20px) rotate(180deg); }
-        }
-        .animate-float {
-          animation: float linear infinite;
-        }
-      `}</style>
         </div>
     );
 }

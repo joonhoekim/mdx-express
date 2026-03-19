@@ -1,84 +1,13 @@
 "use client";
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ZoomIn, ZoomOut, RotateCcw, Maximize2, Minimize2 } from 'lucide-react';
+import mermaid from 'mermaid';
 import { cn } from '@/lib/utils';
 import { usePanZoom } from '@/hooks/use-pan-zoom';
-import mermaid from 'mermaid';
+import { ensureMermaidInit, preprocessMermaidContent } from './mermaid-theme';
+import { MermaidControls } from './mermaid-controls';
 
-const FONT_FAMILY = "'Pretendard Variable', Pretendard, ui-sans-serif, system-ui, -apple-system, sans-serif";
-
-// 다크/라이트 테마별 변수
-const darkThemeVars = {
-    fontSize: '13px',
-    fontFamily: FONT_FAMILY,
-    primaryColor: '#1e293b',
-    primaryTextColor: '#e2e8f0',
-    primaryBorderColor: '#334155',
-    lineColor: '#475569',
-    secondaryColor: '#0f172a',
-    tertiaryColor: '#1e293b',
-    nodeBorder: '#334155',
-    mainBkg: '#1e293b',
-    nodeTextColor: '#e2e8f0',
-    edgeLabelBackground: '#0f172a',
-    clusterBkg: '#0f172a',
-    clusterBorder: '#334155',
-    labelBackground: '#0f172a',
-    titleColor: '#e2e8f0',
-};
-
-const lightThemeVars = {
-    fontSize: '13px',
-    fontFamily: FONT_FAMILY,
-    primaryColor: '#f1f5f9',
-    primaryTextColor: '#1e293b',
-    primaryBorderColor: '#cbd5e1',
-    lineColor: '#94a3b8',
-    secondaryColor: '#f8fafc',
-    tertiaryColor: '#f1f5f9',
-    nodeBorder: '#cbd5e1',
-    mainBkg: '#f8fafc',
-    nodeTextColor: '#1e293b',
-    edgeLabelBackground: '#ffffff',
-    clusterBkg: '#f8fafc',
-    clusterBorder: '#e2e8f0',
-    labelBackground: '#ffffff',
-    titleColor: '#1e293b',
-};
-
-// 테마 변경 시 재초기화 허용
-let lastThemeMode: 'dark' | 'light' | null = null;
-
-function ensureMermaidInit(dark: boolean) {
-    const mode = dark ? 'dark' : 'light';
-    if (lastThemeMode === mode) return;
-    mermaid.initialize({
-        startOnLoad: false,
-        theme: 'base',
-        securityLevel: 'loose',
-        fontFamily: FONT_FAMILY,
-        flowchart: {
-            useMaxWidth: true,
-            htmlLabels: true,
-            curve: 'basis',
-            padding: 16,
-        },
-        themeVariables: dark ? darkThemeVars : lightThemeVars,
-    });
-    lastThemeMode = mode;
-}
-
-// \n → <br/> 변환 (htmlLabels:true 에서 줄바꿈 처리)
-function preprocessMermaidContent(content: string): string {
-    return content.replace(/\\n/g, '<br/>');
-}
-
-interface MermaidProps {
-    children: string;
-    className?: string;
-    title?: string;
-}
+interface MermaidProps { children: string; className?: string; title?: string }
 
 export function Mermaid({ children, className, title }: MermaidProps) {
     const ref = useRef<HTMLDivElement>(null);
@@ -208,8 +137,6 @@ export function Mermaid({ children, className, title }: MermaidProps) {
         );
     }
 
-    const scalePercent = Math.round(scale * 100);
-
     return (
         <div
             ref={wrapperRef}
@@ -258,61 +185,14 @@ export function Mermaid({ children, className, title }: MermaidProps) {
             </div>
 
             {/* 줌 컨트롤 — 호버 시 표시, 전체화면에서는 항상 표시 */}
-            <div
-                className={cn(
-                    'absolute top-2 right-2 flex items-center gap-0.5 rounded-lg',
-                    'bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm',
-                    'border border-slate-200 dark:border-slate-700',
-                    'shadow-sm',
-                    'transition-opacity duration-200 opacity-100',
-                )}
-                role="toolbar"
-                aria-label="Diagram zoom controls"
-            >
-                <button
-                    onClick={zoomOut}
-                    className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-l-lg transition-colors"
-                    aria-label="Zoom out"
-                    title="Zoom out (-)"
-                >
-                    <ZoomOut className="h-4 w-4 text-slate-500 dark:text-slate-400" />
-                </button>
-                <span
-                    className="px-2 text-xs font-mono text-slate-600 dark:text-slate-400 select-none min-w-[3.5rem] text-center"
-                    aria-live="polite"
-                >
-                    {scalePercent}%
-                </span>
-                <button
-                    onClick={zoomIn}
-                    className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
-                    aria-label="Zoom in"
-                    title="Zoom in (+)"
-                >
-                    <ZoomIn className="h-4 w-4 text-slate-500 dark:text-slate-400" />
-                </button>
-                <div className="w-px h-5 bg-slate-200 dark:bg-slate-700" />
-                <button
-                    onClick={resetZoom}
-                    className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
-                    aria-label="Reset zoom"
-                    title="Reset zoom (0)"
-                >
-                    <RotateCcw className="h-4 w-4 text-slate-500 dark:text-slate-400" />
-                </button>
-                <div className="w-px h-5 bg-slate-200 dark:bg-slate-700" />
-                <button
-                    onClick={toggleFullscreen}
-                    className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-r-lg transition-colors"
-                    aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
-                    title={isFullscreen ? 'Exit fullscreen (F)' : 'Fullscreen (F)'}
-                >
-                    {isFullscreen
-                        ? <Minimize2 className="h-4 w-4 text-slate-500 dark:text-slate-400" />
-                        : <Maximize2 className="h-4 w-4 text-slate-500 dark:text-slate-400" />
-                    }
-                </button>
-            </div>
+            <MermaidControls
+                scale={scale}
+                zoomIn={zoomIn}
+                zoomOut={zoomOut}
+                resetZoom={resetZoom}
+                isFullscreen={isFullscreen}
+                toggleFullscreen={toggleFullscreen}
+            />
         </div>
     );
 }
