@@ -3,7 +3,8 @@ import {
   getMDXContentByPath,
   getPathType,
   buildMDXTree,
-  getAllMDXNestedSections
+  getAllMDXNestedSections,
+  type MDXFileNode,
 } from '@/lib/mdx-utils';
 import { SectionIndexPage } from '@/components/section-index-page';
 import { DocumentPage } from '@/components/document-page';
@@ -64,7 +65,7 @@ export async function generateStaticParams() {
     const params: Array<{ slug: string[] }> = [];
 
     // 재귀적으로 모든 경로 생성
-    function collectPaths(nodes: any[], currentPath: string[] = []): void {
+    function collectPaths(nodes: MDXFileNode[], currentPath: string[] = []): void {
       for (const node of nodes) {
         const nodePath = [...currentPath, node.slug];
 

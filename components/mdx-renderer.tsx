@@ -77,6 +77,7 @@ const mdxComponents = {
 
 const mdxOptions = {
   mdxOptions: {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- remark 플러그인 타입이 PluggableList와 불일치
     remarkPlugins: [remarkCjkFriendly, remarkMath, remarkGfm] as any[],
     rehypePlugins: [
       [rehypeKatex, { strict: false }],
@@ -89,6 +90,7 @@ const mdxOptions = {
           'mdxjsEsm'
         ]
       }]
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- rehype 플러그인 옵션 튜플 타입 불일치
     ] as any[],
     development: isDev,
     format: 'mdx' as const,

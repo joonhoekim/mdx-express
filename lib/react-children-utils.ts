@@ -7,8 +7,8 @@ import { isValidElement, type ReactNode } from 'react'
 export function getTextContent(node: ReactNode): string {
     if (typeof node === 'string') return node
     if (Array.isArray(node)) return node.map(getTextContent).join('')
-    if (isValidElement(node)) {
-        return getTextContent((node.props as any).children)
+    if (isValidElement<{ children?: ReactNode }>(node)) {
+        return getTextContent(node.props.children)
     }
     return String(node ?? '')
 }

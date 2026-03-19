@@ -21,6 +21,7 @@ interface SearchResult {
 }
 
 // FlexSearch Document를 동적으로 사용
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- FlexSearch Document 클래스의 타입 정의가 불완전
 let Document: any = null;
 
 async function getFlexSearch() {
@@ -69,6 +70,7 @@ export function SearchDialog() {
   const [results, setResults] = useState<SearchResult[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [entries, setEntries] = useState<SearchEntry[]>([]);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- FlexSearch Document 인스턴스 타입 미제공
   const indexRef = useRef<any>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const resultListRef = useRef<HTMLDivElement>(null);

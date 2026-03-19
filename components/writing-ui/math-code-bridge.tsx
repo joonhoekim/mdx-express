@@ -38,8 +38,8 @@ function extractFromChildren(children: React.ReactNode): {
 
     React.Children.forEach(children, (child) => {
         if (!React.isValidElement(child)) return
-        const props = child.props as any
-        const language = props?.language
+        const props = child.props as { language?: string; children?: React.ReactNode }
+        const language = props.language
         if (!language) return
 
         const content = getTextContent(props.children).replace(/\n$/, '')

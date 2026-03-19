@@ -14,6 +14,7 @@ const loadIcon = (name: string): ComponentType<LucideProps> => {
     return lazy(() =>
         import('lucide-react')
             .then((mod) => {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any -- lucide-react 동적 import 결과에 인덱스 시그니처 없음
                 const IconComponent = (mod as any)[name];
                 if (!IconComponent) {
                     console.warn(`Icon "${name}" not found in lucide-react. Using fallback.`);

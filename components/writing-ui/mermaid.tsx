@@ -49,7 +49,7 @@ export function Mermaid({ children, className, title }: MermaidProps) {
             try {
                 ensureMermaidInit(isDark);
 
-                const id = `mermaid-${Math.random().toString(36).substr(2, 9)}`;
+                const id = `mermaid-${Math.random().toString(36).substring(2, 11)}`;
                 const processed = preprocessMermaidContent(children.trim());
                 const { svg } = await mermaid.render(id, processed);
                 setSvgContent(svg);
@@ -154,8 +154,8 @@ export function Mermaid({ children, className, title }: MermaidProps) {
             <div
                 ref={(el) => {
                     // 두 ref 동시 할당
-                    (ref as React.MutableRefObject<HTMLDivElement | null>).current = el;
-                    (containerRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
+                    (ref as React.RefObject<HTMLDivElement | null>).current = el;
+                    (containerRef as React.RefObject<HTMLDivElement | null>).current = el;
                 }}
                 className={cn(
                     'overflow-hidden mermaid-diagram',
