@@ -35,7 +35,11 @@ app/
   api/sibling-files/route.ts    # 형제 파일 API
 
 components/
-  mdx-renderer.tsx              # MDX → React 변환 + 컴포넌트 매핑 (핵심)
+  mdx-renderer.tsx              # MDX → React 변환 진입점 (compileMDX + 에러 핸들링)
+  mdx-components.ts             # 컴포넌트 레지스트리 (Writing UI + Shadcn UI)
+  mdx-options.ts                # remark/rehype 플러그인 설정
+  mdx-error.tsx                 # MDX 에러 포맷팅 + 개발 모드 UI
+  mdx-html-elements.tsx         # HTML 요소 스타일링 + 코드 블록 라우팅
   document-page.tsx             # 단일 문서 뷰
   section-index-page.tsx        # 섹션 인덱스 (디렉토리 뷰)
   sidebar-navigation.tsx        # 사이드바 (클라이언트)
@@ -70,12 +74,15 @@ scripts/create-mdx.js           # MDX 파일 생성 스크립트
 - 파일 → `DocumentPage` (MDXRenderer), 디렉토리 → `SectionIndexPage`
 - `generateStaticParams()`로 빌드 타임 정적 생성
 
-### 3. 렌더링 레이어 (`components/mdx-renderer.tsx`)
+### 3. 렌더링 레이어 (`components/mdx-renderer.tsx` + 분리 모듈)
 
-- `next-mdx-remote/rsc`의 `MDXRemote` 사용 (런타임 RSC 방식)
-- remark 플러그인: `remarkCjkFriendly` → `remarkGfm` (순서 중요!)
-- rehype 플러그인: `rehypeRaw` (passThrough로 MDX 노드 5종 보존)
-- 컴포넌트 매핑: Writing UI + HTML 요소 스타일링 + 코드 블록 처리
+- `next-mdx-remote/rsc`의 `compileMDX` 사용 (런타임 RSC 방식)
+- remark 플러그인: `remarkCjkFriendly` → `remarkMath` → `remarkGfm` (순서 중요!)
+- rehype 플러그인: `rehypeKatex` + `rehypeRaw` (passThrough로 MDX 노드 5종 보존)
+- 컴포넌트 매핑: `mdx-components.ts` (Writing UI + Shadcn UI + HTML 요소)
+- HTML 요소 + 코드 블록 라우팅: `mdx-html-elements.tsx`
+- 플러그인 설정: `mdx-options.ts`
+- 에러 핸들링: `mdx-error.tsx` (소스 위치 포함 포맷팅 + 개발 모드 UI)
 
 ## MDX 콘텐츠 작성 규칙
 
@@ -93,7 +100,6 @@ tags: ["tag1", "tag2"]
 
 - `title` 없으면 파일명이 제목이 됨
 - `order`로 사이드바 정렬 제어
-- 디렉토리에 `index.mdx`가 있으면 해당 frontmatter로 제목/설명 표시
 
 ### 사용 가능한 Writing UI 컴포넌트
 
@@ -123,7 +129,7 @@ import { Callout, CodeBlock, Tabs, TabsList, TabsTrigger, TabsContent } from '@/
 ### CJK 호환성
 
 - `remark-cjk-friendly`가 한글 **볼드**/`*이탤릭*` 렌더링 문제 해결
-- 플러그인 순서: `remarkCjkFriendly` → `remarkGfm` (반드시 이 순서)
+- 플러그인 순서: `remarkCjkFriendly` → `remarkMath` → `remarkGfm` (반드시 이 순서)
 
 ### Sanitization
 
@@ -139,17 +145,17 @@ import { Callout, CodeBlock, Tabs, TabsList, TabsTrigger, TabsContent } from '@/
 
 ### pre 요소 라우팅
 
-`mdx-renderer.tsx`의 `pre` 매핑이 코드 블록 처리의 핵심:
+`mdx-html-elements.tsx`의 `pre` 매핑이 코드 블록 처리의 핵심:
 1. `language-mermaid` → Mermaid 컴포넌트
-2. `language-*` → highlight.js 코드 블록
-3. 언어 미지정 → plaintext
-4. 그 외 → 순수 pre 태그
+2. `math-display` → 패스스루 (rehype-katex가 처리)
+3. `language-*` → CodeBlock 컴포넌트 (highlight.js)
+4. 언어 미지정 → plaintext CodeBlock
+5. 그 외 → 순수 pre 태그
 
 ## 파일 경로 ↔ URL 매핑
 
 ```
 content/dev/react/hooks.mdx        → /docs/dev/react/hooks
-content/dev/react/index.mdx        → /docs/dev/react (디렉토리 인덱스)
 content/javascript/closures.mdx    → /docs/javascript/closures
 ```
 
@@ -191,9 +197,10 @@ interface NavigationItem { title, href, icon?, children?, isActive? }
 
 ## 주요 의존성
 
-- `next-mdx-remote` 6.0.0 — MDX 렌더링 (RSC 모드)
+- `next-mdx-remote` 6.0.0 — MDX 렌더링 (compileMDX, RSC 모드)
 - `gray-matter` — frontmatter 파싱
 - `highlight.js` — 190+ 언어 구문 강조
+- `remark-math` + `rehype-katex` — 수식 렌더링 (KaTeX)
 - `mermaid` — 다이어그램
 - `lucide-react` — 아이콘 (선별 import, LUCIDE_ICONS 매핑)
 - `@radix-ui/*` + Shadcn UI — UI 컴포넌트
