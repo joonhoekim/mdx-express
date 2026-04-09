@@ -42,5 +42,8 @@ next-env.d.ts
 
 .playwright-mcp
 
+# 로컬 문서
+/_docs
+
 # 초안 md 파일들
 *.md
