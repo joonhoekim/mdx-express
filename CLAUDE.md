@@ -17,11 +17,13 @@ Next.js 16 + MDX 기반 문서/블로그 사이트. 파일 시스템(`content/`)
 ## 개발 명령어
 
 ```bash
-bun dev          # 개발 서버 (Turbopack)
-bun run build    # 프로덕션 빌드
-bun start        # 프로덕션 서버
-bun lint         # 린트
-bun create-mdx   # 인터랙티브 MDX 파일 생성
+bun dev            # 개발 서버 (Turbopack)
+bun run build      # 프로덕션 빌드
+bun start          # 프로덕션 서버
+bun lint           # 린트
+bun run test       # 전체 테스트 실행 (CI용, 1회 실행)
+bun run test:watch # 테스트 watch 모드 (개발용)
+bun create-mdx     # 인터랙티브 MDX 파일 생성
 ```
 
 ## 프로젝트 구조
@@ -55,6 +57,10 @@ lib/
 content/                        # MDX 콘텐츠 (10개 섹션)
 hooks/                          # useIsMobile, usePanZoom, useSiblingFiles
 scripts/create-mdx.js           # MDX 파일 생성 스크립트
+
+__tests__/
+  mdx-compile.test.ts           # 전체 MDX 파일 compileMDX 컴파일 테스트
+vitest.config.ts                # Vitest 설정 (path alias, CSS 무시, 타임아웃)
 ```
 
 ## 아키텍처: MDX 렌더링 파이프라인
@@ -118,6 +124,7 @@ import { Callout, CodeBlock, Tabs, TabsList, TabsTrigger, TabsContent } from '@/
 
 - Mermaid 다이어그램: 표준 코드 펜스 ` ```mermaid ` 사용 (자동 감지)
 - 코드 블록: 표준 코드 펜스로 작성하면 highlight.js 자동 적용
+- **`<CodeBlock>` 안에서 `{`...`}` 템플릿 리터럴 사용 금지** — sanitize 후 backtick이 MDX 인라인 코드로 해석되어 파싱 오류 발생. 코드 블록은 표준 코드 펜스(```)를 사용할 것
 
 ### 컴포넌트 이름 충돌 규칙
 
@@ -194,6 +201,15 @@ interface NavigationItem { title, href, icon?, children?, isActive? }
 - 트리 빌드 → `mdx-tree.ts`
 - 인접 글/형제 파일 → `mdx-navigation.ts`
 - 공통 타입/상수 → `mdx-types.ts`
+
+## 테스트
+
+- **프레임워크:** Vitest
+- **테스트 범위:** 전체 MDX 파일 compileMDX 컴파일 성공 여부
+- **실행:** `bun run test` (CI용 1회 실행), `bun run test:watch` (개발용)
+- content/ 하위 모든 .mdx 파일을 `test.each`로 개별 테스트 케이스 생성
+- 프로덕션과 동일한 파이프라인: gray-matter → sanitize → compileMDX (remark/rehype + components)
+- 설정 파일: `vitest.config.ts` (path alias `@/*`, PostCSS 충돌 방지, CSS 무시)
 
 ## 주요 의존성
 

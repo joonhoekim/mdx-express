@@ -1,36 +1,52 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# mdx-express
 
-## Getting Started
+Next.js 16 + MDX 기반 문서/블로그 사이트. 파일 시스템(`content/`)에서 MDX 파일을 읽어 React 컴포넌트로 렌더링한다.
 
-First, run the development server:
+## 기술 스택
+
+- **프레임워크:** Next.js 16 (App Router, Turbopack)
+- **언어:** TypeScript (strict mode)
+- **스타일링:** Tailwind CSS 4 + Shadcn UI
+- **MDX:** next-mdx-remote (RSC), remark/rehype 플러그인
+- **테스트:** Vitest
+
+## 시작하기
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
+bun install
 bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+[http://localhost:3000](http://localhost:3000)에서 확인.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 명령어
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+bun dev            # 개발 서버 (Turbopack)
+bun run build      # 프로덕션 빌드
+bun start          # 프로덕션 서버
+bun lint           # 린트
+bun run test       # 전체 테스트 (1회 실행)
+bun run test:watch # 테스트 watch 모드
+bun create-mdx     # MDX 파일 생성
+```
 
-## Learn More
+## 프로젝트 구조
 
-To learn more about Next.js, take a look at the following resources:
+```
+app/docs/[...slug]/page.tsx   # MDX 동적 라우팅
+components/mdx-renderer.tsx   # MDX → React 변환
+lib/mdx-utils.ts              # MDX 파일 I/O, 트리 빌드
+content/                      # MDX 콘텐츠
+__tests__/                    # Vitest 테스트
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## 콘텐츠 작성
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+`content/` 디렉토리에 `.mdx` 파일을 추가하면 자동으로 라우팅된다.
 
-## Deploy on Vercel
+```
+content/dev/react/hooks.mdx → /docs/dev/react/hooks
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+자세한 작성 규칙은 `CLAUDE.md`를 참고.
