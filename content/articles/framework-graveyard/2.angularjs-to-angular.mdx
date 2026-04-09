@@ -1,0 +1,818 @@
+# AngularJS → Angular — 같은 이름, 완전히 다른 프레임워크
+
+*"Angular 2가 나왔을 때 AngularJS 개발자들의 표정은 '내 집이 철거된다'는 통보를 받은 것과 같았음."*
+
+---
+
+2016년 9월 14일.
+
+Google이 **Angular 2**를 정식 출시함.
+AngularJS (1.x) 개발자들이 일제히 비명을 지름.
+
+왜? 완전히 다른 프레임워크였거든.
+
+같은 이름만 쓸 뿐, 언어도 다르고 (JS → TypeScript), 구조도 다르고,
+심지어 템플릿 문법도 달랐음. 마이그레이션 가이드? 사실상 "처음부터 다시 만드셈" 수준.
+
+프레임워크 역사상 가장 큰 **배신** 사건이었음.
+
+<Callout type="note" title="묘비명">
+AngularJS 1.x (2010 - 2021)
+"여기 양방향 바인딩의 선구자가 잠들다.
+후계자가 자기 이름을 빼앗아 갔지만 원래 자기가 원조임."
+</Callout>
+
+## AngularJS의 탄생: 2010년의 혁명
+
+2010년, Google의 **Miško Hevery**가 AngularJS를 공개함.
+
+당시 프론트엔드 개발의 현실을 먼저 보자:
+
+```javascript
+// 2010년, jQuery로 CRUD 앱 만들기
+// 이게 "프론트엔드 개발"이었음
+
+$(document).ready(function() {
+    var todos = [];
+
+    // 할 일 추가
+    $('#add-btn').click(function() {
+        var text = $('#todo-input').val();
+        if (!text) return;
+
+        var todo = {
+            id: Date.now(),
+            text: text,
+            done: false
+        };
+        todos.push(todo);
+
+        // DOM 직접 조작 (지옥의 시작)
+        var $li = $('<li>')
+            .attr('data-id', todo.id)
+            .append(
+                $('<input type="checkbox">').click(function() {
+                    toggleTodo(todo.id);
+                }),
+                $('<span>').text(todo.text),
+                $('<button>').text('삭제').click(function() {
+                    removeTodo(todo.id);
+                })
+            );
+
+        $('#todo-list').append($li);
+        $('#todo-input').val('');
+        updateCount();
+    });
+
+    function toggleTodo(id) {
+        for (var i = 0; i < todos.length; i++) {
+            if (todos[i].id === id) {
+                todos[i].done = !todos[i].done;
+                // 다시 DOM 업데이트... 수동으로...
+                var $li = $('[data-id="' + id + '"]');
+                $li.toggleClass('done');
+                break;
+            }
+        }
+        updateCount();
+    }
+
+    function removeTodo(id) {
+        todos = todos.filter(function(t) { return t.id !== id; });
+        $('[data-id="' + id + '"]').remove(); // DOM에서도 직접 제거
+        updateCount();
+    }
+
+    function updateCount() {
+        var remaining = todos.filter(function(t) { return !t.done; }).length;
+        $('#count').text(remaining + '개 남음');
+        // 데이터 바꿀 때마다 DOM도 따로 업데이트해야 함
+        // 까먹으면? UI 버그 ㅋㅋ
+    }
+});
+```
+
+**데이터가 변할 때마다 DOM을 수동으로 업데이트**해야 했음.
+까먹으면 UI랑 데이터가 안 맞는 버그가 발생함.
+앱이 커질수록 이 동기화 지옥이 점점 심해짐.
+
+근데 AngularJS가 등장하면서:
+
+```html
+<!-- AngularJS로 같은 앱 만들기 -->
+<!-- 마법처럼 보였음 진짜 -->
+
+<div ng-app="todoApp" ng-controller="TodoController">
+  <h2>할 일 목록 ({{remaining()}}개 남음)</h2>
+
+  <input ng-model="newTodo" placeholder="할 일 입력">
+  <button ng-click="addTodo()">추가</button>
+
+  <ul>
+    <li ng-repeat="todo in todos">
+      <input type="checkbox" ng-model="todo.done">
+      <span ng-class="{done: todo.done}">{{todo.text}}</span>
+      <button ng-click="removeTodo($index)">삭제</button>
+    </li>
+  </ul>
+</div>
+
+<script>
+angular.module('todoApp', [])
+.controller('TodoController', function($scope) {
+    $scope.todos = [];
+    $scope.newTodo = '';
+
+    $scope.addTodo = function() {
+        if (!$scope.newTodo) return;
+        $scope.todos.push({
+            text: $scope.newTodo,
+            done: false
+        });
+        $scope.newTodo = ''; // 입력 필드가 자동으로 비워짐!
+    };
+
+    $scope.removeTodo = function(index) {
+        $scope.todos.splice(index, 1);
+        // DOM 업데이트? 자동으로 됨!
+    };
+
+    $scope.remaining = function() {
+        return $scope.todos.filter(function(t) {
+            return !t.done;
+        }).length;
+        // 카운트도 자동 업데이트!
+    };
+});
+</script>
+```
+
+<Callout type="success" title="양방향 바인딩의 충격">
+데이터를 바꾸면 UI가 자동으로 바뀜.
+UI에서 입력하면 데이터가 자동으로 바뀜.
+**양방향 바인딩(Two-way Data Binding).**
+
+jQuery 시대의 개발자들에게 이건 마법이었음.
+"DOM을 직접 안 만져도 된다고?!" 하면서 감동의 눈물을 흘림.
+</Callout>
+
+## AngularJS의 핵심 혁신
+
+### 1. Dependency Injection
+
+```javascript
+// AngularJS의 DI — 프론트엔드에 DI를 도입한 최초의 프레임워크
+
+// 서비스 정의
+angular.module('app')
+.service('UserService', function($http) {
+    // $http가 자동으로 주입됨!
+    this.getUsers = function() {
+        return $http.get('/api/users');
+    };
+
+    this.getUser = function(id) {
+        return $http.get('/api/users/' + id);
+    };
+
+    this.createUser = function(user) {
+        return $http.post('/api/users', user);
+    };
+})
+
+// 컨트롤러에서 서비스 사용
+.controller('UserController', function($scope, UserService) {
+    // UserService가 자동으로 주입됨!
+    // new 안 해도 됨!
+
+    UserService.getUsers().then(function(response) {
+        $scope.users = response.data;
+    });
+
+    $scope.addUser = function() {
+        UserService.createUser($scope.newUser).then(function() {
+            $scope.users.push($scope.newUser);
+            $scope.newUser = {};
+        });
+    };
+});
+
+// 테스트할 때는 Mock 주입
+// 이게 당시엔 진짜 혁명적이었음
+describe('UserController', function() {
+    var $scope, mockUserService;
+
+    beforeEach(inject(function($controller, $rootScope) {
+        $scope = $rootScope.$new();
+        mockUserService = {
+            getUsers: function() {
+                return { then: function(cb) { cb({ data: [] }); } };
+            }
+        };
+
+        $controller('UserController', {
+            $scope: $scope,
+            UserService: mockUserService
+        });
+    }));
+});
+```
+
+### 2. 디렉티브 (Directives)
+
+```javascript
+// 커스텀 HTML 태그를 만들 수 있었음
+// 웹 컴포넌트의 선구자
+
+angular.module('app')
+.directive('userCard', function() {
+    return {
+        restrict: 'E', // Element로 사용
+        scope: {
+            user: '=',         // 양방향 바인딩
+            onDelete: '&',     // 콜백
+            title: '@'         // 단방향 문자열
+        },
+        template: [
+            '<div class="card">',
+            '  <h3>{{title}}: {{user.name}}</h3>',
+            '  <p>{{user.email}}</p>',
+            '  <button ng-click="onDelete({user: user})">삭제</button>',
+            '</div>'
+        ].join(''),
+        link: function(scope, element, attrs) {
+            // DOM 조작이 필요할 때 여기서
+            element.on('mouseenter', function() {
+                element.addClass('hovered');
+            });
+        }
+    };
+});
+
+// 사용
+// <user-card user="selectedUser" on-delete="removeUser(user)" title="회원 정보">
+// </user-card>
+```
+
+### 3. 라우팅과 SPA
+
+```javascript
+// AngularJS가 SPA(Single Page Application) 개념을 대중화함
+
+angular.module('app', ['ngRoute'])
+.config(function($routeProvider) {
+    $routeProvider
+        .when('/users', {
+            templateUrl: 'views/user-list.html',
+            controller: 'UserListController'
+        })
+        .when('/users/:id', {
+            templateUrl: 'views/user-detail.html',
+            controller: 'UserDetailController',
+            resolve: {
+                // 라우트 진입 전에 데이터 미리 로딩
+                user: function($route, UserService) {
+                    return UserService.getUser($route.current.params.id);
+                }
+            }
+        })
+        .otherwise({
+            redirectTo: '/users'
+        });
+});
+
+// 요즘 Next.js의 라우팅 개념이 여기서 시작된 거임
+// resolve → getServerSideProps/loader 의 원조
+```
+
+<Callout type="info" title="AngularJS가 만든 개념들">
+지금 당연하게 쓰는 것들 중 AngularJS가 처음이거나 대중화한 것:
+
+- **양방향 데이터 바인딩** → Vue.js의 v-model이 계승
+- **컴포넌트 기반 UI** → React, Vue, Svelte 전부
+- **Dependency Injection** → NestJS, Angular가 계승
+- **SPA 라우팅** → React Router, Vue Router의 원조
+- **E2E 테스트 프레임워크** → Protractor → Cypress의 영감
+- **CLI 도구** → Angular CLI → Create React App, Vite
+</Callout>
+
+## AngularJS의 문제점들
+
+근데 AngularJS가 완벽하진 않았음. 많이 멀었음 ㅋㅋ
+
+### 1. $scope 지옥
+
+```javascript
+// $scope의 프로토타입 상속 문제
+// 이거 때문에 수많은 개발자가 야근함
+
+angular.module('app')
+.controller('ParentController', function($scope) {
+    $scope.name = "부모";
+    $scope.user = { name: "부모 유저" };
+})
+.controller('ChildController', function($scope) {
+    // 원시값은 자식 scope에 새로 생성됨 (프로토타입 체인 문제)
+    $scope.name = "자식"; // 부모의 name을 덮어쓰는 게 아님!
+                          // 자식 scope에 새 name이 생김!
+
+    // 객체 참조는 제대로 동작함
+    $scope.user.name = "자식 유저"; // 이건 부모 user도 바뀜
+
+    // 이 미묘한 차이 때문에 발생하는 버그가 어마어마했음
+    // "rule of dot" — $scope에는 항상 객체를 넣어라, 원시값 넣지 마라
+});
+```
+
+### 2. Dirty Checking의 성능 문제
+
+```javascript
+// AngularJS의 양방향 바인딩 원리: Dirty Checking
+// 모든 바인딩을 주기적으로 확인해서 변경 감지
+
+// $digest 사이클이 돌 때마다...
+// 1. 모든 $watch를 순회
+// 2. 이전 값과 현재 값 비교
+// 3. 변경된 게 있으면 다시 전체 순회 (연쇄 변경 감지)
+// 4. 변경이 없을 때까지 반복 (최대 10회)
+
+$scope.$watch('searchQuery', function(newVal, oldVal) {
+    if (newVal !== oldVal) {
+        $scope.filteredResults = filterResults(newVal);
+    }
+});
+
+// 문제: 바인딩이 2000개 넘으면 눈에 띄게 느려짐
+// ng-repeat으로 큰 리스트 렌더링하면 망했음
+
+// 해결 시도
+// 1. 한 번만 바인딩 (one-time binding)
+// <span>{{::user.name}}</span>  ← :: 붙이면 변경 감지 안 함
+
+// 2. track by로 ng-repeat 최적화
+// <li ng-repeat="item in items track by item.id">
+
+// 3. 가상 스크롤 (angular-vs-repeat)
+// 수천 개 항목을 실제로는 보이는 만큼만 렌더링
+
+// 근데 이래도 React의 Virtual DOM보다 느렸음
+```
+
+<Callout type="warning" title="2000개의 벽">
+AngularJS 팀은 "바인딩 2000개까지는 괜찮다"고 공식적으로 말했음.
+근데 실무에서 대시보드 하나 만들면 바인딩 2000개는 금방 넘김 ㅋㅋ
+테이블 한 개에 행 100개, 열 20개면 이미 2000개임.
+</Callout>
+
+### 3. 학습 곡선 (컨셉 과부하)
+
+```
+AngularJS 학습해야 할 개념들:
+
+$scope, $rootScope, $watch, $apply, $digest
+Controller, Service, Factory, Provider, Constant, Value
+Directive (restrict, scope, link, compile, transclude)
+Module, Config, Run
+$http, $resource, $q (Promise)
+ngRoute, ui-router
+Filter (내장 + 커스텀)
+Form Validation (ng-model, $valid, $dirty, $touched)
+$compile, $parse, $interpolate
+Decorator Pattern
+Transclusion (이거 뭔지 설명할 수 있는 사람?)
+
+// Service vs Factory vs Provider 차이?
+// 면접 질문 1위였음 ㅋㅋ
+
+// Service: new로 인스턴스화, this 사용
+angular.module('app').service('MyService', function() {
+    this.getData = function() { return 'data'; };
+});
+
+// Factory: 함수의 리턴값이 서비스 인스턴스
+angular.module('app').factory('MyFactory', function() {
+    return {
+        getData: function() { return 'data'; }
+    };
+});
+
+// Provider: config 단계에서 설정 가능한 서비스
+angular.module('app').provider('MyProvider', function() {
+    var config = {};
+    this.setConfig = function(c) { config = c; };
+    this.$get = function() {
+        return { getData: function() { return config; } };
+    };
+});
+
+// 셋 다 비슷한 일을 하는데 왜 3개가 있냐고?
+// AngularJS 팀도 나중에 후회했음 ㅋㅋ
+```
+
+## Angular 2: 같은 이름의 완전 다른 존재
+
+2016년, Google이 Angular 2를 출시함.
+
+개발자들의 기대: "AngularJS의 개선 버전이겠지?"
+현실:
+
+```typescript
+// Angular 2 (2016년)
+// 언어부터 다름: JavaScript → TypeScript
+
+import { Component, OnInit, Input, Output, EventEmitter } from '@angular/core';
+import { UserService } from './user.service';
+
+// 데코레이터 기반 (AngularJS의 config/directive와 완전 다름)
+@Component({
+    selector: 'app-user-list',
+    template: `
+        <h2>사용자 목록 ({{users.length}}명)</h2>
+
+        <input [(ngModel)]="searchQuery" placeholder="검색">
+        <!-- [(ngModel)] — 양방향 바인딩은 유지했지만 문법이 다름 -->
+
+        <!-- ng-repeat → *ngFor -->
+        <div *ngFor="let user of filteredUsers; trackBy: trackByUserId">
+            <app-user-card
+                [user]="user"
+                (onDelete)="deleteUser($event)"
+            ></app-user-card>
+        </div>
+
+        <!-- ng-if → *ngIf -->
+        <p *ngIf="users.length === 0">사용자가 없습니다.</p>
+    `,
+    styles: [`
+        /* 컴포넌트 스코프 CSS (Shadow DOM 에뮬레이션) */
+        :host { display: block; }
+        .card { border: 1px solid #ccc; }
+    `]
+})
+export class UserListComponent implements OnInit {
+    users: User[] = [];
+    searchQuery = '';
+
+    // DI는 유지했지만 생성자 주입 방식으로 변경
+    constructor(private userService: UserService) {}
+
+    // 라이프사이클 훅
+    ngOnInit(): void {
+        this.userService.getUsers().subscribe(users => {
+            this.users = users;
+        });
+    }
+
+    // Observable 기반 (Promise → RxJS)
+    get filteredUsers(): User[] {
+        return this.users.filter(u =>
+            u.name.toLowerCase().includes(this.searchQuery.toLowerCase())
+        );
+    }
+
+    deleteUser(user: User): void {
+        this.userService.deleteUser(user.id).subscribe(() => {
+            this.users = this.users.filter(u => u.id !== user.id);
+        });
+    }
+
+    trackByUserId(index: number, user: User): number {
+        return user.id;
+    }
+}
+```
+
+<Callout type="error" title="AngularJS vs Angular 2 — 변경점">
+달라진 것들 (전부임):
+
+| AngularJS | Angular 2+ |
+|-----------|-----------|
+| JavaScript | TypeScript |
+| $scope 기반 | 컴포넌트 클래스 기반 |
+| ng-repeat | *ngFor |
+| ng-if | *ngIf |
+| ng-click | (click) |
+| ng-model | [(ngModel)] |
+| $http (Promise) | HttpClient (Observable/RxJS) |
+| Controller | Component |
+| angular.module() | @NgModule |
+| Directive | Component + Directive |
+| $watch | OnChanges, getter |
+| Protractor | (나중에 없앰) |
+
+바뀌지 않은 것: **이름** (Angular). 그게 전부임.
+</Callout>
+
+## 마이그레이션의 고통
+
+Google의 공식 마이그레이션 가이드를 요약하면:
+
+```
+1단계: TypeScript로 전환하기
+2단계: 컴포넌트 아키텍처로 리팩토링
+3단계: 모듈 시스템 변경
+4단계: RxJS 도입
+5단계: 템플릿 문법 변경
+6단계: 라우팅 변경
+7단계: 폼 시스템 변경
+8단계: HTTP 클라이언트 변경
+9단계: 테스트 프레임워크 변경
+10단계: 빌드 시스템 변경
+
+...이쯤 되면 "처음부터 새로 만드는 게 빠르지 않나?" 싶은 거임
+```
+
+### ngUpgrade: 공존 시도
+
+```typescript
+// ngUpgrade — AngularJS와 Angular를 동시에 실행하는 프랑켄슈타인 방식
+
+import { UpgradeModule } from '@angular/upgrade/static';
+
+@NgModule({
+    imports: [
+        BrowserModule,
+        UpgradeModule // AngularJS 앱을 Angular 안에서 부트스트랩
+    ]
+})
+export class AppModule {
+    constructor(private upgrade: UpgradeModule) {}
+
+    ngDoBootstrap() {
+        // AngularJS 앱을 Angular 앱 안에서 실행
+        this.upgrade.bootstrap(document.body, ['legacyApp']);
+    }
+}
+
+// AngularJS 컴포넌트를 Angular에서 사용
+@Directive({ selector: 'legacy-component' })
+export class LegacyComponentWrapper extends UpgradeComponent {
+    constructor(elementRef: ElementRef, injector: Injector) {
+        super('legacyComponent', elementRef, injector);
+    }
+}
+
+// Angular 컴포넌트를 AngularJS에서 사용
+angular.module('legacyApp')
+    .directive('modernComponent',
+        downgradeComponent({ component: ModernComponent })
+    );
+
+// 이 방식의 문제:
+// 1. 두 프레임워크의 번들이 모두 로딩됨 (번들 사이즈 2배)
+// 2. 변경 감지가 두 시스템에서 별도로 돌아감 (성능 저하)
+// 3. 디버깅이 지옥 (어느 쪽 문제인지 파악 어려움)
+// 4. 점진적 마이그레이션이라고 했지만 실제로는 끝이 안 보임
+```
+
+<Callout type="warning" title="실무 마이그레이션 후기들">
+"6개월이면 끝날 줄 알았는데 2년 걸렸음"
+
+"마이그레이션 비용으로 새 프로젝트 3개 만들 수 있었음"
+
+"결국 ngUpgrade 걷어내고 React로 갈아탔음"
+
+"마이그레이션 도중 Angular 4가 나옴. Angular 3은 건너뜀. ㅋㅋ"
+</Callout>
+
+## Angular의 버전 카오스
+
+```
+Angular 2 (2016.09) — 대격변
+Angular 4 (2017.03) — 3은 건너뜀 (라우터 버전 충돌)
+Angular 5 (2017.11) — AOT 기본 활성화
+Angular 6 (2018.05) — RxJS 6, Angular Elements
+Angular 7 (2018.10) — 가상 스크롤, 드래그앤드롭
+Angular 8 (2019.05) — Ivy 렌더러 preview
+Angular 9 (2020.02) — Ivy 기본 활성화
+Angular 10-13 (2020-2021) — 점진적 개선
+Angular 14 (2022.06) — Standalone Components
+Angular 15 (2022.11) — Standalone 기본값
+Angular 16 (2023.05) — Signals 도입
+Angular 17 (2023.11) — 새 브랜딩, @for/@if 문법
+Angular 18 (2024.05) — Zoneless 실험적 지원
+Angular 19 (2024.11) — Standalone 완전 기본값
+
+6개월마다 메이저 버전이 바뀜.
+매번 breaking change는 아니지만 심리적으로 지침 ㅋㅋ
+```
+
+<Callout type="info" title="버전 3은 어디 갔는가">
+Angular 라우터 패키지 버전이 이미 3.x였음.
+프레임워크 버전과 라우터 버전이 안 맞으면 혼란스러우니까
+Angular 3을 건너뛰고 Angular 4로 감.
+합리적인 결정이긴 한데 "3은 왜 없어요?"가 면접 질문이 됨 ㅋㅋ
+</Callout>
+
+## React가 낚아챈 왕좌
+
+AngularJS → Angular 2 전환의 혼란기에 React가 치고 올라옴.
+
+```typescript
+// 2015-2016년 React의 등장이 왜 매력적이었나
+
+// React: "우리는 뷰 라이브러리임. 한 가지만 잘 함."
+function UserList({ users, onDelete }: {
+    users: User[];
+    onDelete: (id: number) => void;
+}) {
+    return (
+        <ul>
+            {users.map(user => (
+                <li key={user.id}>
+                    {user.name}
+                    <button onClick={() => onDelete(user.id)}>삭제</button>
+                </li>
+            ))}
+        </ul>
+    );
+}
+
+// vs Angular: "우리는 풀 프레임워크임. 모든 걸 제공함."
+// Component, Module, Service, Pipe, Guard, Resolver,
+// Interceptor, Directive, Injectable...
+// 배워야 할 게 50개임
+
+// React의 승리 요인:
+// 1. 낮은 진입 장벽 (JSX만 알면 시작 가능)
+// 2. 단방향 데이터 흐름 (디버깅이 쉬움)
+// 3. Virtual DOM (당시엔 혁신적)
+// 4. 생태계의 자유도 (라우터, 상태관리를 골라 쓸 수 있음)
+// 5. Facebook의 실사용 검증
+```
+
+```
+// 2015-2017 프론트엔드 프레임워크 전쟁
+
+npm 다운로드 추이 (대략적):
+
+2015: AngularJS ████████████████░░ > React ████████░░░░░░░░░░
+2016: AngularJS █████████████░░░░░ ≈ React █████████████░░░░░
+2017: AngularJS ████████░░░░░░░░░░ < React ████████████████████
+2018: Angular   ██████████░░░░░░░░ < React ████████████████████████
+      AngularJS ████░░░░░░░░░░░░░░   (하락 중)
+
+Vue.js가 2016년부터 급부상하면서 삼국지가 됨
+```
+
+## Angular의 현재: 부활인가 연명인가
+
+사실 Angular는 죽지 않았음.
+오히려 최근 몇 년간 꽤 좋아짐:
+
+```typescript
+// Angular 17+ 의 현대적 문법
+// 솔직히 꽤 좋아졌음
+
+// Standalone Component (NgModule 필요 없음!)
+@Component({
+    selector: 'app-user-list',
+    standalone: true, // 독립적으로 사용 가능
+    imports: [CommonModule, UserCardComponent],
+    template: `
+        <!-- 새로운 제어 흐름 문법 (Angular 17+) -->
+        @for (user of users(); track user.id) {
+            <app-user-card
+                [user]="user"
+                (delete)="deleteUser(user.id)"
+            />
+        } @empty {
+            <p>사용자가 없습니다.</p>
+        }
+
+        @if (isLoading()) {
+            <app-spinner />
+        }
+    `
+})
+export class UserListComponent {
+    private userService = inject(UserService); // inject 함수
+
+    // Signals — Angular의 반응형 프리미티브 (Angular 16+)
+    users = signal<User[]>([]);
+    isLoading = signal(false);
+
+    // computed — 파생 상태 (React의 useMemo와 비슷)
+    activeUsers = computed(() =>
+        this.users().filter(u => u.isActive)
+    );
+
+    // effect — 부수 효과 (React의 useEffect와 비슷)
+    constructor() {
+        effect(() => {
+            console.log('Active users:', this.activeUsers().length);
+        });
+    }
+
+    async loadUsers() {
+        this.isLoading.set(true);
+        try {
+            const users = await firstValueFrom(
+                this.userService.getUsers()
+            );
+            this.users.set(users);
+        } finally {
+            this.isLoading.set(false);
+        }
+    }
+
+    deleteUser(id: number) {
+        this.users.update(users =>
+            users.filter(u => u.id !== id)
+        );
+    }
+}
+```
+
+<Callout type="success" title="Angular의 최근 개선점들">
+인정해줘야 할 것들:
+
+- **Standalone Components** — NgModule 지옥에서 해방
+- **Signals** — Zone.js 없는 세밀한 반응형 시스템
+- **새 제어 흐름** — `@if`, `@for`가 `*ngIf`, `*ngFor`보다 훨씬 직관적
+- **Deferrable Views** — `@defer`로 레이지 로딩이 쉬워짐
+- **SSR 개선** — Hydration 지원 강화
+- **빌드 속도** — esbuild 기반으로 엄청 빨라짐
+
+React가 서버 컴포넌트로 복잡해지는 동안
+Angular는 오히려 단순해지고 있음. 아이러니함.
+</Callout>
+
+## Angular의 시장 위치
+
+```
+2024-2025 기준 프론트엔드 프레임워크 점유율 (대략):
+
+React     ████████████████████████████████  ~65%
+Vue.js    ████████████░░░░░░░░░░░░░░░░░░░  ~18%
+Angular   ███████████░░░░░░░░░░░░░░░░░░░░  ~15%
+Svelte    ██░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  ~3%
+Others    █░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  ~2%
+
+Angular는 3위지만 엔터프라이즈에서는 여전히 강함.
+Google, Microsoft, Samsung 같은 대기업에서 많이 쓰임.
+"망했다"고 하기엔 아직 견고함.
+```
+
+## 교훈
+
+<Callout type="note" title="AngularJS → Angular에서 배우는 것">
+**1. Breaking Change의 비용**
+같은 이름으로 완전히 다른 걸 내놓으면 커뮤니티가 분열됨.
+신뢰를 한번 잃으면 되찾기 어려움.
+Angular 팀이 10년째 이 대가를 치르고 있음.
+
+**2. 프레임워크 피로 (Framework Fatigue)**
+6개월마다 메이저 버전이 바뀌면 개발자가 지침.
+"또 바뀌었어?" → "그냥 다른 거 쓸래" 이 되는 거임.
+
+**3. 복잡성은 적(敵)임**
+AngularJS의 Service/Factory/Provider 구분,
+Angular 2의 NgModule/Component/Directive 구분,
+이런 "미묘한 차이가 있는 비슷한 개념"이 학습 곡선을 급격히 올림.
+
+**4. 생태계가 프레임워크보다 중요함**
+React가 이긴 건 기술적 우월성 때문이 아님.
+npm 생태계, 커뮤니티, 서드파티 라이브러리의 규모 때문임.
+Angular는 "우리가 다 제공하겠다"는 전략을 택했고,
+React는 "커뮤니티가 만들게 하겠다"는 전략을 택했음.
+후자가 더 빠르게 성장함.
+
+**5. 좋은 아이디어는 살아남음**
+AngularJS의 양방향 바인딩 → Vue의 v-model
+AngularJS의 DI → NestJS, Angular
+AngularJS의 디렉티브 → Web Components
+Angular의 Signals → Solid, Preact, Vue, 심지어 React도 비슷한 걸 고려 중
+</Callout>
+
+## 마무리
+
+AngularJS는 "프론트엔드 프레임워크"라는 개념을 만든 선구자였음.
+
+양방향 바인딩, DI, SPA 라우팅, 디렉티브...
+이 개념들이 없었으면 React도, Vue도, 지금의 프론트엔드 생태계도 없었을 거임.
+
+근데 후계자(Angular 2)가 너무 급진적으로 바꿔버리는 바람에
+커뮤니티가 분열됐고, 그 틈을 React가 파고들었음.
+
+기술적으로 잘못된 게 아니었음.
+**정치적으로** 잘못된 거였음.
+
+```
+╔════════════════════════════════════════════════════════╗
+║                                                        ║
+║          ⚘ R.I.P. AngularJS 1.x ⚘                    ║
+║             2010 - 2021                                ║
+║                                                        ║
+║    "양방향 바인딩은 내가 처음이었음.                    ║
+║     $scope는 좀 지저분했지만                           ║
+║     그래도 jQuery 지옥에서 구원해줬잖아."              ║
+║                                                        ║
+║    — "Angular"라는 이름을 빼앗긴 원조                  ║
+║                                                        ║
+╚════════════════════════════════════════════════════════╝
+```
+
+다음 묘비는 **jQuery**임.
+죽었다고? ㅋㅋ 아직 인터넷의 77%에 깔려있는 좀비의 이야기.

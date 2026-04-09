@@ -1,0 +1,771 @@
+# Silverlight & Windows Phone — 마이크로소프트의 잃어버린 10년
+
+*"MS가 모바일에서 삽질하느라 10년을 날린 덕분에 TypeScript, VS Code, Azure가 탄생함. 실패가 만든 성공 스토리."*
+
+---
+
+2007-2017년.
+
+이 10년간 마이크로소프트는 **모든 것을 잃었음.**
+
+모바일? Windows Phone 망함.
+브라우저? IE 점유율 추락.
+웹 플랫폼? Silverlight 사망.
+개발자 생태계? 이탈 가속.
+
+근데 이 대실패가 없었으면 **지금의 MS도 없었음.**
+
+TypeScript, VS Code, Azure, .NET Core, GitHub 인수, npm 인수...
+이 모든 게 "잃어버린 10년"의 반성에서 나온 거임.
+
+<Callout type="note" title="묘비명">
+Silverlight (2007 - 2012) & Windows Phone (2010 - 2017)
+"여기 마이크로소프트의 야심이 잠들다.
+Flash를 죽이고, iPhone을 이기려 했으나
+둘 다 실패하고 대신 더 큰 것을 얻었음."
+</Callout>
+
+## Silverlight: Flash 킬러를 꿈꾼 MS의 야심작
+
+2007년, Microsoft가 **Silverlight**를 발표함.
+
+"Flash? 우리가 더 잘 만들 수 있음" — MS의 자신감.
+그리고 실제로 기술적으로는 Flash보다 나은 부분이 많았음.
+
+### Silverlight의 기술력
+
+```csharp
+// Silverlight = WPF의 웹 버전
+// C#으로 웹 앱을 만들 수 있었음!
+
+// XAML (UI 마크업) — React의 JSX보다 10년 먼저 나온 선언적 UI
+// MainPage.xaml
+/*
+<UserControl xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <TextBox x:Name="SearchBox"
+                 Text="{Binding SearchQuery, Mode=TwoWay}"
+                 TextChanged="OnSearchChanged"/>
+
+        <ListBox Grid.Row="1"
+                 ItemsSource="{Binding FilteredUsers}"
+                 SelectedItem="{Binding SelectedUser}">
+            <ListBox.ItemTemplate>
+                <DataTemplate>
+                    <StackPanel Orientation="Horizontal">
+                        <Image Source="{Binding AvatarUrl}" Width="40" Height="40"/>
+                        <StackPanel Margin="10,0">
+                            <TextBlock Text="{Binding Name}" FontWeight="Bold"/>
+                            <TextBlock Text="{Binding Email}" Foreground="Gray"/>
+                        </StackPanel>
+                    </StackPanel>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+    </Grid>
+</UserControl>
+*/
+
+// C# 코드비하인드 — 타입 안전한 웹 개발 (2007년에!)
+namespace MyApp.ViewModels
+{
+    public class UserListViewModel : INotifyPropertyChanged
+    {
+        private readonly UserService _userService;
+        private ObservableCollection<User> _users;
+        private string _searchQuery;
+
+        public UserListViewModel(UserService userService)
+        {
+            _userService = userService;
+            _users = new ObservableCollection<User>();
+            LoadUsersCommand = new RelayCommand(async () => await LoadUsers());
+        }
+
+        // 프로퍼티 변경 알림 (React의 useState와 같은 개념)
+        public string SearchQuery
+        {
+            get => _searchQuery;
+            set
+            {
+                _searchQuery = value;
+                OnPropertyChanged(nameof(SearchQuery));
+                OnPropertyChanged(nameof(FilteredUsers)); // 자동 업데이트
+            }
+        }
+
+        // 계산된 프로퍼티 (React의 useMemo와 같은 개념)
+        public IEnumerable<User> FilteredUsers =>
+            string.IsNullOrEmpty(SearchQuery)
+                ? _users
+                : _users.Where(u =>
+                    u.Name.Contains(SearchQuery, StringComparison.OrdinalIgnoreCase));
+
+        // 데이터 바인딩으로 UI가 자동 업데이트됨
+        public ObservableCollection<User> Users
+        {
+            get => _users;
+            set { _users = value; OnPropertyChanged(nameof(Users)); }
+        }
+
+        public ICommand LoadUsersCommand { get; }
+
+        private async Task LoadUsers()
+        {
+            var users = await _userService.GetUsersAsync(); // async/await!
+            Users = new ObservableCollection<User>(users);
+        }
+
+        // INotifyPropertyChanged 구현
+        public event PropertyChangedEventHandler PropertyChanged;
+        protected void OnPropertyChanged(string propertyName) =>
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+    }
+}
+```
+
+<Callout type="success" title="Silverlight가 2007년에 갖고 있던 것들">
+지금의 프론트엔드 기술이 가진 것 중 Silverlight가 이미 가졌던 것:
+
+- **선언적 UI** (XAML) → React JSX, Vue Template, SwiftUI
+- **양방향 데이터 바인딩** → Angular, Vue의 v-model
+- **MVVM 패턴** → 모든 현대 프레임워크의 기초
+- **강한 타입 시스템** (C#) → TypeScript (2012년 등장)
+- **async/await** (C# 5.0) → JavaScript ES2017
+- **LINQ** → Array.map/filter/reduce, RxJS
+- **Dependency Injection** → Angular, NestJS
+- **단위 테스트 내장** → Jest, Vitest
+- **GPU 가속 렌더링** → WebGL, CSS GPU 가속
+- **미디어 스트리밍** → HTML5 MSE, HLS/DASH
+
+기술적으로는 시대를 10년 앞서갔음. 근데 망했음.
+</Callout>
+
+### Silverlight가 망한 이유
+
+```
+Silverlight 실패 원인 분석:
+
+1. 플러그인 의존 (Flash와 같은 문제)
+   - 브라우저에 Silverlight 플러그인 설치 필수
+   - 모바일에서는 설치 자체가 불가능
+   - Jobs가 Flash에 한 비판이 Silverlight에도 그대로 적용
+
+2. 플랫폼 독점
+   - Silverlight는 사실상 Windows/Mac만 지원
+   - Linux? 모바일? "나중에 지원할게" (안 함)
+   - 웹의 장점인 "플랫폼 독립성"을 정면으로 거스름
+
+3. 모바일 시대 대응 실패
+   - 2007년 iPhone 등장 → Silverlight는 모바일 미지원
+   - 2010년 iPad 등장 → 여전히 미지원
+   - 모바일 트래픽이 50% 넘어가는데 모바일에서 안 돌아감
+
+4. HTML5의 등장
+   - Canvas, WebGL, CSS3 Animation
+   - Silverlight가 하던 것들이 웹 표준으로 가능해짐
+   - "왜 플러그인을 써야 하는데?"
+
+5. 개발자 커뮤니티 분열
+   - .NET 개발자: "Silverlight 최고! C#으로 웹 개발!"
+   - 웹 개발자: "뭐 이런 걸 설치해야 하는데?"
+   - 커뮤니티가 겹치지 않았음
+```
+
+```
+Silverlight 타임라인:
+
+2007 — Silverlight 1.0 출시 (JavaScript 기반)
+2008 — Silverlight 2.0 (C# 지원, 미니 CLR)
+2009 — Silverlight 3.0 (GPU 가속, 오프라인)
+2010 — Silverlight 4.0 (카메라, 마이크 지원)
+2011 — Silverlight 5.0 (마지막 메이저 버전)
+2012 — MS가 HTML5 전략으로 선회. Silverlight 사실상 포기.
+2021 — 지원 공식 종료.
+```
+
+<Callout type="error" title="Bob Muglia 사건">
+2010년 PDC (Professional Developers Conference)에서
+MS 서버 부문 사장 Bob Muglia가 인터뷰 중 말함:
+
+"Silverlight의 전략이 바뀌었다. HTML이 미래다."
+
+이 발언 하나가 Silverlight 커뮤니티를 공황 상태로 몰아넣었음.
+MS가 급히 해명했지만 이미 분위기는 돌이킬 수 없었음.
+Silverlight에 올인한 기업들이 일제히 마이그레이션 검토를 시작함.
+
+교훈: 플랫폼 오너의 한마디가 생태계 전체를 흔들 수 있음.
+</Callout>
+
+## Windows Phone: 디자인은 천재, 실행은 재앙
+
+### Windows Phone 7의 등장
+
+2010년, MS가 **Windows Phone 7**을 발표함.
+
+UI 디자인은 진짜 혁신적이었음:
+
+```
+┌─────────────────────────┐
+│                         │
+│  People                 │  ← Metro UI (지금의 Fluent Design)
+│                         │
+│  ┌─────┐  ┌─────┐      │  ← 라이브 타일 (위젯의 원조)
+│  │ Kim │  │ Lee │      │
+│  │     │  │     │      │
+│  └─────┘  └─────┘      │
+│                         │
+│  ┌──────────────┐       │
+│  │  Calendar    │       │
+│  │  Meeting at  │       │
+│  │  2:00 PM     │       │
+│  └──────────────┘       │
+│                         │
+│  ┌─────┐  ┌─────┐      │
+│  │Email│  │Photo│      │
+│  │ 12  │  │     │      │
+│  └─────┘  └─────┘      │
+│                         │
+└─────────────────────────┘
+
+Metro UI의 특징:
+- 타이포그래피 중심 (아이콘 대신 텍스트)
+- 라이브 타일 (실시간 정보 표시)
+- 파노라마/피벗 내비게이션 (가로 스와이프)
+- 깔끔한 미니멀 디자인
+
+iOS: 스큐어모피즘 (현실 모방 디자인)
+Android: 홀로 테마 (약간 다크 SF 느낌)
+WP7: 메트로 (타이포그래피 + 컬러)
+
+디자인적으로 WP7이 가장 앞서있었음.
+iOS가 2013년 iOS 7에서 플랫 디자인으로 바꿨는데
+이건 Metro의 영향이 크다는 게 업계 정설임.
+```
+
+### Windows Phone의 개발 환경
+
+```csharp
+// Windows Phone 개발 = C# + XAML
+// 이건 진짜 좋았음
+
+// XAML 페이지
+/*
+<phone:PhoneApplicationPage
+    xmlns:phone="clr-namespace:Microsoft.Phone.Controls;assembly=Microsoft.Phone">
+    <Grid>
+        <phone:Panorama Title="my app">
+            <phone:PanoramaItem Header="recent">
+                <ListBox ItemsSource="{Binding RecentItems}">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel>
+                                <TextBlock Text="{Binding Title}"
+                                           Style="{StaticResource PhoneTextLargeStyle}"/>
+                                <TextBlock Text="{Binding Description}"
+                                           Style="{StaticResource PhoneTextSubtleStyle}"/>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </phone:PanoramaItem>
+        </phone:Panorama>
+    </Grid>
+</phone:PhoneApplicationPage>
+*/
+
+// ViewModel
+public class MainViewModel : ViewModelBase
+{
+    private readonly INavigationService _navigation;
+    private readonly IApiService _api;
+
+    public MainViewModel(INavigationService navigation, IApiService api)
+    {
+        _navigation = navigation;
+        _api = api;
+        RefreshCommand = new RelayCommand(async () => await Refresh());
+    }
+
+    private ObservableCollection<Item> _recentItems;
+    public ObservableCollection<Item> RecentItems
+    {
+        get => _recentItems;
+        set => Set(ref _recentItems, value);
+    }
+
+    public ICommand RefreshCommand { get; }
+
+    private async Task Refresh()
+    {
+        IsLoading = true;
+        try
+        {
+            var items = await _api.GetRecentItemsAsync();
+            RecentItems = new ObservableCollection<Item>(items);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(ex.Message);
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+}
+```
+
+<Callout type="info" title="Windows Phone 개발의 장점">
+Windows Phone 개발은 실제로 아주 좋은 경험이었음:
+
+- **C# + XAML** — 타입 안전, 선언적 UI, MVVM 패턴
+- **Visual Studio** — 당시 최고의 IDE (디버거, 프로파일러)
+- **에뮬레이터** — Android 에뮬레이터보다 훨씬 빠르고 안정적
+- **개발 속도** — 데이터 바인딩 덕분에 보일러플레이트 적음
+- **성능** — 하드웨어 스펙이 낮아도 부드럽게 돌아감
+
+문제는 개발 환경이 아니었음. 앱이 없었음.
+</Callout>
+
+### Windows Phone이 망한 이유
+
+```
+앱 갭 (App Gap) — 가장 치명적인 문제
+
+iOS/Android에 있는데 Windows Phone에 없는 앱들:
+- 인스타그램 (한참 후에 나옴, 기능 반쪽)
+- 스냅챗 (끝까지 안 나옴)
+- YouTube (공식 앱 없음, MS가 만들면 Google이 차단)
+- 대부분의 은행 앱
+- 대부분의 게임
+- 카카오톡 (한국에선 이게 치명적)
+
+악순환:
+1. 사용자 적음 → 개발자가 앱 안 만듦
+2. 앱이 적음 → 사용자가 안 옴
+3. 사용자가 더 적어짐 → 개발자가 더 안 만듦
+4. 반복...
+
+점유율:
+2011: ~2%
+2012: ~3% (최고점)
+2013: ~3.5% (유럽에서는 ~10%까지)
+2014: ~3%
+2015: ~2%
+2016: ~1%
+2017: ~0.1% (사실상 사망)
+```
+
+### Nokia 인수: 71.7억 달러의 도박
+
+```
+2013년 9월, MS가 Nokia의 휴대폰 사업부를 71.7억 달러에 인수.
+
+이 결정의 배경:
+- Nokia는 Windows Phone의 최대 (유일한?) 제조사
+- Nokia가 Android로 돌아서면 Windows Phone은 바로 죽음
+- MS: "우리가 직접 폰을 만들면 되지!"
+
+결과:
+- 2014: Nokia 인수 완료. Lumia 브랜드 계속
+- 2015: 76억 달러 자산 손상 처리 (인수금 거의 전액)
+- 2015: 7,800명 해고 (주로 구 Nokia 직원)
+- 2016: 추가 1,850명 해고
+- 2017: Windows Phone 공식 종료
+
+71.7억 달러로 배운 교훈: 하드웨어만으로는 생태계를 만들 수 없음.
+```
+
+<Callout type="error" title="Burning Platform 메모">
+2011년, Nokia CEO **Stephen Elop**이 전 직원에게 보낸 내부 메모.
+
+"우리는 불타는 석유 플랫폼 위에 서 있다.
+Symbian은 경쟁력을 잃었고, MeeGo는 너무 늦다.
+우리에게 필요한 건 대담한 변화다."
+
+이 메모 후 Nokia는 Symbian/MeeGo를 버리고 Windows Phone을 선택함.
+Elop은 MS 출신이었고, 나중에 Nokia는 MS에 팔림.
+
+결과적으로 Nokia의 휴대폰 사업은 완전히 망했고,
+"불타는 플랫폼에서 뛰어내렸더니 바다에 빠졌다"는 비유가 됨.
+
+Elop이 MS의 트로이 목마였다는 음모론이 아직도 있음 ㅋㅋ
+</Callout>
+
+## Steve Ballmer의 유산: "Developers, Developers, Developers"
+
+```
+Steve Ballmer가 CEO였던 시절 (2000-2014) MS의 전략:
+
+"Windows Everywhere"
+- 데스크톱? Windows
+- 서버? Windows Server
+- 모바일? Windows Phone / Windows CE
+- 웹? Internet Explorer + Silverlight + ASP.NET
+- 게임? Xbox (이건 성공함)
+- 태블릿? Surface (초기엔 실패)
+
+모든 것을 Windows에 묶으려 한 전략.
+결과: Windows가 약한 곳에서는 전부 실패.
+
+Ballmer의 유명한 실수들:
+- 2007: "iPhone이 500달러? ㅋㅋㅋ 비즈니스 시장 절대 못 먹음"
+- 2010: Kin 폰 출시 → 2달 만에 단종 (역사상 최단명 폰)
+- 2012: Surface RT → ARM 기반 Windows, 앱 호환 안 됨 → 9억 달러 손실
+- 2013: Nokia 인수 → 위에서 말한 대로
+```
+
+<Callout type="warning" title="Ballmer vs Jobs vs Page">
+2007-2013 CEO 전쟁:
+
+- **Steve Jobs** (Apple): 모바일 혁명을 주도. "소비자가 원하는 걸 만든다"
+- **Larry Page** (Google): 오픈 플랫폼 전략. "모두에게 공짜로 준다"
+- **Steve Ballmer** (MS): 기존 사업 방어. "Windows를 모든 곳에 넣는다"
+
+Jobs와 Page는 미래를 봤고, Ballmer는 과거를 지키려 했음.
+이 차이가 10년의 격차를 만듦.
+</Callout>
+
+## Satya Nadella의 반전: 잃어버린 10년의 결실
+
+2014년 2월, **Satya Nadella**가 MS CEO 취임.
+
+이후 MS가 한 일:
+
+```
+2014-2025 MS의 변신:
+
+═══ 개방 ═══
+2014: .NET Core 오픈소스 발표
+2015: Visual Studio Code 출시 (오픈소스, 크로스 플랫폼)
+2016: Xamarin 인수 → 오픈소스화
+2016: SQL Server for Linux 발표 (!!!)
+2018: GitHub 인수 (75억 달러)
+2019: Chromium 기반 Edge 출시 (IE 포기)
+2020: npm 인수
+
+═══ 클라우드 ═══
+2014: Azure 본격 확장
+2017: Azure 매출 급성장
+2023: Azure = AWS에 이어 클라우드 2위
+2024: Azure AI 서비스 폭발적 성장
+
+═══ 개발자 도구 ═══
+2012: TypeScript 출시 (오픈소스)
+2015: VS Code 출시 → IDE 시장 1위 등극
+2019: Windows Terminal 오픈소스
+2020: WSL2 (Windows에서 Linux 실행)
+2021: GitHub Copilot
+2023: AI 통합 개발 도구들
+
+═══ 결과 ═══
+2014: 시가총액 ~3000억 달러
+2024: 시가총액 ~3조 달러 (10배)
+```
+
+### TypeScript: Silverlight의 정신적 후계자
+
+```typescript
+// TypeScript (2012) — Anders Hejlsberg의 또 다른 걸작
+// Turbo Pascal → Delphi → C# → TypeScript
+// 같은 사람이 만듦 ㅋㅋ
+
+// Silverlight가 C#으로 웹 개발하는 세계를 꿈꿨다면,
+// TypeScript는 "JavaScript에 C#의 타입 시스템을 가져오자"는 발상
+
+// Silverlight 시절 C#:
+/*
+public class UserService
+{
+    private readonly HttpClient _client;
+
+    public async Task<List<User>> GetUsersAsync()
+    {
+        var response = await _client.GetAsync("/api/users");
+        return await response.Content.ReadAsAsync<List<User>>();
+    }
+}
+*/
+
+// TypeScript (같은 정신, 웹 네이티브):
+interface User {
+    id: number;
+    name: string;
+    email: string;
+    active: boolean;
+}
+
+class UserService {
+    private baseUrl: string;
+
+    constructor(baseUrl: string) {
+        this.baseUrl = baseUrl;
+    }
+
+    async getUsers(): Promise<User[]> {
+        const response = await fetch(`${this.baseUrl}/api/users`);
+        if (!response.ok) throw new Error('Failed to fetch users');
+        return response.json();
+    }
+
+    async createUser(user: Omit<User, 'id'>): Promise<User> {
+        const response = await fetch(`${this.baseUrl}/api/users`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(user),
+        });
+        return response.json();
+    }
+}
+
+// Silverlight의 타입 안전 웹 개발이 TypeScript로 부활한 거임
+// 단, 이번에는 플러그인 없이, 모든 브라우저에서, 오픈소스로.
+```
+
+<Callout type="success" title="Silverlight → TypeScript 진화">
+Silverlight의 꿈: "C#으로 웹 개발을 하자"
+현실: 플러그인 기반이라 실패
+
+TypeScript의 접근: "C#의 타입 시스템을 JavaScript에 가져오자"
+현실: JavaScript의 상위 집합이라 자연스럽게 흡수됨
+
+핵심 차이:
+- Silverlight: JavaScript를 **대체**하려 함 → 실패
+- TypeScript: JavaScript를 **확장**하려 함 → 성공
+
+이 교훈은 웹 역사에서 반복됨:
+웹 표준을 대체하려는 시도는 실패하고,
+웹 표준을 확장하려는 시도는 성공함.
+</Callout>
+
+### VS Code: 개발 도구의 혁명
+
+```
+VS Code가 성공한 이유:
+
+1. 무료 + 오픈소스
+   - Visual Studio는 유료 (Community 제외)
+   - VS Code는 완전 무료, MIT 라이선스
+
+2. 크로스 플랫폼
+   - Windows, macOS, Linux 전부 지원
+   - Ballmer 시대에는 상상도 못 할 일
+
+3. 가볍고 빠름
+   - Electron 기반이지만 놀랍도록 최적화됨
+   - Visual Studio의 10분의 1 용량
+
+4. 확장 생태계
+   - 5만+ 확장 프로그램
+   - 어떤 언어, 어떤 프레임워크든 지원
+
+5. 웹 기술로 만듦
+   - TypeScript + Electron
+   - MS가 웹 기술을 받아들인 상징적 제품
+
+IDE 시장 점유율 (2024):
+VS Code    ████████████████████████████  ~74%
+JetBrains  ████████░░░░░░░░░░░░░░░░░░░  ~15%
+Vim/Neovim ██░░░░░░░░░░░░░░░░░░░░░░░░░  ~5%
+Others     ██░░░░░░░░░░░░░░░░░░░░░░░░░  ~6%
+```
+
+### .NET의 부활: Blazor (Silverlight의 진짜 후계자)
+
+```csharp
+// Blazor (2018) — Silverlight의 영적 후계자
+// C#으로 웹 프론트엔드를 만드는 꿈이 드디어 실현됨
+// 이번에는 플러그인 없이, WebAssembly로!
+
+// Blazor 컴포넌트 (Counter.razor)
+@page "/counter"
+
+<h1>Counter</h1>
+
+<p>Current count: @currentCount</p>
+
+<button @onclick="IncrementCount">Click me</button>
+
+@code {
+    private int currentCount = 0;
+
+    private void IncrementCount()
+    {
+        currentCount++;
+    }
+}
+
+// Blazor 서비스 사용 예시
+@page "/users"
+@inject HttpClient Http
+@inject NavigationManager Navigation
+
+<h1>사용자 목록</h1>
+
+@if (users == null)
+{
+    <p>로딩 중...</p>
+}
+else
+{
+    <table>
+        <thead>
+            <tr>
+                <th>이름</th>
+                <th>이메일</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var user in users)
+            {
+                <tr>
+                    <td>@user.Name</td>
+                    <td>@user.Email</td>
+                    <td>
+                        <button @onclick="() => DeleteUser(user.Id)">삭제</button>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    private User[]? users;
+
+    protected override async Task OnInitializedAsync()
+    {
+        users = await Http.GetFromJsonAsync<User[]>("api/users");
+    }
+
+    private async Task DeleteUser(int id)
+    {
+        await Http.DeleteAsync($"api/users/{id}");
+        users = users?.Where(u => u.Id != id).ToArray();
+    }
+}
+```
+
+<Callout type="info" title="Silverlight vs Blazor 비교">
+| | Silverlight (2007) | Blazor (2018) |
+|---|---|---|
+| 런타임 | 플러그인 (미니 CLR) | WebAssembly 또는 서버 |
+| 언어 | C# | C# |
+| UI | XAML | Razor (HTML + C#) |
+| 플랫폼 | Windows/Mac only | 모든 브라우저 |
+| 설치 | 필요 (플러그인) | 불필요 |
+| 오픈소스 | No | Yes |
+| 모바일 | 미지원 | 지원 |
+
+같은 꿈, 다른 접근.
+이번에는 웹 표준 위에서 구현했기 때문에 플러그인이 필요 없음.
+
+Blazor가 React를 대체할까? 아직은 아님.
+근데 .NET 생태계에서는 꽤 유용한 선택지가 되었음.
+</Callout>
+
+## Windows Phone의 유산
+
+Windows Phone은 죽었지만 남긴 것들이 있음:
+
+```
+1. Metro/Fluent Design System
+   - Windows Phone의 Metro UI → Windows 10/11의 Fluent Design
+   - iOS의 플랫 디자인, Material Design에 영향
+   - 타이포그래피 중심 디자인의 대중화
+
+2. 라이브 타일 → 위젯
+   - Windows Phone의 라이브 타일 개념
+   - → iOS 14 위젯 (2020) — 10년 늦게 따라옴 ㅋㅋ
+   - → Android 위젯 개선
+
+3. Cortana → AI 어시스턴트 경쟁
+   - Windows Phone의 Cortana
+   - → Siri, Google Assistant와 경쟁하다 사실상 퇴장
+   - → Copilot로 환생 (2023)
+
+4. 모바일-PC 연결
+   - Continuum (폰을 PC처럼 사용)
+   - → Samsung DeX, 화면 미러링
+   - → Phone Link (Windows에서 폰 연결)
+   - 개념은 좋았는데 시대를 너무 앞서감
+
+5. MVVM 패턴의 확산
+   - WP 개발의 MVVM → Angular의 MVVM
+   - → 프론트엔드 아키텍처 패턴의 기초
+```
+
+## 교훈
+
+<Callout type="note" title="Silverlight & Windows Phone에서 배우는 것">
+**1. 플랫폼을 대체하려 하지 말고 확장하라**
+Silverlight: 웹을 C#으로 대체하려 함 → 실패
+TypeScript: 웹(JS)을 타입으로 확장함 → 성공
+Blazor: 웹(Wasm) 위에서 C#을 실행함 → 생존
+
+**2. 생태계는 기술보다 중요함**
+Windows Phone의 기술력과 디자인은 뛰어났음.
+근데 앱이 없었음.
+플랫폼의 가치 = 그 위에 돌아가는 소프트웨어의 합
+
+**3. 실패에서 배우는 조직이 강함**
+MS는 잃어버린 10년에서 교훈을 얻음:
+- "독점 → 오픈소스" (VS Code, .NET Core, TypeScript)
+- "Windows only → 크로스 플랫폼" (VS Code, .NET, Azure)
+- "대체 → 확장" (TypeScript는 JS의 상위 집합)
+이 전환 없었으면 MS는 IBM처럼 되었을 수도 있음.
+
+**4. CEO가 중요함**
+Ballmer (2000-2014): "Windows Everywhere" → 실패
+Nadella (2014-현재): "Cloud & AI First" → 시총 10배
+
+같은 회사, 같은 기술, 같은 인력인데
+리더십이 바뀌니 결과가 완전히 달라짐.
+
+**5. 타이밍과 전략이 기술을 이김**
+Silverlight는 기술적으로 Flash보다 우수했음. 근데 졌음.
+Windows Phone은 디자인적으로 혁신적이었음. 근데 졌음.
+좋은 기술 + 좋은 디자인이 있어도
+생태계, 타이밍, 전략이 안 맞으면 실패함.
+</Callout>
+
+## 마무리
+
+Silverlight와 Windows Phone은 마이크로소프트의 **가장 값비싼 수업료**였음.
+
+수십억 달러를 태우고, 수만 명을 해고하고, 10년을 잃었음.
+
+근데 이 실패가 없었으면:
+- "오픈소스를 해야 한다"는 깨달음이 없었을 거임 → VS Code, .NET Core 없음
+- "웹 표준을 따라야 한다"는 깨달음이 없었을 거임 → TypeScript 없음
+- "클라우드에 집중해야 한다"는 깨달음이 없었을 거임 → Azure 성장 없음
+
+**잃어버린 10년이 다음 10년의 기반이 된 거임.**
+
+```
+╔════════════════════════════════════════════════════════════════╗
+║                                                                ║
+║    ⚘ R.I.P. Silverlight & Windows Phone ⚘                    ║
+║       Silverlight: 2007 - 2012                                 ║
+║       Windows Phone: 2010 - 2017                               ║
+║                                                                ║
+║    "우리는 시대를 앞서갔지만                                   ║
+║     시대가 원하는 방식으로 오지 못했음.                        ║
+║     우리의 실패 위에 TypeScript, VS Code, Azure가 섰고         ║
+║     그게 우리의 진짜 유산임."                                  ║
+║                                                                ║
+║    — 71.7억 달러짜리 교훈을 남긴 기술들                        ║
+║                                                                ║
+╚════════════════════════════════════════════════════════════════╝
+```
+
+다음은 시리즈의 마지막, **"다음 묘지의 주인공은?"**임.
+지금 핫한 기술들의 생존 확률을 분석해봄.

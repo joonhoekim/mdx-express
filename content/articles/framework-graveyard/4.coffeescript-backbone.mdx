@@ -1,0 +1,900 @@
+# CoffeeScript & Backbone.js — ES6가 오기 전의 구세주들
+
+*"CoffeeScript를 써본 적 없다고? 니가 쓰는 ES6 문법의 절반이 CoffeeScript에서 왔음."*
+
+---
+
+2010-2014년.
+
+JavaScript는 아직 ES5 시대였음.
+클래스도 없고, 화살표 함수도 없고, 디스트럭처링도 없고,
+템플릿 리터럴도 없고, 모듈 시스템도 없었음.
+
+이 암흑기에 두 개의 구세주가 나타남:
+- **CoffeeScript** — "JavaScript를 쓰지 않고도 JavaScript를 만들자"
+- **Backbone.js** — "JavaScript 앱에 구조를 주자"
+
+이 둘은 함께 전성기를 보내고, 함께 사라짐.
+ES6라는 더 큰 구세주가 오면서.
+
+<Callout type="note" title="묘비명">
+CoffeeScript (2009 - 2015) & Backbone.js (2010 - 2016)
+"여기 JavaScript의 미래를 미리 보여준 기술들이 잠들다.
+미래가 직접 도착하면서 필요 없어졌지만
+영감은 영원히 남았음."
+</Callout>
+
+## CoffeeScript: JavaScript의 미래를 미리 보여준 언어
+
+2009년, **Jeremy Ashkenas**가 CoffeeScript를 만듦.
+(같은 사람이 나중에 Backbone.js도 만듦 ㅋㅋ)
+
+CoffeeScript의 철학: **JavaScript의 좋은 부분만 쓰게 하자.**
+
+"JavaScript: The Good Parts"라는 유명한 책이 있었는데,
+JavaScript에서 쓰면 안 되는 부분이 쓸 수 있는 부분보다 많았음.
+CoffeeScript는 이 "좋은 부분"만 모아서 새 문법으로 포장한 거임.
+
+### CoffeeScript vs JavaScript (ES5) 비교
+
+```coffeescript
+# ═══════════════════════════════════════════
+# CoffeeScript — 2010년대 초반의 힙스터 언어
+# ═══════════════════════════════════════════
+
+# 변수 선언: var 같은 거 없음. 자동으로 var 붙여줌
+name = "Kim"
+age = 25
+isStudent = true
+
+# 함수: -> 만 있으면 됨
+square = (x) -> x * x
+cube = (x) -> x * x * x
+
+# 여러 줄 함수
+greet = (name) ->
+  greeting = "안녕, #{name}!"
+  console.log greeting
+  greeting  # 마지막 표현식이 자동 리턴됨
+
+# 기본값 매개변수
+fill = (container, liquid = "coffee") ->
+  "#{container}에 #{liquid} 채우는 중..."
+
+# 배열 순회
+foods = ['짜장면', '짬뽕', '탕수육']
+eat food for food in foods
+
+# 조건문
+if age >= 18
+  console.log "성인"
+else
+  console.log "미성년"
+
+# 후위 조건문
+console.log "성인" if age >= 18
+console.log "위험!" unless safe
+
+# 존재 연산자 (Existential Operator)
+street = person?.address?.street  # null safety!
+# 이게 2010년에!! Optional chaining의 원조!!
+
+# 범위
+numbers = [1..5]      # [1, 2, 3, 4, 5]
+partial = [1...5]     # [1, 2, 3, 4] (마지막 제외)
+
+# 배열 컴프리헨션
+squares = (x * x for x in [1, 2, 3, 4, 5])
+evens = (x for x in [1..10] when x % 2 is 0)
+
+# 디스트럭처링
+[first, rest...] = [1, 2, 3, 4, 5]
+{name, age} = person
+
+# 클래스
+class Animal
+  constructor: (@name, @sound) ->
+    # @name은 this.name의 축약
+
+  speak: ->
+    "#{@name}가 #{@sound} 함"
+
+class Dog extends Animal
+  constructor: (name) ->
+    super name, "멍멍"
+
+  fetch: (item) ->
+    "#{@name}가 #{item}을 물어옴"
+
+# 문자열 보간
+message = "#{name}님은 #{age}세입니다"
+
+# 여러 줄 문자열
+html = """
+  <div class="card">
+    <h3>#{name}</h3>
+    <p>#{age}세</p>
+  </div>
+"""
+
+# this 바인딩 (fat arrow)
+class Button
+  constructor: ->
+    @count = 0
+    document.getElementById('btn').addEventListener 'click', =>
+      @count++  # => 덕분에 this가 Button 인스턴스를 가리킴
+      console.log @count
+```
+
+이걸 같은 시기의 JavaScript(ES5)로 쓰면:
+
+```javascript
+// ═══════════════════════════════════════════
+// 같은 코드의 JavaScript ES5 버전
+// 이렇게 써야 했음...
+// ═══════════════════════════════════════════
+
+// 변수 선언
+var name = "Kim";
+var age = 25;
+var isStudent = true;
+
+// 함수
+var square = function(x) { return x * x; };
+var cube = function(x) { return x * x * x; };
+
+// 여러 줄 함수
+var greet = function(name) {
+    var greeting = "안녕, " + name + "!";
+    console.log(greeting);
+    return greeting; // 명시적 return 필요
+};
+
+// 기본값 매개변수 (우회 방법)
+var fill = function(container, liquid) {
+    if (liquid == null) { liquid = "coffee"; } // 수동
+    return container + "에 " + liquid + " 채우는 중...";
+};
+
+// 배열 순회
+var foods = ['짜장면', '짬뽕', '탕수육'];
+for (var i = 0; i < foods.length; i++) {
+    eat(foods[i]);
+}
+
+// null safety? 그런 거 없음
+var street;
+if (person != null &&
+    person.address != null &&
+    person.address.street != null) {
+    street = person.address.street;
+}
+// vs CoffeeScript: street = person?.address?.street
+
+// 클래스 (프로토타입 체인)
+function Animal(name, sound) {
+    this.name = name;
+    this.sound = sound;
+}
+
+Animal.prototype.speak = function() {
+    return this.name + "가 " + this.sound + " 함";
+};
+
+function Dog(name) {
+    Animal.call(this, name, "멍멍");
+}
+
+Dog.prototype = Object.create(Animal.prototype);
+Dog.prototype.constructor = Dog;
+
+Dog.prototype.fetch = function(item) {
+    return this.name + "가 " + item + "을 물어옴";
+};
+
+// 문자열 보간? 없음. + 연산자로 이어붙이기
+var message = name + "님은 " + age + "세입니다";
+
+// this 바인딩 (bind 또는 that = this 패턴)
+function Button() {
+    var self = this; // that/self 패턴
+    this.count = 0;
+    document.getElementById('btn').addEventListener('click', function() {
+        self.count++; // this가 아니라 self를 써야 함
+        console.log(self.count);
+    });
+}
+```
+
+<Callout type="success" title="코드 양 비교">
+CoffeeScript는 같은 로직을 JavaScript보다 약 30-40% 적은 코드로 표현할 수 있었음.
+근데 중요한 건 코드 양이 아니라 **표현력**이었음.
+
+- `person?.address?.street` (2010 CoffeeScript) → `person?.address?.street` (2020 ES2020)
+- `=>` (2010 CoffeeScript) → `=>` (2015 ES6)
+- `{name, age} = person` (2010 CoffeeScript) → `const {name, age} = person` (2015 ES6)
+- 클래스 문법 (2010 CoffeeScript) → `class` (2015 ES6)
+- 템플릿 리터럴 (2010 CoffeeScript) → 백틱 문법 (2015 ES6)
+
+CoffeeScript가 보여준 미래를 ES6가 공식으로 가져간 거임.
+</Callout>
+
+### CoffeeScript의 영향을 받은 ES6+ 기능들
+
+```typescript
+// CoffeeScript → ES6/ES2015+ 기능 계보
+
+// 1. 화살표 함수
+// CoffeeScript: -> (thin arrow), => (fat arrow, this 바인딩)
+// ES6: => (항상 this 바인딩)
+const add = (a: number, b: number) => a + b;
+
+// 2. 클래스
+// CoffeeScript: class, extends, super, constructor
+// ES6: 거의 동일한 문법
+class Dog extends Animal {
+    constructor(name: string) {
+        super(name, "멍멍");
+    }
+}
+
+// 3. 디스트럭처링
+// CoffeeScript: {name, age} = person, [first, rest...] = arr
+// ES6: 거의 동일
+const { name, age } = person;
+const [first, ...rest] = arr;
+
+// 4. 기본 매개변수
+// CoffeeScript: fill = (container, liquid = "coffee") ->
+// ES6: 동일한 문법
+function fill(container: string, liquid = "coffee") {
+    return `${container}에 ${liquid} 채우는 중`;
+}
+
+// 5. 전개 연산자
+// CoffeeScript: args...
+// ES6: ...args
+function sum(...numbers: number[]) {
+    return numbers.reduce((a, b) => a + b, 0);
+}
+
+// 6. 템플릿 리터럴
+// CoffeeScript: "Hello, #{name}"
+// ES6: `Hello, ${name}`
+const greeting = `Hello, ${name}`;
+
+// 7. Optional Chaining (ES2020)
+// CoffeeScript: person?.address?.street (2010)
+// ES2020: person?.address?.street (2020)
+// 10년 걸림 ㅋㅋ
+const street = person?.address?.street;
+
+// 8. Nullish Coalescing (ES2020)
+// CoffeeScript: value ? "default"
+// ES2020: value ?? "default"
+const displayName = user.name ?? "익명";
+
+// 9. for...of
+// CoffeeScript: for item in array
+// ES6: for (const item of array)
+for (const item of array) {
+    console.log(item);
+}
+```
+
+<Callout type="info" title="CoffeeScript의 역사적 의의">
+CoffeeScript가 직접적으로 ES6에 영향을 준 건 확인된 사실임.
+TC39 (JavaScript 표준 위원회) 멤버들이 CoffeeScript의 문법을 참고했다고 인정했음.
+Brendan Eich (JavaScript 창시자)도 CoffeeScript의 영향을 언급한 적 있음.
+
+CoffeeScript는 "JavaScript가 이렇게 될 수 있다"는 걸 증명한 프로토타입이었음.
+</Callout>
+
+### CoffeeScript가 죽은 이유
+
+```
+2015년, ES6 (ES2015) 발표.
+
+ES6가 CoffeeScript의 장점을 대부분 흡수함:
+✅ 화살표 함수 → ES6 화살표 함수
+✅ 클래스 문법 → ES6 class
+✅ 디스트럭처링 → ES6 디스트럭처링
+✅ 기본 매개변수 → ES6 기본 매개변수
+✅ 전개 연산자 → ES6 rest/spread
+✅ 템플릿 리터럴 → ES6 템플릿 리터럴
+✅ 모듈 시스템 → ES6 import/export
+
+CoffeeScript만의 장점이 거의 사라짐.
+게다가 CoffeeScript는 단점이 있었음:
+
+1. 컴파일 단계 필요 (CoffeeScript → JavaScript 변환)
+2. 소스맵 디버깅이 불편함
+3. 들여쓰기 기반 문법이 호불호 갈림
+4. JavaScript 지식이 여전히 필요함 (디버깅할 때)
+5. TypeScript라는 더 나은 대안이 등장함
+
+TypeScript가 결정타였음:
+- CoffeeScript: "JavaScript를 더 예쁘게 쓰자" (문법 개선)
+- TypeScript: "JavaScript를 더 안전하게 쓰자" (타입 시스템)
+
+개발자들이 원한 건 예쁜 코드가 아니라 안전한 코드였음.
+```
+
+## Backbone.js: JavaScript 앱에 구조를 준 선구자
+
+CoffeeScript의 창시자 Jeremy Ashkenas가 만든 또 다른 작품.
+
+2010년에 등장한 Backbone.js는 "JavaScript 앱에도 구조가 필요하다"는 아이디어의 선구자였음.
+
+### 왜 Backbone이 필요했나
+
+```javascript
+// 2010년, jQuery로 앱 만들기의 현실
+// (스파게티 코드의 극한)
+
+$(function() {
+    var users = [];
+    var currentFilter = 'all';
+    var sortBy = 'name';
+
+    // 데이터 로딩
+    function loadUsers() {
+        $.get('/api/users', function(data) {
+            users = data;
+            renderUsers();
+            updateStats();
+            bindEvents(); // 매번 이벤트를 다시 바인딩해야 함
+        });
+    }
+
+    // 렌더링
+    function renderUsers() {
+        var filtered = users.filter(function(u) {
+            if (currentFilter === 'active') return u.active;
+            if (currentFilter === 'inactive') return !u.active;
+            return true;
+        });
+
+        filtered.sort(function(a, b) {
+            return a[sortBy] > b[sortBy] ? 1 : -1;
+        });
+
+        var html = '';
+        for (var i = 0; i < filtered.length; i++) {
+            html += '<tr data-id="' + filtered[i].id + '">';
+            html += '<td>' + filtered[i].name + '</td>';
+            html += '<td>' + filtered[i].email + '</td>';
+            html += '<td>' + (filtered[i].active ? '활성' : '비활성') + '</td>';
+            html += '<td><button class="edit-btn">수정</button>';
+            html += '<button class="delete-btn">삭제</button></td>';
+            html += '</tr>';
+        }
+        $('#user-table tbody').html(html);
+    }
+
+    // 이벤트 바인딩 (지옥)
+    function bindEvents() {
+        $('.edit-btn').off('click').on('click', function() {
+            var id = $(this).closest('tr').data('id');
+            var user = users.find(function(u) { return u.id === id; });
+            // 수정 모달 열기...
+            // 수정 후 서버 저장...
+            // 성공하면 로컬 데이터 업데이트...
+            // UI 다시 렌더링...
+            // 이벤트 다시 바인딩...
+            // 이 무한 루프를 벗어날 수 없음
+        });
+
+        // 비슷한 패턴이 삭제, 필터, 정렬, 페이지네이션마다 반복됨
+        // 코드가 500줄, 1000줄, 2000줄...
+        // 어디서 뭘 하는지 아무도 모르게 됨
+    }
+
+    loadUsers();
+});
+```
+
+이 스파게티에 Backbone이 구조를 줌:
+
+```javascript
+// Backbone.js로 같은 앱 만들기
+
+// ═══════ Model (데이터) ═══════
+var User = Backbone.Model.extend({
+    urlRoot: '/api/users',
+
+    defaults: {
+        name: '',
+        email: '',
+        active: true
+    },
+
+    validate: function(attrs) {
+        if (!attrs.name) return "이름은 필수임";
+        if (!attrs.email) return "이메일은 필수임";
+    },
+
+    toggleActive: function() {
+        this.set('active', !this.get('active'));
+        this.save(); // 자동으로 PUT /api/users/:id 호출
+    }
+});
+
+// ═══════ Collection (데이터 목록) ═══════
+var UserCollection = Backbone.Collection.extend({
+    model: User,
+    url: '/api/users',
+
+    active: function() {
+        return this.where({ active: true });
+    },
+
+    inactive: function() {
+        return this.where({ active: false });
+    },
+
+    comparator: 'name' // 자동 정렬
+});
+
+// ═══════ View (화면) ═══════
+var UserRowView = Backbone.View.extend({
+    tagName: 'tr',
+
+    // 이벤트 선언 (jQuery의 이벤트 위임 자동 적용)
+    events: {
+        'click .edit-btn': 'onEdit',
+        'click .delete-btn': 'onDelete',
+        'click .toggle-btn': 'onToggle'
+    },
+
+    // 모델 변경 시 자동 리렌더링
+    initialize: function() {
+        this.listenTo(this.model, 'change', this.render);
+        this.listenTo(this.model, 'destroy', this.remove);
+    },
+
+    render: function() {
+        this.$el.html(
+            '<td>' + this.model.get('name') + '</td>' +
+            '<td>' + this.model.get('email') + '</td>' +
+            '<td>' + (this.model.get('active') ? '활성' : '비활성') + '</td>' +
+            '<td>' +
+            '  <button class="edit-btn">수정</button>' +
+            '  <button class="delete-btn">삭제</button>' +
+            '  <button class="toggle-btn">토글</button>' +
+            '</td>'
+        );
+        return this; // 체이닝 지원
+    },
+
+    onEdit: function() {
+        // 수정 로직
+    },
+
+    onDelete: function() {
+        this.model.destroy(); // DELETE /api/users/:id + UI 자동 제거
+    },
+
+    onToggle: function() {
+        this.model.toggleActive(); // 모델 변경 → render 자동 호출
+    }
+});
+
+// ═══════ Router (URL 라우팅) ═══════
+var AppRouter = Backbone.Router.extend({
+    routes: {
+        '': 'index',
+        'users': 'userList',
+        'users/:id': 'userDetail'
+    },
+
+    userList: function() {
+        var users = new UserCollection();
+        users.fetch(); // GET /api/users
+        var view = new UserListView({ collection: users });
+        $('#app').html(view.render().el);
+    },
+
+    userDetail: function(id) {
+        var user = new User({ id: id });
+        user.fetch(); // GET /api/users/:id
+        var view = new UserDetailView({ model: user });
+        $('#app').html(view.render().el);
+    }
+});
+
+// 앱 시작
+var router = new AppRouter();
+Backbone.history.start({ pushState: true });
+```
+
+<Callout type="success" title="Backbone이 도입한 개념들">
+Backbone은 프론트엔드에 **MV*** 패턴을 가져온 선구자임:
+
+- **Model** — 데이터와 비즈니스 로직 캡슐화
+- **Collection** — 모델의 정렬된 집합 + REST API 자동 매핑
+- **View** — DOM 렌더링 + 이벤트 처리
+- **Router** — URL 기반 라우팅 (SPA의 기초)
+- **Events** — 이벤트 기반 통신 (pub/sub 패턴)
+
+이 개념들이 React, Vue, Angular 등 모든 현대 프레임워크의 기초가 됨.
+</Callout>
+
+### CoffeeScript + Backbone = 황금 콤보
+
+```coffeescript
+# CoffeeScript + Backbone.js
+# 2012년의 "최신 스택"
+
+class User extends Backbone.Model
+  urlRoot: '/api/users'
+
+  defaults:
+    name: ''
+    email: ''
+    active: true
+
+  validate: (attrs) ->
+    "이름은 필수임" unless attrs.name
+    "이메일은 필수임" unless attrs.email
+
+  toggleActive: ->
+    @set 'active', not @get('active')
+    @save()
+
+  fullName: ->
+    "#{@get 'firstName'} #{@get 'lastName'}"
+
+class UserCollection extends Backbone.Collection
+  model: User
+  url: '/api/users'
+  comparator: 'name'
+
+  active: -> @where active: true
+  inactive: -> @where active: false
+
+class UserRowView extends Backbone.View
+  tagName: 'tr'
+
+  events:
+    'click .edit-btn': 'onEdit'
+    'click .delete-btn': 'onDelete'
+
+  initialize: ->
+    @listenTo @model, 'change', @render
+    @listenTo @model, 'destroy', @remove
+
+  render: ->
+    @$el.html """
+      <td>#{@model.get 'name'}</td>
+      <td>#{@model.get 'email'}</td>
+      <td>
+        <button class="edit-btn">수정</button>
+        <button class="delete-btn">삭제</button>
+      </td>
+    """
+    this
+
+  onEdit: ->
+    # 수정 로직
+
+  onDelete: ->
+    @model.destroy()
+
+# CoffeeScript의 깔끔한 문법 + Backbone의 구조
+# = 2012년 최고의 DX
+```
+
+<Callout type="info" title="CoffeeScript + Backbone을 쓴 유명 서비스들">
+- **Trello** — Backbone.js + CoffeeScript (오래 유지)
+- **Airbnb** — 초기 프론트엔드가 Backbone
+- **SoundCloud** — Backbone 기반
+- **Hulu** — Backbone 기반
+- **Basecamp** — CoffeeScript 적극 사용 (Rails 생태계)
+- **GitHub** — CoffeeScript 사용 (나중에 제거)
+- **Dropbox** — CoffeeScript 사용
+- **Atom 에디터** — CoffeeScript로 작성 (Electron 기반)
+
+2012-2014년에 실리콘밸리 스타트업의 상당수가 이 조합이었음.
+</Callout>
+
+### Backbone의 문제점들
+
+```javascript
+// Backbone의 한계 — 왜 React에 밀렸나
+
+// 1. 뷰 업데이트가 수동
+// Backbone은 "무엇이 변했는지"는 알려주지만
+// "어떻게 업데이트할지"는 개발자가 직접 해야 함
+
+var UserView = Backbone.View.extend({
+    initialize: function() {
+        this.listenTo(this.model, 'change', this.render);
+        // 모델이 바뀌면 전체를 다시 렌더링
+        // 성능 최적화? 직접 해야 함
+    },
+
+    render: function() {
+        // 전체 HTML을 교체 — 비효율적
+        this.$el.html(this.template(this.model.toJSON()));
+        return this;
+    }
+});
+
+// React는 Virtual DOM으로 이 문제를 자동 해결함
+// "변경된 부분만 업데이트" — 개발자가 신경 쓸 필요 없음
+
+// 2. 보일러플레이트 코드가 많음
+// Model, Collection, View를 각각 정의해야 하고
+// 이벤트 바인딩, 렌더링, 정리(cleanup)를 수동으로 해야 함
+
+// 3. 중첩 뷰 관리의 어려움
+var ParentView = Backbone.View.extend({
+    render: function() {
+        // 자식 뷰를 수동으로 생성, 렌더링, 삽입
+        this.childView1 = new ChildView1();
+        this.childView2 = new ChildView2();
+        this.$('.child1-container').html(this.childView1.render().el);
+        this.$('.child2-container').html(this.childView2.render().el);
+        return this;
+    },
+
+    // 메모리 누수 방지를 위해 수동으로 정리
+    remove: function() {
+        this.childView1.remove();
+        this.childView2.remove();
+        Backbone.View.prototype.remove.call(this);
+    }
+});
+
+// React에서는:
+// function Parent() {
+//     return <><Child1 /><Child2 /></>;
+// }
+// 끝. 정리도 React가 알아서 함.
+
+// 4. 상태 관리의 한계
+// 복잡한 앱에서 Model 간의 의존성이 생기면
+// 이벤트가 연쇄적으로 발생하면서 추적이 어려워짐
+// (Flux/Redux가 이 문제를 해결하려고 나온 거임)
+```
+
+## Backbone에서 React로의 전환
+
+```typescript
+// Backbone → React 변환 예시
+
+// ═══════ Backbone 방식 ═══════
+// Model
+var Todo = Backbone.Model.extend({
+    defaults: { text: '', done: false },
+    toggle: function() {
+        this.set('done', !this.get('done'));
+    }
+});
+
+// Collection
+var TodoList = Backbone.Collection.extend({
+    model: Todo,
+    remaining: function() {
+        return this.where({ done: false });
+    }
+});
+
+// View (100줄+)
+var TodoView = Backbone.View.extend({
+    tagName: 'li',
+    events: {
+        'click .toggle': 'toggleDone',
+        'dblclick .view': 'startEdit',
+        'click .destroy': 'clear',
+        'keypress .edit': 'updateOnEnter',
+        'blur .edit': 'close'
+    },
+    initialize: function() {
+        this.listenTo(this.model, 'change', this.render);
+        this.listenTo(this.model, 'destroy', this.remove);
+    },
+    render: function() {
+        this.$el.html(this.template(this.model.toJSON()));
+        this.$el.toggleClass('done', this.model.get('done'));
+        return this;
+    },
+    toggleDone: function() { this.model.toggle(); },
+    startEdit: function() { /* ... */ },
+    close: function() { /* ... */ },
+    updateOnEnter: function(e) { /* ... */ },
+    clear: function() { this.model.destroy(); }
+});
+
+// ═══════ React 방식 ═══════
+// 위의 Model + Collection + View가 이걸로 끝남
+
+interface Todo {
+    id: number;
+    text: string;
+    done: boolean;
+}
+
+function TodoItem({ todo, onToggle, onDelete }: {
+    todo: Todo;
+    onToggle: (id: number) => void;
+    onDelete: (id: number) => void;
+}) {
+    const [editing, setEditing] = useState(false);
+    const [editText, setEditText] = useState(todo.text);
+
+    return (
+        <li className={todo.done ? 'done' : ''}>
+            <input
+                type="checkbox"
+                checked={todo.done}
+                onChange={() => onToggle(todo.id)}
+            />
+            {editing ? (
+                <input
+                    value={editText}
+                    onChange={e => setEditText(e.target.value)}
+                    onBlur={() => setEditing(false)}
+                    onKeyDown={e => e.key === 'Enter' && setEditing(false)}
+                />
+            ) : (
+                <span onDoubleClick={() => setEditing(true)}>
+                    {todo.text}
+                </span>
+            )}
+            <button onClick={() => onDelete(todo.id)}>삭제</button>
+        </li>
+    );
+}
+```
+
+<Callout type="warning" title="Backbone의 퇴장">
+Backbone의 퇴장 타임라인:
+
+- 2013: React 등장. "선언적 UI"라는 새 패러다임 제시
+- 2014: Angular 1.x와 React가 양강 구도
+- 2015: React + Redux 조합이 대세가 됨. Backbone은 레거시 취급 시작
+- 2016: Vue.js 2.0 출시. Backbone 자리를 완전히 대체
+- 2017~: 새 프로젝트에서 Backbone을 선택하는 팀은 거의 없음
+- 현재: Trello가 가장 유명한 Backbone 사용 앱으로 남아있음
+
+React가 이긴 결정적 이유:
+1. Virtual DOM으로 수동 DOM 관리에서 해방
+2. 컴포넌트 단위 사고가 더 직관적
+3. JSX가 HTML + JS 통합을 자연스럽게 만듦
+4. Facebook이 실제 프로덕션에서 검증
+5. 생태계(Redux, React Router 등)가 빠르게 성장
+</Callout>
+
+## CoffeeScript 2: 부활의 시도
+
+```coffeescript
+# CoffeeScript 2 (2017) — ES6 호환 시도
+# ES2015+ 문법으로 컴파일되도록 업데이트
+
+# async/await 지원
+fetchUser = (id) ->
+  response = await fetch "/api/users/#{id}"
+  await response.json()
+
+# JSX 지원 (React와 함께 쓸 수 있음)
+# 근데 이쯤 되면 "그냥 TypeScript 쓰면 안 됨?" 이라는 생각이...
+
+# 모듈 시스템
+import { useState, useEffect } from 'react'
+
+# 태그된 템플릿 리터럴
+sql = (strings, values...) ->
+  # ...
+
+query = sql"SELECT * FROM users WHERE id = #{userId}"
+```
+
+<Callout type="error" title="CoffeeScript 2의 비극">
+CoffeeScript 2는 "too little, too late"였음.
+
+ES6가 CoffeeScript의 장점을 흡수했고,
+TypeScript가 타입 안전성이라는 더 큰 가치를 제공했음.
+CoffeeScript 2가 제공하는 건 "약간 더 짧은 문법" 정도뿐이었는데,
+그 정도로는 새 언어를 배우고, 빌드 파이프라인에 추가하는 비용을 정당화하기 어려웠음.
+
+npm 다운로드 추이:
+CoffeeScript: 2014년 피크 이후 지속 하락
+TypeScript: 2016년부터 폭발적 성장
+
+개발자들은 "예쁜 문법"보다 "안전한 타입"을 선택한 거임.
+</Callout>
+
+## CoffeeScript의 DNA가 남아있는 곳들
+
+```typescript
+// CoffeeScript의 유산은 생각보다 많이 남아있음
+
+// 1. Ruby/Python 스타일 문법의 영향
+// CoffeeScript가 "들여쓰기 기반 문법도 JS에서 통한다"를 증명
+// → Pug (HTML 템플릿), Sass (CSS), Yaml 등에 영향
+
+// 2. Elm, PureScript, ReasonML
+// "JavaScript로 컴파일되는 더 나은 언어" 패러다임의 원조
+// CoffeeScript가 열어준 길을 타입 안전 언어들이 이어감
+
+// 3. LiveScript
+// CoffeeScript의 후속작. 더 함수형에 가까움
+// 역시 사멸했지만 아이디어는 남음
+
+// 4. TypeScript 자체도 CoffeeScript의 영향
+// "JavaScript의 상위 집합" 개념
+// CoffeeScript: JS + 더 나은 문법
+// TypeScript: JS + 타입 시스템
+// 접근 방식은 다르지만 "JS를 개선하자"는 동기는 같음
+
+// 5. 현대 JavaScript 자체
+// ES6 화살표 함수, 클래스, 디스트럭처링, 템플릿 리터럴...
+// 이것들의 상당 부분이 CoffeeScript에서 영감을 받음
+// CoffeeScript는 죽었지만 그 정신은 JavaScript 자체에 살아있음
+```
+
+## 교훈
+
+<Callout type="note" title="CoffeeScript & Backbone에서 배우는 것">
+**1. 컴파일-투-JS 언어의 딜레마**
+CoffeeScript가 증명한 것: JavaScript가 개선되면 컴파일-투-JS 언어는 사라짐.
+TypeScript가 살아남은 건 "문법 개선"이 아니라 "타입 시스템"이라는
+JavaScript가 절대 자체적으로 제공하지 않을 가치를 줬기 때문임.
+
+**2. 프로토타입의 가치**
+CoffeeScript는 "JavaScript가 이렇게 될 수 있다"는 프로토타입이었음.
+프로토타입은 상용화되지 않아도 가치가 있음.
+미래를 보여주고, 커뮤니티를 설득하고, 표준을 바꾸는 역할을 했음.
+
+**3. 구조의 필요성**
+Backbone이 증명한 것: 앱이 커지면 구조가 필요함.
+jQuery 스파게티 → MV* 패턴 → 컴포넌트 기반 → 서버 컴포넌트
+추상화 수준은 계속 올라가지만 "구조의 필요성"은 변하지 않음.
+
+**4. 타이밍이 전부임**
+CoffeeScript는 2009-2014년이라는 딱 맞는 시기에 나와서 빛났음.
+1년 일찍 나왔으면 너무 급진적이었을 거고,
+1년 늦게 나왔으면 ES6에 바로 잡아먹혔을 거임.
+기술의 성공은 품질만으로 결정되지 않음.
+
+**5. 영향력 ≠ 생존**
+CoffeeScript는 죽었지만 JavaScript 역사상 가장 영향력 있는 언어 중 하나임.
+Backbone은 죽었지만 모든 현대 프레임워크가 Backbone의 개념 위에 서있음.
+"살아남았는가"보다 "무엇을 남겼는가"가 더 중요할 수 있음.
+</Callout>
+
+## 마무리
+
+CoffeeScript와 Backbone.js는 **시대의 산물**이었음.
+
+JavaScript가 부족하던 시절에 나타나서 부족한 부분을 채워줬고,
+JavaScript가 스스로 성장하면서 조용히 물러남.
+
+이건 실패가 아님. **성공적인 은퇴**임.
+
+CoffeeScript가 없었으면 ES6는 더 늦게, 더 다른 모습으로 나왔을 거임.
+Backbone이 없었으면 React는 "왜 이게 필요한지" 설명하기 어려웠을 거임.
+
+죽은 기술이 반드시 실패한 기술은 아님.
+때로는 "너무 일찍 옳았던" 것뿐임.
+
+```
+╔════════════════════════════════════════════════════════════════╗
+║                                                                ║
+║     ⚘ R.I.P. CoffeeScript & Backbone.js ⚘                   ║
+║        CoffeeScript: 2009 - 2015                               ║
+║        Backbone.js: 2010 - 2016                                ║
+║                                                                ║
+║    "ES6가 오기 전, 우리가 미래를 보여줬음.                     ║
+║     미래가 직접 오면서 우리는 필요 없어졌지만                  ║
+║     화살표 함수 칠 때마다 우리를 기억해주면 좋겠음."           ║
+║                                                                ║
+║    — 같은 사람(Jeremy Ashkenas)이 만든 두 전설                 ║
+║                                                                ║
+╚════════════════════════════════════════════════════════════════╝
+```
+
+다음 묘비는 **Silverlight & Windows Phone**임.
+마이크로소프트가 10년간 잃어버린 것과 찾은 것의 이야기.

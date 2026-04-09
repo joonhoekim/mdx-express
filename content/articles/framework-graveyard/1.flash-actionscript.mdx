@@ -1,0 +1,764 @@
+# Flash & ActionScript — 웹의 황금기를 만들고 사라진 전설
+
+*"RIP Flash Player (1996-2020). 니 덕분에 수학 시간에 스틱맨 게임 할 수 있었음."*
+
+---
+
+2020년 12월 31일.
+
+어도비가 Flash Player의 사망 선고를 내림.
+브라우저들이 일제히 Flash 지원을 중단함.
+인터넷 역사상 가장 영향력 있던 기술 중 하나가 공식적으로 죽음.
+
+근데 솔직히 말하면 이미 2010년부터 죽어가고 있었음.
+스티브 잡스가 한 방 먹인 이후로.
+
+<Callout type="note" title="묘비명">
+Flash Player (1996 - 2020)
+"여기 인터넷을 재밌게 만든 기술이 잠들다.
+배너 광고도 만들었지만 그건 얘기하지 말자."
+</Callout>
+
+## Flash의 탄생: FutureSplash에서 시작된 전설
+
+Flash의 원래 이름은 **FutureSplash Animator**였음.
+1996년 FutureWave Software라는 조그만 회사가 만들었는데,
+Macromedia가 인수하면서 **Macromedia Flash**로 이름이 바뀜.
+
+당시 웹은 이랬음:
+
+```html
+<!-- 1996년의 최첨단 웹 페이지 -->
+<html>
+<body bgcolor="#FFFFFF">
+  <center>
+    <h1><font color="red" face="Comic Sans MS">
+      환영합니다!!!
+    </font></h1>
+    <img src="under_construction.gif">
+    <marquee>이 사이트는 공사 중입니다</marquee>
+    <br><br>
+    <img src="counter.cgi"> 번째 방문자
+    <br><br>
+    <a href="guestbook.html">방명록</a>
+  </center>
+</body>
+</html>
+```
+
+ㅋㅋㅋㅋ 이게 당시 "웹 개발"이었음.
+`<marquee>`랑 `<blink>` 태그가 최첨단 인터랙션이었던 시대.
+GIF 애니메이션이 "멀티미디어 콘텐츠"였음.
+
+근데 Flash가 등장하면서 갑자기 웹에서 이런 게 가능해짐:
+
+- 벡터 기반 애니메이션 (부드러운 모션!)
+- 사운드 재생 (웹에서 음악이!)
+- 마우스 인터랙션 (클릭하면 뭔가 일어남!)
+- 게임!! (이게 제일 컸음)
+
+<Callout type="info" title="역사적 맥락">
+1996년은 JavaScript가 겨우 1살이었음.
+CSS도 이제 막 1.0이 나왔고, 대부분의 브라우저가 제대로 지원하지 않았음.
+AJAX? 그런 거 없었음. XMLHttpRequest는 1999년에야 나옴.
+웹에서 "인터랙티브"한 걸 하려면 Flash가 유일한 선택지였음.
+</Callout>
+
+## Flash의 전성기: 인터넷의 28.5%
+
+2000년대 초중반, Flash는 말 그대로 인터넷을 지배했음.
+
+### 1. 게임의 천국
+
+Newgrounds, Miniclip, Kongregate, 아머 게임즈...
+
+학교 컴퓨터실에서 선생님 몰래 Flash 게임 하던 기억 없는 사람?
+그런 사람은 인터넷을 안 한 거임.
+
+대표적인 Flash 게임들:
+
+- **스틱맨 시리즈** (Animator vs. Animation, Xiao Xiao)
+- **라인라이더** (Line Rider) — 선 그으면 썰매가 탐
+- **N-Game** — 닌자 플랫포머
+- **페이퍼리오** (Territory War)
+- **디펜스 게임들** (Bloons TD, Kingdom Rush)
+
+이 게임들이 나중에 모바일 게임 산업의 기초가 됨.
+Angry Birds? Plants vs Zombies? 다 Flash 게임 문법의 후손임.
+
+### 2. 애니메이션과 크리에이티브
+
+**Homestar Runner**, **Happy Tree Friends**, **대학일기**...
+Flash로 만든 웹 애니메이션이 유튜브 이전의 "콘텐츠"였음.
+
+```actionscript
+// Flash 타임라인 기반 애니메이션의 기본 구조
+// 이게 당시 "프론트엔드 개발"이었음
+
+stop(); // 현재 프레임에서 멈춤
+
+// 버튼 클릭 이벤트 (ActionScript 2.0)
+myButton.onRelease = function() {
+    gotoAndPlay(10); // 10번 프레임으로 이동
+    _root.score += 100; // 전역 변수 접근
+    trace("점수: " + _root.score); // 콘솔 출력
+};
+
+// 무비클립 드래그
+myClip.onPress = function() {
+    this.startDrag();
+};
+
+myClip.onRelease = function() {
+    this.stopDrag();
+};
+```
+
+### 3. RIA (Rich Internet Applications)
+
+Flash는 게임만 만드는 게 아니었음.
+진짜 어플리케이션도 만들었음.
+
+- **YouTube** — 초기 동영상 플레이어가 Flash였음
+- **Google Maps** — 초기 버전이 Flash 기반이었음
+- **Hulu** — 스트리밍 플레이어
+- **각종 은행/정부 사이트** — 한국에서는 2010년대까지...
+
+<Callout type="warning" title="한국의 Flash 의존">
+한국은 Flash 의존도가 세계 최고 수준이었음.
+은행, 정부, 교육 사이트가 전부 Flash + ActiveX 조합이었는데
+Flash가 죽고 나서도 한참동안 "Flash Player를 설치해주세요" 팝업이 떴었음 ㅋㅋ
+</Callout>
+
+## ActionScript 3.0: 시대를 앞서간 언어
+
+여기서 진짜 놀라운 건 **ActionScript 3.0**임.
+
+2006년에 나온 AS3는 당시 JavaScript (ES3)와 비교하면 외계 기술이었음.
+클래스, 인터페이스, 정적 타입, 패키지 시스템...
+**TypeScript가 2012년에 가져온 것들을 2006년에 이미 갖고 있었음.**
+
+```actionscript
+// ActionScript 3.0 (2006년)
+// 이걸 보고 TypeScript랑 비교해보셈
+
+package com.game.entities {
+
+    import flash.display.Sprite;
+    import flash.events.Event;
+    import flash.events.MouseEvent;
+
+    // 인터페이스
+    public interface IMovable {
+        function move(dx:Number, dy:Number):void;
+        function get speed():Number;
+        function set speed(value:Number):void;
+    }
+
+    // 추상 기본 클래스
+    public class GameObject extends Sprite implements IMovable {
+
+        // 접근 제한자 (private, protected, public, internal)
+        private var _speed:Number;
+        protected var _health:int;
+
+        // 정적 상수
+        public static const MAX_HEALTH:int = 100;
+
+        // 생성자
+        public function GameObject(x:Number, y:Number, speed:Number = 5.0) {
+            this.x = x;
+            this.y = y;
+            this._speed = speed;
+            this._health = MAX_HEALTH;
+
+            // 이벤트 리스너
+            this.addEventListener(Event.ENTER_FRAME, onEnterFrame);
+            this.addEventListener(MouseEvent.CLICK, onClick);
+        }
+
+        // getter/setter
+        public function get speed():Number {
+            return _speed;
+        }
+
+        public function set speed(value:Number):void {
+            _speed = Math.max(0, Math.min(value, 20));
+        }
+
+        // 메서드 구현
+        public function move(dx:Number, dy:Number):void {
+            this.x += dx * _speed;
+            this.y += dy * _speed;
+        }
+
+        // 이벤트 핸들러
+        protected function onEnterFrame(e:Event):void {
+            // 매 프레임마다 호출 (게임 루프)
+            update();
+            render();
+        }
+
+        protected function onClick(e:MouseEvent):void {
+            trace("GameObject clicked at: " + e.stageX + ", " + e.stageY);
+        }
+
+        // 추상 메서드 (서브클래스에서 오버라이드)
+        protected function update():void {
+            // override in subclass
+        }
+
+        protected function render():void {
+            // override in subclass
+        }
+
+        // 소멸자 패턴
+        public function destroy():void {
+            this.removeEventListener(Event.ENTER_FRAME, onEnterFrame);
+            this.removeEventListener(MouseEvent.CLICK, onClick);
+            if (this.parent) {
+                this.parent.removeChild(this);
+            }
+        }
+    }
+}
+```
+
+그리고 이걸 같은 시기의 JavaScript와 비교하면:
+
+```javascript
+// JavaScript ES3 (2006년의 현실)
+// ㅋㅋㅋㅋㅋ 진짜 이랬음
+
+// "클래스" 흉내내기
+function GameObject(x, y, speed) {
+    this.x = x;
+    this.y = y;
+    this.speed = speed || 5;
+    this.health = 100;
+}
+
+// 프로토타입 체인으로 상속
+GameObject.prototype.move = function(dx, dy) {
+    this.x += dx * this.speed;
+    this.y += dy * this.speed;
+};
+
+// 정적 변수? 이렇게...
+GameObject.MAX_HEALTH = 100;
+
+// 상속
+function Player(x, y) {
+    GameObject.call(this, x, y, 8); // super() 같은 거
+    this.name = "Player";
+}
+
+// 프로토타입 체인 연결 (이 마법의 주문을 외워야 함)
+Player.prototype = Object.create(GameObject.prototype);
+Player.prototype.constructor = Player;
+
+// 인터페이스? 타입 체크?
+// 그런 거 없음 ㅋㅋ typeof가 전부임
+console.log(typeof player.move); // "function" 이면 있는 거고 아니면 없는 거
+```
+
+<Callout type="error" title="비극적 사실">
+ActionScript 3.0과 JavaScript는 둘 다 **ECMAScript** 스펙 기반이었음.
+AS3는 ECMAScript 4 (ES4) 초안을 구현했는데, ES4가 너무 복잡하다고 폐기됨.
+결국 JavaScript는 ES5 → ES6로 갔고, AS3의 많은 아이디어가 10년 후에야 JS에 들어옴.
+
+타입 시스템, 클래스, 모듈, 이터레이터... 전부 AS3에 먼저 있었음.
+</Callout>
+
+### AS3의 게임 개발 생태계
+
+Flash 게임 개발은 진짜 잘 구축된 생태계가 있었음:
+
+```actionscript
+// Flash 게임의 전형적인 구조
+
+package com.game.core {
+
+    import flash.display.Sprite;
+    import flash.events.Event;
+    import flash.utils.getTimer;
+
+    public class GameEngine extends Sprite {
+
+        private var _lastTime:int;
+        private var _entities:Vector.<GameObject>; // 제네릭 타입!
+        private var _fps:Number;
+
+        // Vector는 타입 안전한 배열 (Array보다 빠름)
+        // TypeScript의 Array<T>와 같은 개념을 2006년에...
+
+        public function GameEngine() {
+            _entities = new Vector.<GameObject>();
+            _lastTime = getTimer();
+
+            stage.addEventListener(Event.ENTER_FRAME, gameLoop);
+        }
+
+        private function gameLoop(e:Event):void {
+            // 델타 타임 계산
+            var currentTime:int = getTimer();
+            var deltaTime:Number = (currentTime - _lastTime) / 1000;
+            _lastTime = currentTime;
+
+            // FPS 계산
+            _fps = 1 / deltaTime;
+
+            // 물리 업데이트
+            updatePhysics(deltaTime);
+
+            // 충돌 검사
+            checkCollisions();
+
+            // 렌더링 (Display List가 자동으로 처리)
+            // Flash의 Display List는 진짜 혁명적이었음
+        }
+
+        private function updatePhysics(dt:Number):void {
+            for each (var entity:GameObject in _entities) {
+                entity.velocity.y += 9.8 * dt; // 중력
+                entity.x += entity.velocity.x * dt;
+                entity.y += entity.velocity.y * dt;
+            }
+        }
+
+        private function checkCollisions():void {
+            // AABB 충돌 검사
+            for (var i:int = 0; i < _entities.length; i++) {
+                for (var j:int = i + 1; j < _entities.length; j++) {
+                    if (_entities[i].hitTestObject(_entities[j])) {
+                        // hitTestObject — 내장 충돌 검사!
+                        // 요즘 Canvas 게임에서 직접 구현해야 하는 걸
+                        // Flash는 기본 제공했음
+                        handleCollision(_entities[i], _entities[j]);
+                    }
+                }
+            }
+        }
+
+        // 오브젝트 풀링 (메모리 관리)
+        private var _pool:Vector.<GameObject> = new Vector.<GameObject>();
+
+        public function spawn(type:Class, x:Number, y:Number):GameObject {
+            var obj:GameObject;
+            if (_pool.length > 0) {
+                obj = _pool.pop();
+                obj.reset(x, y);
+            } else {
+                obj = new type(x, y);
+            }
+            _entities.push(obj);
+            addChild(obj);
+            return obj;
+        }
+
+        public function despawn(obj:GameObject):void {
+            var idx:int = _entities.indexOf(obj);
+            if (idx >= 0) {
+                _entities.splice(idx, 1);
+                removeChild(obj);
+                _pool.push(obj);
+            }
+        }
+    }
+}
+```
+
+이 코드를 보면 현대 게임 엔진의 패턴이 다 들어있음:
+- 게임 루프 with 델타 타임
+- 엔티티 시스템
+- 오브젝트 풀링
+- 내장 충돌 검사
+
+진짜 완성도 높았음.
+
+## Steve Jobs의 한 방: "Thoughts on Flash"
+
+2010년 4월 29일.
+
+스티브 잡스가 Apple.com에 **"Thoughts on Flash"**라는 공개 서한을 올림.
+
+이게 Flash의 사망 진단서였음.
+
+<Callout type="error" title="Thoughts on Flash (2010) — 요약">
+잡스가 Flash를 안 쓰겠다고 선언한 이유 6가지:
+
+1. **개방성** — Flash는 어도비의 독점 기술이고, 웹은 개방형이어야 함
+2. **풀 웹** — HTML5, CSS, JavaScript로 Flash가 하는 거 다 가능
+3. **보안과 안정성** — Flash는 Mac 크래시의 1위 원인
+4. **배터리** — Flash는 하드웨어 디코딩을 못 써서 배터리를 쳐먹음
+5. **터치** — Flash는 마우스 호버 기반 설계라 터치에 안 맞음
+6. **서드파티 의존** — 플랫폼 위에 플랫폼을 올리면 혁신이 막힘
+
+"Flash가 만들어진 PC 시대는 끝났고, 모바일 시대가 왔다."
+</Callout>
+
+이 서한이 나온 직후 개발자 커뮤니티가 완전 갈라짐:
+
+```
+// 2010년 개발자 커뮤니티 반응
+
+잡스 지지파:
+"맞음. Flash 크래시 때문에 맥 쓰기 싫었음"
+"HTML5가 미래임. Canvas + WebGL이면 다 됨"
+"독점 기술에 의존하면 안 됨"
+
+어도비 지지파:
+"HTML5로 Flash 수준의 콘텐츠? ㅋㅋ 10년은 걸림"
+"잡스는 앱스토어 독점하려고 Flash 막는 거임"
+"웹 표준? 사파리가 표준을 제일 안 지키잖아"
+
+중립파:
+"둘 다 맞는 말 하는데..."
+"결국 돈 문제 아님?"
+"나는 그냥 둘 다 쓸래"
+```
+
+솔직히 어도비 지지파 말도 일리가 있었음.
+잡스의 "개방성" 주장은 약간 이중잣대였거든.
+앱스토어는 세상에서 가장 폐쇄적인 플랫폼이었으니까.
+
+근데 결과적으로 잡스가 이김.
+왜? **아이폰이 이겼으니까.**
+
+## Flash의 몰락 타임라인
+
+```
+2007 — iPhone 출시. Flash 미지원. "곧 지원할 거임" (어도비)
+2008 — Android 출시. Flash 지원. "봐라 가능하잖아"
+2010 — iPad 출시. Flash 미지원. Jobs의 "Thoughts on Flash"
+2011 — Adobe, 모바일 Flash 개발 중단 발표 ㄷㄷ
+2012 — Android도 Flash 지원 중단
+2015 — YouTube, HTML5를 기본 플레이어로 전환
+2017 — Adobe, 2020년 Flash 종료 발표
+2020 — Flash Player 공식 사망. 브라우저 지원 전면 중단
+2021 — Flash 콘텐츠 실행 차단. 진짜 끝.
+```
+
+<Callout type="warning" title="3년의 유예기간">
+어도비가 2017년에 "2020년에 죽인다"고 미리 공지한 건 꽤 훌륭했음.
+기업들이 마이그레이션할 시간을 줬으니까.
+근데 한국은 3년이 지나도 못 바꾼 곳이 수두룩했음 ㅋㅋ
+공공기관 특히...
+</Callout>
+
+## Flash가 남긴 유산
+
+Flash는 죽었지만, Flash의 DNA는 현대 웹 곳곳에 살아있음.
+
+### 1. Canvas API & WebGL
+
+```typescript
+// Flash의 Drawing API
+// graphics.beginFill(0xFF0000);
+// graphics.drawCircle(100, 100, 50);
+// graphics.endFill();
+
+// 현대 Canvas API — Flash Drawing API의 직계 후손
+const canvas = document.getElementById('game') as HTMLCanvasElement;
+const ctx = canvas.getContext('2d')!;
+
+// Flash의 beginFill → Canvas의 fillStyle
+ctx.fillStyle = '#FF0000';
+
+// Flash의 drawCircle → Canvas의 arc + fill
+ctx.beginPath();
+ctx.arc(100, 100, 50, 0, Math.PI * 2);
+ctx.fill();
+
+// Flash의 lineStyle → Canvas의 strokeStyle + lineWidth
+ctx.strokeStyle = '#000000';
+ctx.lineWidth = 2;
+ctx.stroke();
+```
+
+### 2. Web Animations API
+
+```typescript
+// Flash의 트윈 (TweenLite/TweenMax by Greensock)
+// TweenMax.to(myClip, 1, {x: 300, alpha: 0, ease: Bounce.easeOut});
+
+// 현대 Web Animations API — 같은 개념
+const element = document.querySelector('.box')!;
+
+element.animate([
+    { transform: 'translateX(0)', opacity: 1 },
+    { transform: 'translateX(300px)', opacity: 0 }
+], {
+    duration: 1000,
+    easing: 'ease-out',
+    fill: 'forwards'
+});
+
+// 참고: Greensock(GSAP)은 Flash 시절부터 지금까지 살아남은
+// 몇 안 되는 라이브러리임. Flash → JavaScript로 포팅 성공.
+```
+
+### 3. Adobe Animate (Flash의 환생)
+
+```
+Flash Professional → Flash CC → Adobe Animate CC
+
+같은 소프트웨어가 이름만 바뀐 거임.
+여전히 타임라인 기반 애니메이션 제작에 쓰이고 있음.
+출력 포맷이 SWF에서 HTML5 Canvas/WebGL로 바뀐 것뿐.
+```
+
+### 4. Unity & Unreal의 웹 게임
+
+```typescript
+// Flash 게임이 죽고 나서 웹 게임 시장을 가져간 건
+// Unity WebGL과 HTML5 게임 엔진들
+
+// Phaser.js — Flash 게임 개발자들이 많이 넘어온 엔진
+import Phaser from 'phaser';
+
+const config: Phaser.Types.Core.GameConfig = {
+    type: Phaser.AUTO, // WebGL 또는 Canvas 자동 선택
+    width: 800,
+    height: 600,
+    physics: {
+        default: 'arcade',
+        arcade: {
+            gravity: { x: 0, y: 300 },
+            debug: false
+        }
+    },
+    scene: {
+        preload: function(this: Phaser.Scene) {
+            // Flash의 라이브러리 패널 → 에셋 로딩
+            this.load.image('player', 'assets/player.png');
+            this.load.spritesheet('explosion', 'assets/boom.png', {
+                frameWidth: 64,
+                frameHeight: 64
+            });
+        },
+        create: function(this: Phaser.Scene) {
+            // Flash의 addChild → Phaser의 add
+            const player = this.physics.add.sprite(400, 300, 'player');
+
+            // Flash의 hitTestObject → Phaser의 collider
+            this.physics.add.collider(player, platforms);
+        },
+        update: function(this: Phaser.Scene) {
+            // Flash의 onEnterFrame → Phaser의 update
+        }
+    }
+};
+
+const game = new Phaser.Game(config);
+```
+
+<Callout type="success" title="Flash 개발자들의 이주 경로">
+Flash가 죽은 후 개발자들이 간 곳:
+
+- **게임 개발자** → Unity, Unreal, Phaser.js, PixiJS
+- **애니메이션** → Adobe Animate, After Effects, Lottie
+- **RIA 개발자** → React, Angular, Vue.js
+- **미디어 플레이어** → HTML5 Video, HLS/DASH 스트리밍
+
+재밌는 건 Flash 출신 개발자들이 각 분야에서 꽤 성공했다는 거임.
+Flash에서 다진 기본기(애니메이션, 이벤트 시스템, 게임 루프)가 어디서든 통했음.
+</Callout>
+
+## Flash 보존 프로젝트들
+
+Flash가 죽었다고 Flash 콘텐츠까지 사라진 건 아님.
+
+```
+보존 프로젝트들:
+
+1. Flashpoint (BlueMaxima's Flashpoint)
+   - 15만+ Flash 게임/애니메이션 보존
+   - 로컬에서 실행 가능한 아카이브
+   - 인터넷 문화유산 보존의 영웅들
+
+2. Ruffle
+   - Rust로 작성된 Flash Player 에뮬레이터
+   - WebAssembly로 브라우저에서 실행
+   - AS1/AS2 상당 부분 지원, AS3는 진행 중
+
+3. Newgrounds Player
+   - Newgrounds가 자체 보존 시스템 구축
+   - Flash 콘텐츠를 계속 플레이 가능
+
+4. Internet Archive
+   - SWF 파일 아카이빙
+   - Ruffle 내장으로 브라우저에서 재생
+```
+
+<Callout type="info" title="Ruffle — Flash의 좀비 부활">
+Ruffle은 진짜 대단한 프로젝트임.
+Rust + WebAssembly로 Flash Player를 재구현하고 있음.
+브라우저 확장 프로그램으로 설치하면 Flash 콘텐츠가 다시 재생됨.
+2024년 기준 AS2까지는 거의 완벽하게 돌아감.
+</Callout>
+
+## 코드로 보는 시대 변화
+
+Flash에서 하던 걸 현대 웹에서 어떻게 하는지 비교:
+
+### 동영상 재생
+
+```actionscript
+// Flash (2005년)
+var video:Video = new Video();
+var nc:NetConnection = new NetConnection();
+nc.connect(null);
+var ns:NetStream = new NetStream(nc);
+video.attachNetStream(ns);
+addChild(video);
+ns.play("movie.flv");
+
+// 코드 6줄 + FLV 인코딩 + Flash Player 필수
+```
+
+```html
+<!-- HTML5 (현재) -->
+<video src="movie.mp4" controls autoplay>
+  브라우저가 비디오를 지원하지 않습니다.
+</video>
+
+<!-- 코드 1줄. 끝. -->
+```
+
+### 드래그 앤 드롭
+
+```actionscript
+// Flash — startDrag/stopDrag
+myClip.addEventListener(MouseEvent.MOUSE_DOWN, onDown);
+myClip.addEventListener(MouseEvent.MOUSE_UP, onUp);
+
+function onDown(e:MouseEvent):void {
+    e.currentTarget.startDrag();
+}
+
+function onUp(e:MouseEvent):void {
+    e.currentTarget.stopDrag();
+}
+```
+
+```typescript
+// 현대 JavaScript — HTML5 Drag and Drop API
+const element = document.querySelector('.draggable')!;
+
+element.setAttribute('draggable', 'true');
+
+element.addEventListener('dragstart', (e: DragEvent) => {
+    e.dataTransfer?.setData('text/plain', 'dragging');
+});
+
+// 또는 pointer events로 직접 구현
+let isDragging = false;
+let offsetX = 0;
+let offsetY = 0;
+
+element.addEventListener('pointerdown', (e: PointerEvent) => {
+    isDragging = true;
+    offsetX = e.clientX - element.getBoundingClientRect().left;
+    offsetY = e.clientY - element.getBoundingClientRect().top;
+    element.setPointerCapture(e.pointerId);
+});
+
+document.addEventListener('pointermove', (e: PointerEvent) => {
+    if (!isDragging) return;
+    const el = element as HTMLElement;
+    el.style.left = `${e.clientX - offsetX}px`;
+    el.style.top = `${e.clientY - offsetY}px`;
+});
+
+element.addEventListener('pointerup', () => {
+    isDragging = false;
+});
+```
+
+솔직히 Flash의 `startDrag()`가 더 간단하긴 했음 ㅋㅋ
+
+### 소켓 통신
+
+```actionscript
+// Flash의 XMLSocket (실시간 통신의 원조)
+var socket:XMLSocket = new XMLSocket();
+socket.addEventListener(Event.CONNECT, onConnect);
+socket.addEventListener(DataEvent.DATA, onData);
+socket.connect("game-server.com", 8080);
+
+function onData(e:DataEvent):void {
+    var data:Object = JSON.parse(e.data);
+    updateGameState(data);
+}
+```
+
+```typescript
+// 현대 WebSocket
+const ws = new WebSocket('wss://game-server.com/ws');
+
+ws.addEventListener('open', () => {
+    console.log('연결됨');
+});
+
+ws.addEventListener('message', (event: MessageEvent) => {
+    const data = JSON.parse(event.data);
+    updateGameState(data);
+});
+
+// 거의 똑같음. Flash의 소켓이 WebSocket의 조상이라고 봐도 됨.
+```
+
+## 교훈: Flash에서 배우는 것
+
+<Callout type="note" title="Flash가 가르쳐준 것들">
+**1. 독점 기술의 위험성**
+아무리 좋아도 한 회사가 소유한 기술에 올인하면 그 회사의 결정에 인생이 좌우됨.
+어도비가 Flash를 죽이겠다고 하면 끝인 거임.
+
+**2. 플랫폼 변화의 파괴력**
+PC → 모바일 전환이 Flash를 죽였음.
+다음 플랫폼 변화(AI? AR/VR? 공간 컴퓨팅?)가 오면 또 뭔가 죽을 거임.
+
+**3. 좋은 기술 ≠ 살아남는 기술**
+AS3는 당시 JS보다 훨씬 좋은 언어였음.
+근데 죽었음. 기술의 품질은 생존의 충분조건이 아님.
+생태계, 접근성, 타이밍이 더 중요함.
+
+**4. 전환 능력이 핵심**
+Flash 개발자 중 살아남은 사람들은 "Flash 개발자"가 아니라
+"인터랙티브 콘텐츠 개발자"로 자신을 정의한 사람들이었음.
+도구가 아니라 문제 해결 능력에 투자해야 함.
+</Callout>
+
+## 마무리
+
+Flash는 인터넷을 **재밌게** 만든 첫 번째 기술이었음.
+
+YouTube가 있기 전에 Flash로 영상을 봤고,
+Steam이 있기 전에 Flash로 게임을 했고,
+React가 있기 전에 Flash로 앱을 만들었음.
+
+Flash가 없었으면 현대 웹은 완전히 다른 모습이었을 거임.
+Canvas API, WebGL, Web Animations API, HTML5 Video...
+이 모든 게 "Flash가 하던 것을 웹 표준으로 구현하자"에서 시작됐으니까.
+
+그러니까 Flash에게 경의를 표하자.
+
+```
+╔════════════════════════════════════════════════════╗
+║                                                    ║
+║           ⚘ R.I.P. Flash Player ⚘                ║
+║              1996 - 2020                           ║
+║                                                    ║
+║    "웹을 재밌게 만들어줘서 고마웠음.               ║
+║     배너 광고는 좀 과했지만                        ║
+║     그것도 추억이 됐음."                           ║
+║                                                    ║
+║    — 모든 컴퓨터실 Flash 게임 유저들 일동          ║
+║                                                    ║
+╚════════════════════════════════════════════════════╝
+```
+
+다음 묘비는 **AngularJS**임.
+같은 이름을 가진 완전히 다른 프레임워크의 이야기.
