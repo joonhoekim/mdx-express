@@ -1,0 +1,602 @@
+# "Works on my machine" — 환경 차이의 과학
+
+*개발자의 가장 유명한 변명이자, Docker가 탄생한 이유.*
+
+---
+
+## 밈의 기원
+
+2007년쯤, 어느 개발자가 이런 뱃지를 만들었음:
+
+> **"WORKS ON MY MACHINE"**
+> Certified — Developer Seal of Approval
+
+이게 인터넷에서 폭발적으로 퍼진 이유는 단 하나임. **모든 개발자가 한 번은 이 말을 했기 때문.**
+
+QA: "이거 안 되는데요?"
+개발자: "제 컴퓨터에선 되는데요?"
+QA: "..."
+개발자: "..."
+
+이 대화가 전 세계 모든 회사에서 매일 반복되고 있음. 시간대만 다를 뿐임.
+
+<Callout type="note" title="밈의 변형들">
+- "Works on my machine" 뱃지 — 가장 클래식한 버전
+- "It works on localhost" — 웹 개발자 특화 버전
+- "But it passed CI" — DevOps 시대의 업그레이드 버전
+- "Works on my machine, ship my machine" — 사실상 Docker의 철학
+</Callout>
+
+---
+
+## 환경 차이가 발생하는 실제 원인들
+
+"내 컴퓨터에선 된다"는 건 거짓말이 아님. 진짜 됨. 문제는 **다른 컴퓨터에선 안 된다**는 거임.
+
+왜 그런지 하나하나 뜯어보겠음.
+
+### 1. 운영체제 차이
+
+가장 클래식한 원인임. Windows에서 개발하고 Linux 서버에 배포하면 터지는 게 한두 개가 아님.
+
+```typescript
+// Windows에서는 잘 됨. Linux에서는 터짐.
+import UserService from './userService';
+// 실제 파일명: userservice.ts (소문자)
+// Windows: 파일 시스템이 대소문자 구분 안 함 → 동작함
+// Linux: 파일 시스템이 대소문자 구분함 → Module not found
+```
+
+```typescript
+// 경로 구분자의 차이
+const configPath = 'config\\database\\settings.json';
+// Windows: 정상 동작
+// Linux/Mac: config\database\settings.json이라는 하나의 파일을 찾음
+
+// 올바른 방법
+import path from 'path';
+const configPath = path.join('config', 'database', 'settings.json');
+// 모든 OS에서 동작
+```
+
+<Callout type="error" title="실화: 줄바꿈 문자의 비극">
+Windows는 줄바꿈이 `\r\n` (CRLF), Linux/Mac은 `\n` (LF)임. 이거 하나 때문에 CSV 파싱이 터지고, diff가 의미 없어지고, 셸 스크립트가 실행 안 되는 일이 비일비재함.
+
+`git config core.autocrlf`로 해결하긴 하는데, 이 설정 자체가 팀원마다 다르면 또 지옥이 열림.
+</Callout>
+
+### 2. 런타임 버전 차이
+
+Node.js 18에서 개발한 코드를 Node.js 16 서버에 올리면 어떻게 되냐?
+
+```typescript
+// Node.js 18+ 에서만 동작하는 코드들
+
+// 1. structuredClone — Node 17+
+const copy = structuredClone(originalObject);
+// Node 16: ReferenceError: structuredClone is not defined
+
+// 2. Array.prototype.at() — Node 16.6+
+const last = myArray.at(-1);
+// Node 14: TypeError: myArray.at is not a function
+
+// 3. fetch — Node 18+
+const response = await fetch('https://api.example.com/data');
+// Node 16: ReferenceError: fetch is not defined
+// "npm install node-fetch 해야 됨" "에? 브라우저에선 그냥 되는데?"
+```
+
+```typescript
+// 더 미묘한 버전 차이 — crypto.randomUUID()
+import { randomUUID } from 'crypto';
+
+function generateId(): string {
+  return randomUUID(); // Node 19+에서만 안정적
+}
+
+// Node 14에서 실행하면?
+// TypeError: randomUUID is not a function
+// "아 uuid 패키지 설치해야 되는 거였음?"
+```
+
+### 3. 환경변수의 지옥
+
+```typescript
+// .env 파일이 .gitignore에 있음 (당연함)
+// 근데 그러면 팀원마다 환경변수가 다름 (당연한 결과)
+
+// 개발자 A의 .env
+// DATABASE_URL=postgres://localhost:5432/myapp
+// REDIS_URL=redis://localhost:6379
+
+// 개발자 B의 .env
+// DATABASE_URL=postgres://localhost:5433/myapp_dev  ← 포트가 다름
+// REDIS_URL=                                         ← 비어있음
+
+// 서버의 환경변수
+// DATABASE_URL=postgres://prod-db.internal:5432/myapp_prod
+// REDIS_URL=redis://prod-redis.internal:6379
+// SECRET_KEY=super_secret_production_key_2024
+
+// 이 코드가 개발자 B 컴퓨터에서 터지는 이유
+const redis = new Redis(process.env.REDIS_URL!);
+// REDIS_URL이 빈 문자열이면? Redis가 기본값으로 연결 시도 → 실패
+```
+
+<Callout type="warning" title="환경변수 실수 Top 3">
+1. `.env.example` 파일 안 만들어놓기 — 신입이 들어오면 "환경변수 뭐 넣어야 돼요?" 질문 반복
+2. 환경변수 이름 오타 — `DATABSE_URL`로 6시간 디버깅한 실화 있음
+3. 환경변수에 따옴표 넣기 — `API_KEY="abc123"` 하면 따옴표까지 값으로 들어가는 거 알지?
+</Callout>
+
+### 4. 의존성 버전 차이
+
+```json
+// package.json
+{
+  "dependencies": {
+    "lodash": "^4.17.0"
+  }
+}
+```
+
+```typescript
+// 개발자 A: npm install 한 시점 — 2024년 1월
+// lodash@4.17.21 설치됨
+
+// 개발자 B: npm install 한 시점 — 2024년 6월
+// lodash@4.17.25 설치됨 (가정)
+// ^4.17.0이니까 마이너/패치 버전은 자동 업데이트
+
+// 이론상 패치 버전은 하위 호환되어야 하지만...
+// 현실: "이론과 실전은 다릅니다" — 모든 시니어 개발자
+```
+
+```typescript
+// lock 파일의 중요성
+// package-lock.json / yarn.lock / bun.lockb / pnpm-lock.yaml
+
+// 이 파일들이 하는 일:
+// "너도 나도 정확히 같은 버전 쓰자"
+
+// 근데 현실:
+// - lock 파일을 .gitignore에 넣는 사람이 있음 (범죄 수준)
+// - "npm install 하면 되지 왜 lock 파일을 커밋해?" (이러면 안 됨)
+// - CI에서 npm ci 대신 npm install 쓰는 팀 (lock 파일 무시됨)
+```
+
+<Callout type="error" title="node_modules의 공포">
+같은 package.json으로 `npm install`을 두 번 하면 같은 결과가 나올까?
+
+정답: **아닐 수 있음.**
+
+npm의 의존성 해석 알고리즘은 설치 순서에 따라 node_modules 트리 구조가 달라질 수 있음. 이것 때문에 `npm ci`가 만들어진 거임. CI 환경에서는 반드시 `npm ci`를 쓰는 게 맞음.
+</Callout>
+
+### 5. 숨겨진 시스템 의존성
+
+```typescript
+// sharp 라이브러리 (이미지 처리)
+import sharp from 'sharp';
+
+// macOS에서 설치: 잘 됨 (Homebrew로 libvips 자동 설치)
+// Ubuntu에서 설치: 잘 됨 (apt로 libvips 자동 설치)
+// Alpine Linux에서 설치: 터짐
+// "Error: Cannot find module '../build/Release/sharp-linux-x64.node'"
+
+// 왜? Alpine은 musl libc를 쓰는데 sharp의 프리빌트 바이너리는
+// glibc 기반이기 때문임. 별도의 설정이 필요함.
+```
+
+```typescript
+// bcrypt — 또 다른 네이티브 모듈 지옥
+import bcrypt from 'bcrypt';
+
+// npm install bcrypt 할 때:
+// 1. node-gyp 빌드 시작
+// 2. Python 필요함 → "Python 없음" 에러
+// 3. C++ 컴파일러 필요함 → "make: g++: Command not found"
+// 4. Windows에서는 Visual Studio Build Tools 필요함
+// 5. "야 그냥 bcryptjs 쓰자" (순수 JS 구현)
+
+// bcrypt vs bcryptjs
+// bcrypt: C++ 바인딩, 빠름, 설치 지옥
+// bcryptjs: 순수 JS, 느림, 어디서든 설치됨
+// 현실적 선택: bcryptjs 쓰는 팀이 더 많음
+```
+
+---
+
+## Docker가 이 문제를 해결한 방법
+
+### "Works on my machine"의 궁극적 해결책
+
+Docker의 핵심 철학은 간단함:
+
+> "네 머신이 되면, 그 머신을 통째로 보내면 되지 않냐?"
+
+```dockerfile
+# Dockerfile — "내 컴퓨터"를 코드로 정의
+FROM node:20-alpine
+
+WORKDIR /app
+
+# 의존성 먼저 (캐시 활용)
+COPY package.json bun.lockb ./
+RUN npm install --frozen-lockfile
+
+# 소스 코드
+COPY . .
+
+# 빌드
+RUN npm run build
+
+# 실행
+EXPOSE 3000
+CMD ["npm", "start"]
+```
+
+```yaml
+# docker-compose.yml — "내 컴퓨터 환경 전체"를 코드로 정의
+version: '3.8'
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=postgres://db:5432/myapp
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - db
+      - redis
+
+  db:
+    image: postgres:16
+    environment:
+      - POSTGRES_DB=myapp
+      - POSTGRES_PASSWORD=devpassword
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+
+volumes:
+  pgdata:
+```
+
+<Callout type="success" title="Docker가 해결한 것들">
+- OS 차이? → 컨테이너 안은 항상 같은 OS
+- 런타임 버전? → `FROM node:20-alpine`으로 고정
+- 시스템 의존성? → Dockerfile에 명시적으로 설치
+- 환경변수? → docker-compose.yml에 정의
+- "내 컴퓨터에선 되는데?" → "그 컴퓨터가 이 컨테이너니까 당연히 됨"
+</Callout>
+
+### Docker 이전 vs 이후
+
+```typescript
+// Docker 이전의 배포 체크리스트
+const deploymentChecklist = [
+  'Node.js 버전 확인했음?',          // 수동
+  'npm install 했음?',              // 기도하면서
+  'pm2 재시작했음?',                 // 기도하면서
+  '환경변수 설정했음?',              // 까먹을 확률 90%
+  '포트 열었음?',                    // 까먹을 확률 50%
+  'nginx 설정 바꿨음?',             // 바꾸면 다른 거 터짐
+  '로그 경로 맞음?',                // 보통 안 맞음
+  'SSL 인증서 갱신했음?',            // Let's Encrypt 만료 알림이 스팸함에
+];
+
+// Docker 이후의 배포
+const dockerDeployment = [
+  'docker compose up -d',           // 끝
+];
+```
+
+### 그런데 Docker도 만능은 아님
+
+```typescript
+// Docker의 한계
+
+// 1. 볼륨 퍼미션 문제 (Linux에서 주로 발생)
+// 컨테이너 안의 uid와 호스트의 uid가 다르면?
+// "Permission denied" 파티 시작
+
+// 2. M1/M2 Mac에서의 아키텍처 문제
+// FROM node:20-alpine
+// → linux/amd64 이미지를 arm64 Mac에서 실행
+// → QEMU 에뮬레이션으로 느려짐
+// → 또는 특정 네이티브 모듈이 아예 안 됨
+
+// 3. Docker-in-Docker 문제
+// CI에서 Docker 빌드를 Docker 안에서 하려면?
+// "도커 안에서 도커를 실행하려면 도커 소켓을..."
+// → 이 시점에서 눈물이 남
+
+// 4. 이미지 크기
+// node:20 → 약 1GB
+// node:20-slim → 약 200MB
+// node:20-alpine → 약 130MB
+// distroless → 약 50MB
+// "이미지 줄이려면 멀티스테이지 빌드를..." → 또 공부할 게 늘어남
+```
+
+---
+
+## 실제 코드로 보는 환경 의존 버그들
+
+### 타임존 버그
+
+```typescript
+// 서울에서 개발, UTC 서버에 배포
+
+// 개발자 컴퓨터 (Asia/Seoul, UTC+9)
+const now = new Date();
+console.log(now.getDate()); // 3월 17일 → 17
+
+// 서버 (UTC)
+const now2 = new Date();
+console.log(now2.getDate()); // 3월 17일 00:30 KST = 3월 16일 15:30 UTC → 16
+
+// 결과: 날짜 기반 로직이 하루 차이남
+// "어제 데이터가 왜 오늘 데이터에 섞여있지?"
+```
+
+```typescript
+// 해결: 항상 UTC 기준으로 처리
+function getToday(): string {
+  const now = new Date();
+  return now.toISOString().split('T')[0]; // "2026-03-17" (UTC 기준)
+}
+
+// 또는 라이브러리 사용
+import { format, utcToZonedTime } from 'date-fns-tz';
+
+function getKoreanDate(date: Date): string {
+  const koreaTime = utcToZonedTime(date, 'Asia/Seoul');
+  return format(koreaTime, 'yyyy-MM-dd', { timeZone: 'Asia/Seoul' });
+}
+```
+
+### 로케일 의존 버그
+
+```typescript
+// 터키어 로케일 문제 — 유명한 버그
+
+const language = 'TITLE';
+
+// 미국/한국 서버
+language.toLowerCase() === 'title' // true
+
+// 터키어 로케일 서버
+language.toLowerCase() === 'title' // false
+// 터키어에서 'I'의 소문자는 'i'가 아니라 'ı' (점 없는 i)
+// 'TITLE'.toLowerCase() → 'tıtle' (터키어 로케일에서)
+
+// 해결
+language.localeCompare('title', 'en', { sensitivity: 'accent' }) === 0 // 안전
+```
+
+### 메모리 관련 차이
+
+```typescript
+// 개발 환경: 16GB RAM 맥북 프로
+// 서버 환경: 512MB 컨테이너
+
+// 개발할 때는 잘 되던 코드
+async function processAllUsers() {
+  const users = await db.user.findMany(); // 10만 명 전부 메모리에 로드
+
+  for (const user of users) {
+    await sendEmail(user);
+  }
+}
+// 개발 DB: 유저 100명 → 정상 동작
+// 프로덕션 DB: 유저 10만 명 → OOMKilled
+
+// 해결: 배치 처리
+async function processAllUsersBatched() {
+  const batchSize = 100;
+  let cursor: number | undefined;
+
+  while (true) {
+    const users = await db.user.findMany({
+      take: batchSize,
+      skip: cursor ? 1 : 0,
+      cursor: cursor ? { id: cursor } : undefined,
+      orderBy: { id: 'asc' },
+    });
+
+    if (users.length === 0) break;
+
+    for (const user of users) {
+      await sendEmail(user);
+    }
+
+    cursor = users[users.length - 1].id;
+  }
+}
+```
+
+### DNS/네트워크 차이
+
+```typescript
+// localhost vs 0.0.0.0 vs 127.0.0.1
+
+// Express 서버
+const app = express();
+
+// 이렇게 하면?
+app.listen(3000, 'localhost');
+// Mac/Windows: 정상 동작
+// Docker 컨테이너: 외부에서 접근 불가
+// → localhost = 127.0.0.1 = 컨테이너 내부에서만 접근 가능
+
+// Docker에서는 이렇게 해야 함
+app.listen(3000, '0.0.0.0');
+// 0.0.0.0 = 모든 네트워크 인터페이스에서 수신
+// → 컨테이너 외부에서도 접근 가능
+```
+
+---
+
+## CI/CD로 환경 차이 잡기
+
+### CI가 "Works on my machine"을 잡는 방법
+
+```yaml
+# GitHub Actions — 환경 표준화
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [18, 20, 22]  # 여러 버전에서 테스트
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Install dependencies
+        run: npm ci  # npm install이 아님! ci는 lock 파일 기반 정확한 설치
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+```
+
+<Callout type="info" title="npm install vs npm ci">
+- `npm install`: package.json 기반, lock 파일 업데이트 가능, 유연함
+- `npm ci`: lock 파일 기반, 정확한 재현, CI 환경에 최적
+
+CI에서 `npm install`을 쓰면 "내 CI에선 되는데 프로덕션에선 안 됨" 상황이 올 수 있음. 반드시 `npm ci`를 쓰는 게 맞음.
+</Callout>
+
+### 환경 변수 검증
+
+```typescript
+// 앱 시작 시 환경변수 검증 — Zod 사용
+import { z } from 'zod';
+
+const envSchema = z.object({
+  NODE_ENV: z.enum(['development', 'production', 'test']),
+  DATABASE_URL: z.string().url(),
+  REDIS_URL: z.string().url(),
+  JWT_SECRET: z.string().min(32, '시크릿이 너무 짧음. 32자 이상 필요'),
+  PORT: z.coerce.number().default(3000),
+
+  // 프로덕션에서만 필수
+  SENTRY_DSN: z.string().url().optional(),
+});
+
+// 앱 시작 시 바로 검증
+const env = envSchema.parse(process.env);
+// 환경변수 하나라도 빠지면 여기서 에러 → 배포 직후 바로 알 수 있음
+// "왜 안 되지?" 대신 "DATABASE_URL이 빠졌습니다" 메시지를 받을 수 있음
+
+export default env;
+```
+
+### 개발 환경 표준화
+
+```json
+// .tool-versions (asdf) 또는 .nvmrc (nvm) 또는 .node-version
+// 팀 전체가 같은 Node.js 버전을 쓰도록 강제
+
+// .nvmrc
+// 20.11.0
+
+// 프로젝트 루트에 놓으면 nvm use 시 자동으로 이 버전 사용
+```
+
+```json
+// package.json에 엔진 제한 걸기
+{
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
+  }
+}
+// 이제 Node 18로 npm install 하면 경고 (또는 에러)
+```
+
+```typescript
+// 개발 환경 체크 스크립트
+// scripts/check-env.ts
+
+import { execFileSync } from 'child_process';
+
+function checkCommand(cmd: string, minVersion: string): boolean {
+  try {
+    const output = execFileSync(cmd, ['--version'], { encoding: 'utf-8' });
+    const version = output.trim().match(/(\d+\.\d+\.\d+)/)?.[1];
+    if (!version) return false;
+
+    console.log(`OK ${cmd}: ${version}`);
+    return true;
+  } catch {
+    console.error(`FAIL ${cmd}: not found (required >= ${minVersion})`);
+    return false;
+  }
+}
+
+const checks = [
+  checkCommand('node', '20.0.0'),
+  checkCommand('docker', '24.0.0'),
+  checkCommand('git', '2.40.0'),
+];
+
+if (checks.some(c => !c)) {
+  console.error('\n환경 설정이 잘못됐음. 위의 에러를 확인하셈.');
+  process.exit(1);
+}
+```
+
+---
+
+## 정리: "내 컴퓨터에선 되는데"를 없애는 방법
+
+| 원인 | 해결책 |
+|------|--------|
+| OS 차이 | Docker 컨테이너 |
+| 런타임 버전 | .nvmrc, engines 필드, Docker |
+| 환경변수 | .env.example, Zod 검증 |
+| 의존성 버전 | lock 파일 커밋, npm ci |
+| 시스템 의존성 | Docker, 문서화 |
+| 타임존 | UTC 표준화 |
+| 네트워크 | CI에서 통합 테스트 |
+
+<Callout type="success" title="결론">
+"Works on my machine"은 변명이 아니라 **환경 관리 실패의 증거**임.
+
+Docker, CI/CD, 환경변수 검증, lock 파일 관리 — 이 네 가지만 제대로 해도 이 밈의 주인공이 될 확률이 90% 줄어듦.
+
+근데 솔직히 아직도 가끔 "내 컴퓨터에선 되는데..." 하게 됨. 인간이니까.
+</Callout>
+
+---
+
+*"결국 Docker는 '내 컴퓨터를 통째로 보내는' 가장 우아한 방법이었던 거임."*

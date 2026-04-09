@@ -1,0 +1,526 @@
+# "It's not a bug, it's a feature" — 버그와 기능의 경계
+
+*모든 버그는 문서화되는 순간 기능이 됨.*
+
+---
+
+## 밈의 기원
+
+이 말이 정확히 언제부터 쓰였는지는 아무도 모름. 하지만 개발자라면 한 번은 이 말을 했거나, 이 말을 들었을 거임.
+
+> PM: "이 버튼 누르면 데이터가 두 번 저장되는데요?"
+> 개발자: "아 그건 자동 백업 기능입니다."
+> PM: "..."
+> 개발자: "..."
+
+이 밈이 웃긴 이유는 **실제로 버그와 기능의 경계가 모호한 경우가 진짜 많기 때문**임.
+
+"이건 의도된 동작입니다"라는 말이 진실인 경우도 있고, 거짓말인 경우도 있고, 본인도 모르는 경우도 있음.
+
+<Callout type="note" title="밈의 변형들">
+- "It's not a bug, it's a feature" — 원조
+- "It's not a bug, it's an undocumented feature" — 문서 안 쓴 사람의 변명
+- "That's WAI (Working As Intended)" — 대기업 버전
+- "Won't Fix" — JIRA에서 가장 무서운 상태값
+- "By design" — Microsoft의 클래식한 버그 리포트 응답
+</Callout>
+
+---
+
+## 유명한 "기능이었습니다" 사례들
+
+### 1. 스트리트 파이터 II의 콤보 시스템
+
+격투 게임의 콤보가 원래 버그였다는 거 알고 있음?
+
+1991년 스트리트 파이터 II 개발 당시, 공격 모션 중에 다른 공격 입력이 들어가면 캔슬되면서 연속 공격이 되는 현상이 발견됨. 이건 분명한 **버그**였음. 공격 모션이 끝나기 전에 다른 입력을 받으면 안 되는 거였음.
+
+근데 테스터들이 이걸 발견하고 "이거 개재밌는데?" 하면서 놔둔 거임. 그 결과 **격투 게임 역사상 가장 중요한 메카닉**이 탄생함.
+
+```typescript
+// 스트리트 파이터의 콤보 시스템을 코드로 표현하면
+
+// 원래 의도된 동작
+class Fighter {
+  private isAnimating = false;
+
+  attack(type: string) {
+    if (this.isAnimating) {
+      return; // 모션 중에는 입력 무시 — 원래 이래야 했음
+    }
+    this.isAnimating = true;
+    this.playAnimation(type);
+  }
+}
+
+// 실제로 발생한 버그 (결국 기능이 됨)
+class FighterWithCombo {
+  private currentFrame = 0;
+  private cancelWindow = { start: 10, end: 15 }; // 특정 프레임에서만
+
+  attack(type: string) {
+    // 특정 프레임 윈도우에서 다른 공격 입력이 들어오면 캔슬 가능
+    if (this.currentFrame >= this.cancelWindow.start &&
+        this.currentFrame <= this.cancelWindow.end) {
+      this.cancelCurrentAnimation();
+      this.playAnimation(type); // → 콤보!
+    }
+  }
+}
+```
+
+### 2. Gmail의 Undo Send
+
+이건 약간 다른 케이스임. Gmail의 "보내기 취소"는 실제로 이메일을 보낸 후 취소하는 게 아니라, **보내는 걸 몇 초 지연시키는 것**임.
+
+```typescript
+// Gmail Undo Send의 실제 동작 방식 (간략화)
+
+class EmailService {
+  private pendingEmails = new Map<string, NodeJS.Timeout>();
+
+  async sendEmail(email: Email): Promise<string> {
+    const id = generateId();
+
+    // 이메일을 바로 보내지 않고 지연시킴
+    const timeout = setTimeout(async () => {
+      await this.actuallySendEmail(email);
+      this.pendingEmails.delete(id);
+    }, 5000); // 5초 후에 실제 발송
+
+    this.pendingEmails.set(id, timeout);
+    return id;
+  }
+
+  undoSend(id: string): boolean {
+    const timeout = this.pendingEmails.get(id);
+    if (timeout) {
+      clearTimeout(timeout); // 타이머 취소 = 발송 취소
+      this.pendingEmails.delete(id);
+      return true;
+    }
+    return false; // 이미 보내짐
+  }
+}
+
+// 사용자: "와 이메일 보내기 취소 기능 대박!"
+// 실제: 그냥 setTimeout + clearTimeout임
+// 근데 이게 수억 명이 쓰는 킬러 피처가 됨
+```
+
+<Callout type="info" title="기능이 된 버그들 모음">
+- **스크롤바 드래그**: 원래 텍스트 에디터의 버그였다는 설이 있음
+- **마인크래프트의 크리퍼**: 돼지 모델링 실수로 세로로 길어진 게 크리퍼가 됨
+- **스페이스 인베이더의 가속**: 적을 죽이면 빨라지는 건 CPU 여유가 생겨서 발생한 부작용이었음
+- **해시태그**: 트위터에서 유저가 임의로 # 붙이기 시작 → 공식 기능으로 채택
+</Callout>
+
+### 3. JavaScript의 타입 강제 변환
+
+이건 버그인지 기능인지 아직도 논쟁 중임.
+
+```javascript
+// JavaScript: "이건 기능입니다" (진짜?)
+
+[] + []           // "" (빈 문자열)
+[] + {}           // "[object Object]"
+{} + []           // 0 (뭐?)
+{} + {}           // NaN (뭐??)
+
+// 비교 연산
+0 == ''           // true
+0 == '0'          // true
+'' == '0'          // false
+// 삼단논법이 안 먹히는 언어
+
+// 더 미친 것들
+typeof NaN        // "number" (숫자가 아닌 건 숫자 타입)
+NaN === NaN       // false (자기 자신과 같지 않음)
+0.1 + 0.2         // 0.30000000000000004 (이건 JS만의 문제는 아님)
+
+// null과 undefined의 이중성
+null == undefined  // true
+null === undefined // false
+typeof null        // "object" (25년 된 버그, 고칠 수 없음)
+```
+
+```typescript
+// typeof null === "object"의 역사
+// 1995년, Brendan Eich가 JS를 10일 만에 만들면서
+// 값의 타입을 내부적으로 태그 비트로 구분했음
+// 000 → object
+// null → 모든 비트가 0 (null pointer)
+// → null의 태그 비트가 000 → "object"로 인식
+//
+// 이걸 고치려는 제안(typeof null === "null")이 있었지만
+// 이미 너무 많은 코드가 typeof null === "object"에 의존해서 포기
+//
+// 이게 진짜 "버그가 기능이 된" 가장 유명한 사례임
+```
+
+---
+
+## 버그 리포트 vs 기능 요청의 정치학
+
+### JIRA 티켓의 분류
+
+```typescript
+// 버그 리포트가 기능 요청으로 바뀌는 과정
+
+interface JiraTicket {
+  type: 'bug' | 'feature' | 'improvement' | 'wont-fix';
+  status: string;
+  reporter: string;
+  assignee: string;
+  comments: Comment[];
+}
+
+// Day 1: QA가 버그 리포트를 등록함
+const ticket: JiraTicket = {
+  type: 'bug',
+  status: 'Open',
+  reporter: 'QA_김철수',
+  assignee: 'unassigned',
+  comments: [{
+    author: 'QA_김철수',
+    text: '로그인 후 대시보드 대신 프로필 페이지로 이동됩니다.'
+  }]
+};
+
+// Day 2: 개발자가 코멘트를 달음
+ticket.comments.push({
+  author: 'DEV_박영희',
+  text: '확인했는데 이건 의도된 동작입니다. 최근 로그인 UX 개선 건으로 변경된 부분입니다.'
+});
+
+// Day 3: PM이 끼어듦
+ticket.comments.push({
+  author: 'PM_이대리',
+  text: '어... 저 그런 기획 한 적 없는데요?'
+});
+
+// Day 4: 침묵
+
+// Day 5: 티켓 타입이 슬쩍 바뀜
+ticket.type = 'improvement'; // 버그 → 개선사항
+ticket.status = 'Backlog';   // 나중에 하겠다 = 안 하겠다
+
+// Day 30: PM이 다시 물어봄
+ticket.comments.push({
+  author: 'PM_이대리',
+  text: '이거 언제 고쳐지나요?'
+});
+
+// Day 31:
+ticket.status = 'Won\'t Fix';
+// 끝.
+```
+
+<Callout type="warning" title="JIRA 상태값의 진짜 의미">
+- **Open**: 아무도 안 봤음
+- **In Progress**: 한 번 열어봤음 (작업 중이라는 뜻은 아님)
+- **In Review**: 리뷰어가 바빠서 안 보고 있음
+- **Blocked**: 누군가의 탓이라는 뜻
+- **Backlog**: 영원히 안 할 거임
+- **Won't Fix**: 우리 잘못이 아니라는 공식 선언
+- **Cannot Reproduce**: "내 컴퓨터에선 되는데?"의 JIRA 버전
+</Callout>
+
+### "의도된 동작"이 진짜인 경우
+
+```typescript
+// 예시: 비밀번호 찾기에서 "해당 이메일이 없습니다"를 안 보여주는 이유
+
+// QA: "비밀번호 찾기에서 없는 이메일 넣으면 아무 메시지도 안 나와요. 버그 아닌가요?"
+
+// 실제로 의도된 동작인 이유:
+async function forgotPassword(email: string): Promise<void> {
+  const user = await db.user.findByEmail(email);
+
+  if (!user) {
+    // "해당 이메일이 없습니다"를 보여주면?
+    // → 공격자가 이메일 존재 여부를 확인할 수 있음 (User Enumeration)
+    // → 보안 취약점
+
+    // 그래서 있든 없든 같은 메시지를 보여줌
+  } else {
+    await sendPasswordResetEmail(user);
+  }
+
+  // 항상 같은 응답
+  // "해당 이메일로 비밀번호 재설정 링크를 보냈습니다."
+}
+
+// QA: "아 그렇구나..."
+// 이런 경우는 진짜 "의도된 동작"이 맞음
+```
+
+### "의도된 동작"이 거짓말인 경우
+
+```typescript
+// 실제로는 버그인데 "의도된 동작"이라고 우기는 경우
+
+// 상황: 검색 결과가 최대 100개만 나옴
+async function searchProducts(query: string): Promise<Product[]> {
+  const results = await db.product.findMany({
+    where: { name: { contains: query } },
+    take: 100,  // 이거 원래 페이지네이션 구현하려고 임시로 넣은 건데
+                // 구현 안 하고 그냥 둔 거임
+  });
+
+  return results;
+}
+
+// PM: "검색 결과가 100개 이상 안 나와요"
+// 개발자: "성능 최적화를 위해 100개로 제한한 겁니다. 의도된 동작입니다."
+// 진실: 페이지네이션 구현 귀찮아서 안 한 거임
+
+// 이걸 "의도된 동작"이라고 하면 안 되는 이유:
+// 1. 사용자가 101번째 상품을 찾을 수 없음
+// 2. 검색 정렬이 제대로 안 되면 원하는 결과가 100개 안에 없을 수 있음
+// 3. 나중에 다른 개발자가 이 코드를 보면 "아 이건 의도된 거구나" 하고 놔둠
+```
+
+---
+
+## 코드로 보는 "의도된 동작"의 함정
+
+### 1. 묵시적 타입 변환이 만드는 "기능"
+
+```typescript
+// React 컴포넌트에서 흔히 발생하는 "기능"
+
+function UserList({ users }: { users: User[] }) {
+  return (
+    <div>
+      {users.length && <ul>  {/* 버그! */}
+        {users.map(user => <li key={user.id}>{user.name}</li>)}
+      </ul>}
+    </div>
+  );
+}
+
+// users = [] (빈 배열) 일 때:
+// users.length = 0
+// 0 && <ul>... = 0
+// React가 0을 렌더링함 → 화면에 "0"이 표시됨
+
+// QA: "유저가 없으면 화면에 0이 표시돼요"
+// 주니어 개발자: "JavaScript에서 0은 falsy라서..."
+// 시니어 개발자: "그건 버그임. 고쳐."
+
+// 올바른 방법
+function UserListFixed({ users }: { users: User[] }) {
+  return (
+    <div>
+      {users.length > 0 && <ul>
+        {users.map(user => <li key={user.id}>{user.name}</li>)}
+      </ul>}
+    </div>
+  );
+}
+```
+
+### 2. 정렬 함수의 함정
+
+```typescript
+// "이건 원래 이렇게 동작하는 겁니다"
+
+const numbers = [10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
+numbers.sort();
+console.log(numbers);
+// [1, 10, 2, 3, 4, 5, 6, 7, 8, 9]
+
+// ?????
+// JavaScript의 sort()는 기본적으로 문자열로 변환 후 정렬함
+// "10" < "2" → true (문자열 비교에서 "1" < "2")
+
+// 이건 버그가 아니라 "스펙"임
+// ES 스펙에 명시적으로 "문자열로 변환 후 비교"라고 적혀있음
+// 근데 어떤 개발자가 이걸 직관적이라고 하겠음?
+
+// 올바른 정렬
+numbers.sort((a, b) => a - b);
+console.log(numbers);
+// [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+```
+
+### 3. API 응답의 "기능"
+
+```typescript
+// 실제로 있었던 API 응답 사례
+
+// GET /api/users/999 (존재하지 않는 유저)
+// 기대: 404 Not Found
+// 실제 응답:
+{
+  "status": 200,
+  "data": null,
+  "message": "success"
+}
+
+// "status: 200"이면서 "data: null"이고 "message: success"???
+// 이게 성공인 거임? 실패인 거임?
+
+// 이런 API를 만든 개발자의 논리:
+// "요청은 성공적으로 처리됐고, 결과가 없는 것일 뿐입니다."
+// "HTTP 상태 코드는 전송 계층의 상태이고, 비즈니스 로직의 성공 여부와는 다릅니다."
+
+// 이론적으로 틀린 말은 아닌데, 쓰는 사람 입장에선 지옥임
+
+// 프론트엔드 개발자의 코드
+async function getUser(id: number) {
+  const response = await fetch(`/api/users/${id}`);
+
+  if (response.ok) {          // HTTP 200이니까 여기로 들어옴
+    const data = await response.json();
+    if (data.data === null) { // 근데 실제론 유저가 없음
+      // 이게 에러인 거임? 아닌 거임?
+      // 여기서 에러 처리를 해야 하는 거임?
+      // API 문서에는 뭐라고 적혀있는 거임?
+      // (문서가 없음)
+    }
+  }
+}
+```
+
+### 4. 경계 조건의 "의도"
+
+```typescript
+// 할인 계산 로직
+
+function calculateDiscount(price: number, discountPercent: number): number {
+  return price * (1 - discountPercent / 100);
+}
+
+// 정상적인 사용
+calculateDiscount(10000, 10); // 9000 ✓
+
+// 비정상적인 사용
+calculateDiscount(10000, 110); // -1000
+// 할인을 110% 하면 고객에게 돈을 줘야 하는 거임?
+
+// PM: "할인이 100% 넘어가면 마이너스 금액이 나와요"
+// 개발자: "100% 넘는 할인을 입력한 사람이 잘못한 거 아닌가요?"
+// PM: "그래도 시스템이 막아야 하는 거 아닌가요?"
+// 개발자: "..."
+// PM: "..."
+
+// 방어적 프로그래밍
+function calculateDiscountSafe(price: number, discountPercent: number): number {
+  if (price < 0) throw new Error('가격은 0 이상이어야 함');
+  if (discountPercent < 0 || discountPercent > 100) {
+    throw new Error('할인율은 0~100 사이여야 함');
+  }
+  return Math.max(0, price * (1 - discountPercent / 100));
+}
+```
+
+---
+
+## 진짜 버그를 "기능"으로 만드는 기술
+
+가끔은 진짜로 버그를 기능으로 전환할 수 있음. 이걸 "creative bug management"라고 부름 (내가 방금 만든 용어임).
+
+```typescript
+// Case 1: 이중 클릭 방지가 안 되는 버그
+
+// 버그: 주문 버튼 더블클릭하면 두 번 주문됨
+// "기능"으로 전환: 같은 주문 2개 감지 → "혹시 2개 주문하시려는 건가요?" 모달
+
+// 하지만 이건 나쁜 예시임. 그냥 버그 고치는 게 맞음.
+
+// Case 2: 로딩이 너무 느린 버그
+
+// 버그: API 응답이 3초 걸림
+// "기능"으로 전환: 스켈레톤 UI + 로딩 애니메이션으로 UX 개선
+// → 속도는 안 바뀌었지만 체감 속도는 빨라짐
+// → 이건 좋은 예시임. 근데 API도 고치는 게 맞음.
+
+// Case 3: 검색 오타 허용
+
+// 원래 버그: 검색 알고리즘이 부정확해서 "애플"로 검색하면 "에이플" 결과도 나옴
+// 기능으로 전환: "이것을 찾으셨나요?" fuzzy search로 리브랜딩
+// → 구글이 이걸 잘 했음
+
+function fuzzySearch(query: string, items: string[]): string[] {
+  // 원래 "정확한 매칭이 안 되는 버그"였는데
+  // 이제는 "스마트 검색 기능"이 됨
+  return items.filter(item => {
+    const distance = levenshteinDistance(
+      query.toLowerCase(),
+      item.toLowerCase()
+    );
+    return distance <= Math.floor(query.length * 0.3); // 30% 오차 허용
+  });
+}
+```
+
+---
+
+## 버그를 기능이라고 우기면 안 되는 이유
+
+<Callout type="error" title="진짜 경고">
+버그를 "의도된 동작"이라고 우기는 건 단기적으로 편하지만, 장기적으로 다음과 같은 문제가 생김:
+
+1. **신뢰 상실** — QA팀이 더 이상 개발팀의 말을 안 믿음
+2. **기술 부채 누적** — "원래 이런 거"로 방치된 버그가 쌓임
+3. **문서 혼란** — "이건 버그인데 기능 문서에 적혀있어요?"
+4. **사용자 이탈** — 사용자는 "의도된 동작"이 뭔지 관심 없음. 불편하면 떠남.
+</Callout>
+
+```typescript
+// 올바른 대응 방법
+
+// 진짜 의도된 동작인 경우
+// → 왜 이렇게 설계했는지 문서화
+// → 기획 문서에 명시
+// → 코드에 주석
+
+// 버그인 경우
+// → 솔직하게 인정
+// → 우선순위 판단 후 백로그에 등록
+// → 수정 일정 공유
+
+// 결론: "It's not a bug, it's a feature"는 밈으로만 쓰자.
+// 실제 업무에서 이 말 하면 팀 분위기 안 좋아짐.
+```
+
+---
+
+## 부록: 버그와 기능의 판별 플로우차트
+
+```typescript
+// 이것은 버그인가 기능인가?
+
+function isBugOrFeature(behavior: string): 'bug' | 'feature' | 'debt' {
+  const hasSpec = checkSpecification(behavior);
+  const hasTests = checkTestCoverage(behavior);
+  const userExpects = checkUserExpectation(behavior);
+  const pmKnows = askPM(behavior);
+
+  // 기획서에 있고, PM이 알고, 테스트도 있다 → 기능
+  if (hasSpec && pmKnows && hasTests) return 'feature';
+
+  // 기획서에 없고, PM도 모른다 → 버그
+  if (!hasSpec && !pmKnows) return 'bug';
+
+  // 기획서엔 있는데 구현이 다르다 → 버그
+  if (hasSpec && !matchesSpec(behavior)) return 'bug';
+
+  // 아무도 모르고, 테스트도 없고, 근데 돌아가고 있음 → 기술 부채
+  return 'debt'; // 가장 무서운 결과
+}
+```
+
+<Callout type="success" title="이 글의 교훈">
+버그와 기능의 경계는 생각보다 모호함. 하지만 그 모호함을 이용해서 책임을 회피하면 안 됨.
+
+진짜 "의도된 동작"이면 문서화하고, 진짜 버그면 인정하고, 구분이 안 되면 PM한테 물어보는 게 맞음.
+
+그리고 기억하셈: **typeof null === "object"는 26년째 못 고치고 있음.** 버그를 방치하면 이렇게 됨.
+</Callout>
+
+---
+
+*"모든 기능은 누군가에겐 버그이고, 모든 버그는 누군가에겐 기능임. 중요한 건 그 '누군가'가 돈을 내는 사람인지 아닌지임."*

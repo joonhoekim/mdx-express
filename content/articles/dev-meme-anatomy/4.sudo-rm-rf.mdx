@@ -1,0 +1,666 @@
+# "sudo rm -rf /" — 삭제 사고의 역사
+
+*인류 역사상 가장 비싼 키 조합.*
+
+---
+
+## 밈의 기원
+
+```bash
+sudo rm -rf /
+```
+
+이 명령어가 뭘 하는지 모르는 사람을 위해 설명하자면:
+
+- `sudo` — 관리자 권한으로 실행 (신이 되겠다는 뜻)
+- `rm` — remove, 파일 삭제
+- `-r` — recursive, 하위 디렉토리까지 전부
+- `-f` — force, 확인 안 물어보고 강제 실행
+- `/` — 루트 디렉토리, 즉 **시스템의 모든 것**
+
+합치면: **"관리자 권한으로 시스템의 모든 파일을 확인 없이 재귀적으로 삭제해라"**
+
+이걸 왜 밈으로 만들었냐고? **실제로 실행한 사람들이 있기 때문**임.
+
+<Callout type="error" title="절대 실행하지 마셈">
+진짜로 이 명령어를 실행하면 안 됨. 현대 Linux는 `--no-preserve-root` 옵션 없이는 `/`를 삭제하지 못하도록 보호하고 있지만, 변형된 형태로 동일한 피해를 줄 수 있음.
+
+이 글에서 다루는 명령어들은 교육 목적이며, **절대 프로덕션 서버에서 실행하면 안 됨**.
+</Callout>
+
+---
+
+## 유명한 삭제 사고들
+
+### 1. Pixar — 토이 스토리 2 (1998)
+
+영화 역사상 가장 유명한 삭제 사고임.
+
+누군가 토이 스토리 2의 작업 파일이 있는 서버에서 실수로 `rm -rf *`를 실행함. 파일이 하나씩 사라지기 시작했고, 캐릭터 디렉토리가 통째로 날아감.
+
+Woody 폴더 — 삭제됨.
+Buzz 폴더 — 삭제됨.
+전체 에셋의 90%가 날아감.
+
+백업은? **백업 시스템이 2개월 전에 고장나있었음.** 아무도 모르고 있었음.
+
+다행히 한 직원이 출산 휴가 중에 집에서 작업하려고 전체 파일을 복사해놨음. 그 노트북에서 대부분의 파일을 복구함. 영화는 예정대로 개봉했고, 전 세계에서 5억 달러 이상 벌었음.
+
+```typescript
+// 교훈을 코드로
+const lessons = {
+  '백업을 했는가': false,        // 했다고 생각했음
+  '백업을 확인했는가': false,    // 안 했음
+  '백업에서 복구 테스트를 했는가': false,  // 당연히 안 했음
+  '출산휴가 직원에게 감사했는가': true,     // 했겠지...
+};
+
+// "백업은 확인하기 전까지는 백업이 아니다"
+```
+
+### 2. GitLab — 데이터베이스 삭제 사고 (2017)
+
+2017년 1월 31일, GitLab의 엔지니어가 프로덕션 DB에서 실수를 함.
+
+상황: DB 복제 지연 문제를 해결하려고 하던 중, 실수로 **프로덕션 DB를 삭제**함.
+
+```bash
+# 엔지니어가 실행하려던 것
+# 스테이징 DB의 디렉토리를 삭제
+
+# 실제로 실행한 것
+sudo rm -rf /var/lib/postgresql/data/  # 프로덕션 DB 디렉토리
+# 터미널 창을 잘못 골랐음
+```
+
+결과:
+- 프로덕션 데이터 6시간분 유실
+- GitLab.com 18시간 다운
+- 5가지 백업 방법 중 **1개만 부분적으로 동작**
+
+GitLab은 이 사고를 투명하게 공개하고, 라이브 스트리밍으로 복구 과정을 보여줬음. 이게 오히려 GitLab의 신뢰도를 높였다는 평가도 있음.
+
+<Callout type="warning" title="GitLab 사고의 5중 백업 실패">
+1. **일반 PostgreSQL 백업** — 지연되고 있었음
+2. **pg_dump 백업** — 설정 에러로 실행 안 되고 있었음
+3. **Azure 디스크 스냅샷** — 비활성화되어 있었음
+4. **S3 백업** — 설정이 잘못됨
+5. **LVM 스냅샷** — 6시간 전 것만 있었음 (그나마 이걸로 복구)
+
+5중 백업이었는데 4개가 안 되고 있었음. **백업 시스템이 동작하는지 확인하지 않으면 백업이 아님.**
+</Callout>
+
+### 3. Amazon S3 — 타이포 하나로 인터넷 절반이 멈춤 (2017)
+
+2017년 2월 28일, Amazon 엔지니어가 S3 빌링 시스템을 디버깅하던 중 서버를 일부 내리려고 명령어를 입력했는데, **변수를 잘못 넣어서 예정보다 훨씬 많은 서버를 내려버림.**
+
+이 사고로 미국 동부 리전의 S3가 약 4시간 동안 장애를 겪었고, S3에 의존하는 수만 개의 웹사이트와 서비스가 함께 다운됨. Slack, Trello, Quora, IFTTT 등등.
+
+```typescript
+// 실제로 일어난 일을 간략화하면
+
+// 의도: 소규모 서버 그룹 제거
+const serversToRemove = 'billing-subsystem-small-group';
+
+// 실수: 더 큰 범위의 서버 그룹을 지정
+const serversToRemove = 'billing-subsystem';  // 전체 빌링 서브시스템
+
+// 이 빌링 서브시스템이 S3의 다른 핵심 서브시스템에 의존되어 있었고
+// 도미노처럼 무너져서 S3 전체가 장애
+```
+
+### 4. rm -rf 변형 사고들
+
+```bash
+# 실제로 일어난 rm -rf 변형 사고들
+
+# Case 1: 변수가 비어있을 때
+BUILD_DIR=""
+rm -rf $BUILD_DIR/*
+# $BUILD_DIR이 비어있으면?
+# rm -rf /*  ← 루트 전체 삭제!
+
+# Case 2: 공백이 포함된 경로
+rm -rf /home/user/My Documents/old files/
+# 실제로 실행되는 것:
+# rm -rf /home/user/My
+# rm -rf Documents/old
+# rm -rf files/
+# → 3개의 별개 경로를 삭제 시도
+
+# Case 3: 스크립트에서의 실수
+#!/bin/bash
+cd $DEPLOY_DIR || exit 1
+rm -rf *
+# DEPLOY_DIR이 설정 안 되어 있으면?
+# cd 실패 → exit... 인데 || 을 && 로 잘못 쓰면?
+# cd 실패해도 현재 디렉토리에서 rm -rf * 실행
+```
+
+---
+
+## rm -rf의 동작 원리와 보호 장치들
+
+### Linux 파일 삭제의 실제 동작
+
+```typescript
+// rm이 실제로 하는 일 (간략화)
+
+// rm은 파일의 데이터를 지우지 않음
+// inode의 링크 카운트를 줄이는 것뿐
+
+interface Inode {
+  data_blocks: number[];    // 실제 데이터 위치
+  link_count: number;       // 이 파일을 가리키는 경로 수
+  permissions: string;
+  owner: number;
+  size: number;
+}
+
+function rm(filepath: string): void {
+  const inode = getInode(filepath);
+  inode.link_count--;
+
+  // 디렉토리 엔트리에서 제거
+  removeDirectoryEntry(filepath);
+
+  if (inode.link_count === 0) {
+    // 링크가 하나도 없으면 데이터 블록을 "사용 가능"으로 표시
+    // 데이터 자체는 아직 디스크에 있음!
+    markBlocksAsFree(inode.data_blocks);
+  }
+}
+
+// 이래서 데이터 복구가 가능한 거임
+// 파일을 "삭제"해도 디스크의 데이터는 덮어씌워지기 전까지 남아있음
+// 하지만 rm -rf로 대량 삭제하면 새 파일이 기존 블록을 덮어쓸 확률이 높아짐
+// → 삭제 후 시간이 지날수록 복구 확률 급감
+```
+
+### 현대 Linux의 보호 장치
+
+```bash
+# 보호 장치 1: --preserve-root (GNU coreutils 6.4+, 2006~)
+rm -rf /
+# rm: it is dangerous to operate recursively on '/'
+# rm: use --no-preserve-root to override this failsafe
+# → 기본적으로 / 삭제 차단
+
+# 보호 장치 2: alias
+# ~/.bashrc에 추가
+alias rm='rm -i'  # 항상 확인 물어봄
+# 근데 이러면 rm -rf가 귀찮아져서 결국 rm -rf로 직접 호출하게 됨
+# → 의미 없음
+
+# 보호 장치 3: safe-rm 패키지
+# /etc/safe-rm.conf에 보호할 경로 목록
+# /, /etc, /usr, /var 등을 삭제하려고 하면 차단
+
+# 보호 장치 4: 휴지통 사용
+# trash-cli 패키지
+trash-put file.txt  # 삭제 대신 휴지통으로
+trash-list          # 휴지통 목록
+trash-restore       # 복구
+```
+
+<Callout type="info" title="재밌는 사실: rm vs unlink">
+`rm`은 사실 `unlink()` 시스템 콜을 호출하는 거임. 파일을 "제거"하는 게 아니라 파일 시스템에서 "연결을 해제"하는 거임.
+
+그래서 하드 링크가 있으면 `rm`으로 하나를 지워도 다른 링크를 통해 접근 가능함. Unix의 "모든 것은 파일"이라는 철학이 여기서도 드러남.
+</Callout>
+
+---
+
+## 실제 프로덕션 삭제 사고 시나리오들
+
+### 시나리오 1: 배포 스크립트의 함정
+
+```bash
+#!/bin/bash
+# deploy.sh — 이 스크립트에 버그가 있음
+
+APP_DIR="/var/www/myapp"
+BACKUP_DIR="/var/backup/myapp-$(date +%Y%m%d)"
+
+echo "백업 시작..."
+cp -r $APP_DIR $BACKUP_DIR
+
+echo "기존 파일 정리..."
+rm -rf $APP_DIR/*
+
+echo "새 버전 배포..."
+cp -r /tmp/build/* $APP_DIR/
+
+echo "배포 완료!"
+```
+
+```typescript
+// 이 스크립트의 문제점:
+
+// 1. APP_DIR이 설정 안 되면?
+// rm -rf /* → 루트 전체 삭제
+
+// 2. cp 백업이 실패해도 rm이 실행됨
+// 디스크 공간 부족으로 백업 실패 → 원본도 삭제 → 전부 날아감
+
+// 3. /tmp/build/가 비어있으면?
+// 기존 파일 삭제 + 빈 디렉토리 복사 = 빈 서버
+
+// 안전한 버전
+```
+
+```bash
+#!/bin/bash
+set -euo pipefail  # 에러 시 즉시 중단, 미설정 변수 에러, 파이프 에러
+
+APP_DIR="${APP_DIR:?APP_DIR 환경변수가 설정되지 않음}"
+BACKUP_DIR="/var/backup/myapp-$(date +%Y%m%d)"
+BUILD_DIR="/tmp/build"
+
+# 디렉토리 존재 확인
+if [ ! -d "$APP_DIR" ]; then
+  echo "ERROR: $APP_DIR 디렉토리가 없음"
+  exit 1
+fi
+
+if [ ! -d "$BUILD_DIR" ] || [ -z "$(ls -A $BUILD_DIR)" ]; then
+  echo "ERROR: 빌드 디렉토리가 없거나 비어있음"
+  exit 1
+fi
+
+echo "백업 시작..."
+cp -r "$APP_DIR" "$BACKUP_DIR" || { echo "백업 실패!"; exit 1; }
+
+echo "기존 파일 정리..."
+rm -rf "${APP_DIR:?}"/*
+
+echo "새 버전 배포..."
+cp -r "$BUILD_DIR"/* "$APP_DIR"/
+
+echo "배포 완료!"
+```
+
+### 시나리오 2: 크론잡의 복수
+
+```bash
+# 30일 이상 된 로그 파일 삭제 크론잡
+0 3 * * * find /var/log/myapp -name "*.log" -mtime +30 -delete
+
+# 6개월 후, 누군가 로그 경로를 변경함
+# /var/log/myapp → /var/log/services/myapp
+# 크론잡은 업데이트 안 함
+
+# 그 후 누군가 /var/log/myapp에 심볼릭 링크를 만듦
+# ln -s /var/log /var/log/myapp
+# → 크론잡이 /var/log 전체에서 30일 이상 된 로그를 삭제
+# → 시스템 로그까지 날아감
+```
+
+### 시나리오 3: 데이터베이스 마이그레이션
+
+```typescript
+// "잠깐 테스트용 데이터 좀 지우려고요"
+
+// 의도: 테스트 계정 삭제
+const deleteTestUsers = async () => {
+  await db.query('DELETE FROM users WHERE email LIKE "%@test.com"');
+};
+
+// 실수 1: 프로덕션 DB에 연결됨
+// .env에 DATABASE_URL이 프로덕션을 가리키고 있었음
+
+// 실수 2: WHERE 절 빼먹음
+const deleteTestUsers = async () => {
+  await db.query('DELETE FROM users');  // WHERE 없음 = 전체 삭제
+};
+
+// 실수 3: CASCADE
+// users 테이블에 CASCADE가 걸려있으면?
+// users 삭제 → orders 삭제 → payments 삭제 → invoices 삭제
+// 도미노처럼 관련 테이블 전부 날아감
+```
+
+```sql
+-- CASCADE의 공포
+CREATE TABLE orders (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+  -- user 삭제되면 order도 삭제됨
+  total DECIMAL(10, 2)
+);
+
+CREATE TABLE payments (
+  id SERIAL PRIMARY KEY,
+  order_id INTEGER REFERENCES orders(id) ON DELETE CASCADE,
+  -- order 삭제되면 payment도 삭제됨
+  amount DECIMAL(10, 2)
+);
+
+-- DELETE FROM users; 한 줄이면
+-- users + orders + payments 전부 날아감
+```
+
+<Callout type="error" title="프로덕션 DB에서 DELETE/DROP 실행하기 전 체크리스트">
+1. **어느 DB에 연결되어 있는지 확인** — `SELECT current_database();`
+2. **DELETE 전에 SELECT로 영향 범위 확인** — `SELECT COUNT(*) FROM users WHERE ...`
+3. **트랜잭션 안에서 실행** — `BEGIN; DELETE ...; SELECT COUNT(*); ROLLBACK;`
+4. **백업 확인** — 최근 백업이 있는지, 복구 가능한지
+5. **동료에게 알리기** — "지금 프로덕션 DB에서 DELETE 칩니다"
+</Callout>
+
+---
+
+## 백업 전략과 복구 방법
+
+### 3-2-1 백업 규칙
+
+```typescript
+// 백업의 황금률: 3-2-1
+
+const backupStrategy = {
+  copies: 3,        // 최소 3개의 복사본
+  media: 2,         // 최소 2개의 다른 저장 매체 (SSD + 클라우드 등)
+  offsite: 1,       // 최소 1개는 물리적으로 다른 장소에
+
+  // 추가 규칙
+  tested: true,     // 복구 테스트를 했는가?
+  automated: true,  // 자동화되어 있는가?
+  monitored: true,  // 백업 실패 시 알림이 오는가?
+};
+```
+
+### 데이터베이스 백업
+
+```bash
+# PostgreSQL 백업 방법들
+
+# 1. pg_dump — 논리적 백업
+pg_dump -h localhost -U postgres mydb > backup_$(date +%Y%m%d_%H%M%S).sql
+# 장점: 사람이 읽을 수 있음, 특정 테이블만 복구 가능
+# 단점: 대용량 DB에서 느림, 복원도 느림
+
+# 2. pg_basebackup — 물리적 백업
+pg_basebackup -h localhost -D /backup/base -Fp -Xs -P
+# 장점: 빠름, Point-in-Time Recovery 가능
+# 단점: 같은 PostgreSQL 버전에서만 복원 가능
+
+# 3. WAL 아카이빙 — 연속 백업
+# postgresql.conf
+# archive_mode = on
+# archive_command = 'cp %p /archive/%f'
+# → 모든 변경사항을 WAL 파일로 기록
+# → 특정 시점으로 복구 가능 (PITR)
+```
+
+```typescript
+// 자동 백업 스크립트 (Node.js)
+import { execFileSync } from 'child_process';
+import { existsSync, statSync } from 'fs';
+
+interface BackupResult {
+  success: boolean;
+  path: string;
+  size: number;
+  timestamp: Date;
+}
+
+function createBackup(dbName: string): BackupResult {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const backupPath = `/backup/${dbName}_${timestamp}.sql.gz`;
+
+  try {
+    // pg_dump + gzip 압축
+    execFileSync('bash', [
+      '-c',
+      `pg_dump -h localhost -U postgres ${dbName} | gzip > ${backupPath}`
+    ]);
+
+    // 백업 파일 검증
+    if (!existsSync(backupPath)) {
+      throw new Error('백업 파일이 생성되지 않음');
+    }
+
+    const stats = statSync(backupPath);
+    if (stats.size < 1000) {
+      throw new Error('백업 파일이 너무 작음 — 비어있을 가능성');
+    }
+
+    return {
+      success: true,
+      path: backupPath,
+      size: stats.size,
+      timestamp: new Date(),
+    };
+  } catch (error) {
+    // 알림 발송
+    sendAlert(`백업 실패: ${dbName} — ${error}`);
+    return {
+      success: false,
+      path: backupPath,
+      size: 0,
+      timestamp: new Date(),
+    };
+  }
+}
+```
+
+### 복구 테스트 — 가장 중요한 단계
+
+```typescript
+// 백업을 했다고 안심하면 안 됨
+// 복구가 되는지 확인해야 함
+
+async function testBackupRestore(backupPath: string): Promise<boolean> {
+  const testDbName = `restore_test_${Date.now()}`;
+
+  try {
+    // 1. 테스트 DB 생성
+    await execCommand(`createdb ${testDbName}`);
+
+    // 2. 백업에서 복원
+    await execCommand(`gunzip -c ${backupPath} | psql ${testDbName}`);
+
+    // 3. 데이터 무결성 확인
+    const userCount = await query(testDbName, 'SELECT COUNT(*) FROM users');
+    const orderCount = await query(testDbName, 'SELECT COUNT(*) FROM orders');
+
+    console.log(`복원 결과: users=${userCount}, orders=${orderCount}`);
+
+    // 4. 기본적인 쿼리 실행 확인
+    await query(testDbName, 'SELECT * FROM users LIMIT 1');
+    await query(testDbName, 'SELECT * FROM orders LIMIT 1');
+
+    console.log('백업 복구 테스트 성공!');
+    return true;
+  } catch (error) {
+    console.error(`백업 복구 테스트 실패: ${error}`);
+    sendAlert(`백업 복구 테스트 실패! ${backupPath}`);
+    return false;
+  } finally {
+    // 테스트 DB 정리
+    await execCommand(`dropdb ${testDbName}`);
+  }
+}
+
+// 이 테스트를 주간 크론잡으로 실행
+// 실패하면 즉시 알림 → 백업이 무용지물이 되기 전에 고칠 수 있음
+```
+
+<Callout type="success" title="복구 테스트 주기">
+- **일간**: 백업 파일 존재 여부, 크기 확인
+- **주간**: 실제 복원 테스트 (테스트 환경에서)
+- **월간**: 전체 재해 복구 시뮬레이션
+- **분기**: DR(Disaster Recovery) 훈련 — 팀 전체가 참여
+
+"백업을 안 하는 것보다 무서운 건, 백업을 했다고 믿는 것"임.
+</Callout>
+
+---
+
+## 삭제 방지 패턴
+
+### Soft Delete
+
+```typescript
+// 하드 삭제 대신 소프트 삭제
+
+// 나쁜 예: 실제 삭제
+async function deleteUser(userId: number): Promise<void> {
+  await db.query('DELETE FROM users WHERE id = $1', [userId]);
+  // 돌이킬 수 없음
+}
+
+// 좋은 예: 소프트 삭제
+interface User {
+  id: number;
+  name: string;
+  email: string;
+  deletedAt: Date | null;  // null이면 활성, 날짜가 있으면 삭제됨
+}
+
+async function softDeleteUser(userId: number): Promise<void> {
+  await db.query(
+    'UPDATE users SET deleted_at = NOW() WHERE id = $1',
+    [userId]
+  );
+  // 복구 가능: UPDATE users SET deleted_at = NULL WHERE id = $1
+}
+
+// 조회 시 삭제된 유저 제외
+async function getActiveUsers(): Promise<User[]> {
+  return db.query('SELECT * FROM users WHERE deleted_at IS NULL');
+}
+
+// 관리자용: 삭제된 유저도 포함
+async function getAllUsers(): Promise<User[]> {
+  return db.query('SELECT * FROM users');
+}
+
+// 실제 삭제는 30일 후 배치로 처리
+async function purgeDeletedUsers(): Promise<void> {
+  await db.query(
+    "DELETE FROM users WHERE deleted_at < NOW() - INTERVAL '30 days'"
+  );
+}
+```
+
+### 삭제 확인 패턴
+
+```typescript
+// 위험한 작업 전 확인 절차
+
+interface DangerousAction {
+  type: 'delete' | 'drop' | 'truncate';
+  target: string;
+  affectedRows: number;
+}
+
+async function confirmDangerousAction(action: DangerousAction): Promise<boolean> {
+  // 1. 영향 범위 표시
+  console.log(`위험한 작업: ${action.type} ${action.target}`);
+  console.log(`영향받는 행: ${action.affectedRows}개`);
+
+  // 2. 임계값 체크
+  if (action.affectedRows > 1000) {
+    console.log('경고: 1000개 이상의 행이 영향받음');
+    console.log('정말 실행하시겠습니까?');
+
+    // 3. 타겟 이름 직접 입력 확인 (GitHub 스타일)
+    const confirmation = await prompt(
+      `확인하려면 "${action.target}"을 입력하세요:`
+    );
+
+    if (confirmation !== action.target) {
+      console.log('작업 취소됨');
+      return false;
+    }
+  }
+
+  return true;
+}
+
+// GitHub의 위험한 설정 패턴을 차용
+// "저장소를 삭제하려면 'owner/repo-name'을 입력하세요"
+// 이 패턴이 실수를 잡아주는 횟수가 생각보다 많음
+```
+
+### Infrastructure as Code와 삭제 방지
+
+```typescript
+// Terraform의 prevent_destroy
+
+// main.tf (Terraform)
+// resource "aws_db_instance" "production" {
+//   identifier = "prod-database"
+//   engine     = "postgres"
+//
+//   lifecycle {
+//     prevent_destroy = true
+//     # terraform destroy를 실행해도 이 리소스는 삭제 안 됨
+//     # 삭제하려면 이 설정을 먼저 제거해야 함
+//   }
+// }
+
+// 코드로 인프라를 관리하면:
+// 1. "누가 이 서버 지웠어?" → git blame으로 확인 가능
+// 2. 실수로 삭제 → PR 리뷰에서 잡힘
+// 3. prevent_destroy로 중요 리소스 보호
+```
+
+---
+
+## 삭제 사고 후 대응 프로세스
+
+```typescript
+// 삭제 사고 발생 시 행동 매뉴얼
+
+const incidentResponse = {
+  step1_dontPanic: '침착하게. 추가 조치를 하기 전에 상황 파악.',
+
+  step2_stopBleeding: '추가 피해 방지. 서버 접근 차단, 디스크 쓰기 중지.',
+  // 삭제된 데이터는 덮어씌워지기 전까지 복구 가능
+  // 새로운 쓰기를 막는 게 급선무
+
+  step3_assess: '피해 범위 파악. 뭐가 날아갔는지 확인.',
+
+  step4_communicate: '팀에 알리기. 혼자 해결하려고 하지 말 것.',
+  // "실수를 숨기면 작은 사고가 큰 사고가 됨"
+
+  step5_recover: '복구 시작. 백업에서 복원 또는 다른 방법 시도.',
+
+  step6_postmortem: '사후 분석. 왜 일어났는지, 어떻게 방지할 건지.',
+  // Blame-free postmortem — 사람을 탓하지 말고 시스템을 개선
+};
+```
+
+<Callout type="warning" title="절대 하면 안 되는 것">
+1. **혼자 해결하려 하기** — 시간만 날리고 상황이 악화됨
+2. **증거 인멸** — 로그 삭제, 히스토리 지우기 등. 나중에 더 큰 문제가 됨
+3. **디스크에 새 데이터 쓰기** — 삭제된 데이터가 덮어씌워져 복구 불가능해짐
+4. **거짓말하기** — "서버가 자동으로..." 이러면 신뢰를 잃음
+</Callout>
+
+---
+
+## 정리: 삭제 사고를 예방하는 체크리스트
+
+| 영역 | 체크 항목 |
+|------|----------|
+| 명령어 | 위험한 명령어에 alias 설정, safe-rm 사용 |
+| 스크립트 | `set -euo pipefail`, 변수 검증, dry-run 모드 |
+| 데이터베이스 | Soft delete, 트랜잭션, CASCADE 주의 |
+| 백업 | 3-2-1 규칙, 자동화, 복구 테스트 |
+| 인프라 | IaC, prevent_destroy, PR 리뷰 |
+| 문화 | Blame-free postmortem, 사고 공유 |
+
+<Callout type="success" title="결론">
+`sudo rm -rf /`가 밈인 이유는 **삭제는 되돌릴 수 없기 때문**임.
+
+모든 시스템은 결국 인간이 운영하고, 인간은 실수를 함. 중요한 건 실수를 안 하는 게 아니라, **실수해도 복구할 수 있는 시스템**을 만드는 거임.
+
+백업을 하셈. 그리고 복구 테스트도 하셈. "백업했으니까 괜찮아"가 아니라 "복구해봤으니까 괜찮아"가 되어야 함.
+</Callout>
+
+---
+
+*"rm -rf는 용서를 구하지 않음. 그러니까 확인 한 번 더 하셈."*

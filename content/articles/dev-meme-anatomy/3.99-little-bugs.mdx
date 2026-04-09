@@ -1,0 +1,722 @@
+# "99 little bugs in the code" — 버그 수정이 버그를 낳는 이유
+
+*99개의 버그를 벽에 붙여놓고, 하나를 떼어서 고치면, 127개의 버그가 벽에.*
+
+---
+
+## 밈의 원문
+
+이 밈은 미국 동요 "99 Bottles of Beer on the Wall"의 패러디임:
+
+> 99 little bugs in the code,
+> 99 little bugs.
+> Take one down, patch it around,
+> **127 little bugs in the code.**
+
+이게 웃긴 건 **수학적으로 말이 안 되기 때문**이 아니라, **실제 개발에서 이 현상이 진짜 일어나기 때문**임.
+
+하나 고치면 세 개 터지고, 세 개 고치면 열 개 터지고, 열 개 고치다 보면 원래 고쳤던 거 다시 터지는 게 일상임.
+
+<Callout type="note" title="실화 기반 통계">
+Microsoft의 한 연구에 따르면, 버그 수정의 약 15~25%가 새로운 버그를 유발한다고 함. 즉, 4개 고치면 1개가 새로 생긴다는 뜻임. 이게 밈이 아니라 학술적으로 검증된 사실임.
+</Callout>
+
+---
+
+## 회귀 버그의 메커니즘
+
+### 회귀 버그란?
+
+이전에 잘 되던 기능이 코드 변경 후 안 되는 걸 회귀 버그(regression bug)라고 함.
+
+```typescript
+// 시나리오: 주문 시스템
+
+// v1.0 — 정상 동작
+function calculateTotal(items: CartItem[]): number {
+  return items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+}
+
+// v1.1 — 할인 기능 추가 (PM 요청)
+function calculateTotal(items: CartItem[], discount?: number): number {
+  const subtotal = items.reduce(
+    (sum, item) => sum + item.price * item.quantity, 0
+  );
+  return subtotal * (1 - (discount || 0) / 100);
+}
+
+// v1.2 — 버그 발견: discount가 undefined면 NaN이 됨 (고침)
+function calculateTotal(items: CartItem[], discount: number = 0): number {
+  const subtotal = items.reduce(
+    (sum, item) => sum + item.price * item.quantity, 0
+  );
+  return subtotal * (1 - discount / 100);
+}
+
+// v1.3 — 세금 추가 (PM 요청)
+function calculateTotal(
+  items: CartItem[],
+  discount: number = 0,
+  taxRate: number = 10
+): number {
+  const subtotal = items.reduce(
+    (sum, item) => sum + item.price * item.quantity, 0
+  );
+  const discounted = subtotal * (1 - discount / 100);
+  return discounted * (1 + taxRate / 100);
+}
+
+// v1.4 — 버그! 기존에 calculateTotal(items) 호출하던 곳에서
+// 세금이 자동 적용되기 시작함
+// "왜 갑자기 가격이 10% 올랐지?" — 고객 클레임
+//
+// 원인: taxRate의 기본값이 10이라서, 기존 코드가
+// 자동으로 세금을 적용하게 됨 → 회귀 버그!
+```
+
+### 왜 이런 일이 반복되냐?
+
+```typescript
+// 근본 원인 1: 함수 시그니처 변경
+
+// 원래
+function sendEmail(to: string, subject: string, body: string): void { }
+
+// 변경 후
+function sendEmail(to: string, subject: string, body: string, cc?: string[]): void {
+  // cc 추가했는데, 기존 호출부는 안 바꿈
+  // TypeScript면 타입 체크로 잡히지만
+  // JavaScript면? 조용히 무시됨
+}
+
+// 근본 원인 2: 전역 상태 의존
+let currentUser: User | null = null; // 전역 상태
+
+function processOrder(order: Order): void {
+  // currentUser가 설정되어 있다고 가정
+  const userId = currentUser!.id; // 다른 곳에서 currentUser를 null로 바꾸면?
+  // Uncaught TypeError: Cannot read properties of null (reading 'id')
+}
+
+// 근본 원인 3: 암묵적 의존성
+function getUserDisplayName(user: User): string {
+  return `${user.firstName} ${user.lastName}`;
+}
+
+// 다른 팀에서 User 인터페이스 변경
+interface User {
+  // firstName: string;  ← 삭제
+  // lastName: string;   ← 삭제
+  fullName: string;      // ← 이걸로 통합
+}
+
+// getUserDisplayName이 "undefined undefined" 반환하기 시작
+// 이걸 고치면 또 다른 곳에서 fullName을 firstName/lastName으로 분리해서 쓰던 코드가 터짐
+```
+
+---
+
+## 사이드 이펙트와 커플링이 만드는 연쇄 반응
+
+### 사이드 이펙트의 공포
+
+```typescript
+// "순수하지 않은" 함수가 만드는 문제
+
+// 이 함수는 겉보기엔 단순해 보임
+function formatUserName(user: User): string {
+  user.name = user.name.trim().toLowerCase(); // 사이드 이펙트!
+  return user.name;
+}
+
+// 호출하는 쪽
+const user = { name: '  Kim YongMin  ' };
+const formatted = formatUserName(user);
+console.log(formatted);   // "kim yongmin" — 정상
+console.log(user.name);   // "kim yongmin" — 원본이 변경됨!
+
+// 나중에 다른 곳에서
+displayUserProfile(user); // "kim yongmin" 표시됨
+// "왜 이름이 소문자로 나와요?" — 사용자 문의
+
+// 더 심각한 케이스
+saveUserToDatabase(user); // 소문자로 저장됨
+// 이제 DB에도 소문자 이름이 들어감
+// 이걸 고치려고 formatUserName을 수정하면
+// formatted를 소문자로 사용하던 다른 곳이 터짐
+```
+
+```typescript
+// 순수 함수로 고쳐야 함
+function formatUserName(user: User): string {
+  return user.name.trim().toLowerCase(); // 원본 변경 없음
+}
+
+// 배열도 마찬가지
+function sortUsers(users: User[]): User[] {
+  // 나쁜 예: 원본 배열 변경
+  return users.sort((a, b) => a.name.localeCompare(b.name));
+  // Array.sort()는 원본을 변경함!
+
+  // 좋은 예: 새 배열 반환
+  return [...users].sort((a, b) => a.name.localeCompare(b.name));
+  // 또는
+  return users.toSorted((a, b) => a.name.localeCompare(b.name)); // ES2023
+}
+```
+
+### 커플링의 연쇄 반응
+
+```typescript
+// 타이트 커플링 예시 — 하나 고치면 줄줄이 터짐
+
+// 주문 모듈
+class OrderService {
+  calculateTotal(order: Order): number {
+    const items = order.items;
+    let total = 0;
+
+    for (const item of items) {
+      // 상품 가격을 직접 참조
+      const product = ProductDatabase.getById(item.productId);
+      total += product.price * item.quantity;
+
+      // 재고 차감도 여기서 함 (왜?)
+      InventoryService.decreaseStock(item.productId, item.quantity);
+
+      // 포인트 적립도 여기서 함 (왜??)
+      PointService.addPoints(order.userId, product.price * 0.01);
+
+      // 알림도 여기서 보냄 (왜???)
+      NotificationService.notify(order.userId, `${product.name} 주문됨`);
+    }
+
+    return total;
+  }
+}
+
+// 이 상태에서 ProductDatabase.getById의 반환 타입을 바꾸면?
+// → OrderService 터짐
+// → 거기서 호출하는 InventoryService도 영향받음
+// → PointService 계산도 달라짐
+// → NotificationService도 영향받음
+//
+// 하나 고치려다 4개가 터지는 전형적인 패턴
+```
+
+```typescript
+// 느슨한 커플링으로 해결
+
+// 이벤트 기반 아키텍처
+class OrderService {
+  constructor(private eventBus: EventBus) {}
+
+  calculateTotal(order: Order): number {
+    const total = order.items.reduce(
+      (sum, item) => sum + item.price * item.quantity, 0
+    );
+
+    // 주문 완료 이벤트만 발행
+    this.eventBus.emit('order.completed', {
+      orderId: order.id,
+      userId: order.userId,
+      items: order.items,
+      total,
+    });
+
+    return total;
+  }
+}
+
+// 각 서비스가 독립적으로 이벤트 구독
+class InventoryService {
+  constructor(eventBus: EventBus) {
+    eventBus.on('order.completed', (event) => {
+      // 재고 차감은 여기서
+      for (const item of event.items) {
+        this.decreaseStock(item.productId, item.quantity);
+      }
+    });
+  }
+}
+
+class PointService {
+  constructor(eventBus: EventBus) {
+    eventBus.on('order.completed', (event) => {
+      // 포인트 적립은 여기서
+      this.addPoints(event.userId, event.total * 0.01);
+    });
+  }
+}
+
+// 이제 ProductDatabase를 바꿔도 OrderService만 수정하면 됨
+// 나머지 서비스는 이벤트 데이터만 의존 → 영향 없음
+```
+
+---
+
+## 실제 코드 예시: 하나 고치면 세 개 터지는 코드
+
+### 시나리오: 사용자 프로필 수정
+
+```typescript
+// 기존 코드 — 10군데에서 사용 중
+
+interface UserProfile {
+  id: number;
+  name: string;
+  email: string;
+  avatar: string;
+  settings: {
+    theme: 'light' | 'dark';
+    language: string;
+    notifications: boolean;
+  };
+}
+
+// 요구사항: settings를 별도 테이블로 분리해야 함
+
+// 변경 후
+interface UserProfile {
+  id: number;
+  name: string;
+  email: string;
+  avatar: string;
+  // settings 필드 제거 → settingsId로 변경
+  settingsId: number;
+}
+
+interface UserSettings {
+  id: number;
+  userId: number;
+  theme: 'light' | 'dark';
+  language: string;
+  notifications: boolean;
+}
+```
+
+```typescript
+// 이 변경이 만드는 연쇄 반응
+
+// 1번 터지는 곳: 프로필 페이지
+function ProfilePage({ user }: { user: UserProfile }) {
+  return <div>테마: {user.settings.theme}</div>;
+  // TypeError: Cannot read properties of undefined (reading 'theme')
+}
+
+// 2번 터지는 곳: 알림 설정
+function shouldSendNotification(user: UserProfile): boolean {
+  return user.settings.notifications;
+  // TypeError: Cannot read properties of undefined (reading 'notifications')
+}
+
+// 3번 터지는 곳: 테마 적용
+function getThemeClass(user: UserProfile): string {
+  return user.settings.theme === 'dark' ? 'dark-mode' : 'light-mode';
+  // TypeError 동일
+}
+
+// 4번 터지는 곳: API 응답
+function formatUserResponse(user: UserProfile) {
+  return {
+    ...user,
+    preferences: {
+      theme: user.settings.theme,       // 터짐
+      lang: user.settings.language,     // 터짐
+    },
+  };
+}
+
+// 5번 터지는 곳: 테스트
+describe('UserProfile', () => {
+  const mockUser: UserProfile = {
+    id: 1,
+    name: 'Test',
+    email: 'test@test.com',
+    avatar: 'url',
+    settings: { theme: 'dark', language: 'ko', notifications: true },
+    // TypeScript 에러: settings 필드 없음
+  };
+});
+
+// 결론: 인터페이스 하나 바꿨는데 5군데 터짐
+// 이래서 "건드리면 안 되는 코드"가 생기는 거임
+```
+
+<Callout type="warning" title="실무에서 이런 일이 생기면">
+이런 대규모 변경은 한 번에 하면 안 됨. 단계별로 해야 함:
+
+1. **새 인터페이스 추가** (기존 건 유지)
+2. **어댑터 패턴** 적용 — 새 인터페이스를 기존 형태로 변환
+3. **하나씩 마이그레이션** — 사용처를 하나씩 변경
+4. **기존 인터페이스 제거** — 모든 사용처 변경 완료 후
+
+이걸 "Strangler Fig Pattern"이라고 함. 무화과나무가 숙주를 천천히 감싸듯이 기존 코드를 천천히 교체하는 거임.
+</Callout>
+
+### 시나리오: 날짜 포맷 변경
+
+```typescript
+// API 응답의 날짜 포맷을 바꿔달라는 요청
+
+// 기존: ISO 8601
+// { "createdAt": "2026-03-17T09:00:00.000Z" }
+
+// 변경: Unix timestamp
+// { "createdAt": 1773925200000 }
+
+// 서버 쪽 변경은 간단함
+function formatDate(date: Date): number {
+  return date.getTime(); // ISO string → timestamp
+}
+
+// 근데 이걸 쓰는 프론트엔드가...
+
+// 1. 대시보드 페이지
+function formatCreatedAt(dateStr: string): string {
+  return new Date(dateStr).toLocaleDateString('ko-KR');
+  // new Date(1773925200000) → 동작함 (우연히)
+}
+
+// 2. 정렬 로직
+function sortByDate(items: Item[]): Item[] {
+  return items.sort((a, b) =>
+    a.createdAt.localeCompare(b.createdAt)
+    // string.localeCompare를 number에 호출? → TypeError
+  );
+}
+
+// 3. 날짜 필터
+function filterByDateRange(items: Item[], start: string, end: string) {
+  return items.filter(item =>
+    item.createdAt >= start && item.createdAt <= end
+    // number >= string? → 암묵적 변환으로 동작하긴 하는데 결과가 이상함
+  );
+}
+
+// 4. 캐시 키
+function getCacheKey(userId: number, date: string): string {
+  return `user:${userId}:${date.split('T')[0]}`;
+  // number.split('T')? → TypeError: split is not a function
+}
+
+// 5. 서드파티 차트 라이브러리
+// chart.js에 ISO string을 넘기던 코드가 timestamp로 바뀌면서
+// X축 라벨이 전부 깨짐
+```
+
+---
+
+## 테스트로 회귀 방지하기
+
+### 회귀 테스트의 기본
+
+```typescript
+// 위의 calculateTotal 함수에 대한 테스트
+
+describe('calculateTotal', () => {
+  // 기본 동작 테스트
+  it('아이템 가격의 합을 반환해야 함', () => {
+    const items = [
+      { productId: 1, price: 1000, quantity: 2 },
+      { productId: 2, price: 500, quantity: 3 },
+    ];
+    expect(calculateTotal(items)).toBe(3500);
+  });
+
+  // 할인 테스트
+  it('할인이 적용되어야 함', () => {
+    const items = [{ productId: 1, price: 10000, quantity: 1 }];
+    expect(calculateTotal(items, 10)).toBe(9000);
+  });
+
+  // 경계 조건 테스트 — 이게 회귀를 잡음
+  it('할인 0%면 원래 가격이어야 함', () => {
+    const items = [{ productId: 1, price: 10000, quantity: 1 }];
+    expect(calculateTotal(items, 0)).toBe(10000);
+  });
+
+  it('빈 배열이면 0이어야 함', () => {
+    expect(calculateTotal([])).toBe(0);
+  });
+
+  it('할인 없이 호출해도 세금이 자동 적용되면 안 됨', () => {
+    // 이 테스트가 v1.4의 회귀 버그를 잡았을 거임
+    const items = [{ productId: 1, price: 10000, quantity: 1 }];
+    expect(calculateTotal(items)).toBe(10000);
+    // 세금이 자동 적용되면 11000이 나와서 실패 → 버그 발견!
+  });
+});
+```
+
+### 스냅샷 테스트로 UI 회귀 잡기
+
+```typescript
+// API 응답 스냅샷 테스트
+
+describe('GET /api/users/:id', () => {
+  it('응답 구조가 변경되면 안 됨', async () => {
+    const response = await request(app).get('/api/users/1');
+
+    // 첫 실행 시 스냅샷 저장, 이후 비교
+    expect(response.body).toMatchSnapshot();
+    // {
+    //   id: 1,
+    //   name: "테스트유저",
+    //   email: "test@test.com",
+    //   settings: {
+    //     theme: "dark",
+    //     ...
+    //   }
+    // }
+
+    // settings를 제거하면?
+    // → 스냅샷 불일치 → 테스트 실패
+    // → "API 응답 구조가 바뀌었는데 의도한 건지 확인하셈"
+  });
+});
+```
+
+### 변경 영향 범위 분석
+
+```typescript
+// TypeScript의 힘 — 컴파일 타임에 회귀 감지
+
+// interface를 변경하면 사용처에서 즉시 에러
+interface UserProfile {
+  id: number;
+  name: string;
+  // settings 제거하고 settingsId 추가
+  settingsId: number;
+}
+
+// TypeScript 컴파일러가 알려주는 것:
+// error TS2339: Property 'settings' does not exist on type 'UserProfile'.
+// src/pages/profile.tsx:15
+// src/services/notification.ts:22
+// src/utils/theme.ts:8
+// src/api/formatters.ts:31
+// src/tests/user.test.ts:10
+
+// 이 에러 메시지가 "어디가 터질지" 알려주는 거임
+// JavaScript였으면? 런타임에 터질 때까지 모름.
+```
+
+<Callout type="success" title="TypeScript가 회귀 버그를 줄이는 방법">
+TypeScript의 타입 시스템은 사실상 **자동 회귀 테스트**임.
+
+- 인터페이스 변경 → 사용처에서 컴파일 에러 → 고칠 곳 목록 자동 생성
+- 함수 시그니처 변경 → 호출부에서 컴파일 에러 → 놓치는 곳 없음
+- enum 값 추가 → switch문에서 `exhaustive check` 실패 → 처리 안 한 곳 감지
+
+JavaScript에서 TypeScript로 마이그레이션하면 버그가 30~40% 줄어든다는 연구가 있음. 이건 주로 "회귀 버그 조기 감지" 덕분임.
+</Callout>
+
+---
+
+## 방어적 프로그래밍 패턴
+
+### 1. 불변 데이터 패턴
+
+```typescript
+// 원본 데이터를 절대 변경하지 않기
+
+// 나쁜 예
+function addDiscount(order: Order, discount: number): Order {
+  order.discount = discount;  // 원본 변경!
+  order.total = order.subtotal * (1 - discount / 100);  // 원본 변경!
+  return order;
+}
+
+// 좋은 예
+function addDiscount(order: Order, discount: number): Order {
+  return {
+    ...order,
+    discount,
+    total: order.subtotal * (1 - discount / 100),
+  };  // 새 객체 반환, 원본 유지
+}
+
+// 더 좋은 예 — readonly 활용
+interface Order {
+  readonly id: number;
+  readonly items: readonly CartItem[];
+  readonly subtotal: number;
+  readonly discount: number;
+  readonly total: number;
+}
+
+// 이제 order.discount = 10; 하면 컴파일 에러
+// "실수로 원본을 변경하는" 버그 원천 차단
+```
+
+### 2. 방어적 복사
+
+```typescript
+// 외부에서 받은 데이터는 복사해서 쓰기
+
+class UserCache {
+  private cache = new Map<number, User>();
+
+  set(user: User): void {
+    // 나쁜 예: 참조를 그대로 저장
+    this.cache.set(user.id, user);
+    // 외부에서 user 객체를 수정하면 캐시도 변경됨!
+
+    // 좋은 예: 깊은 복사
+    this.cache.set(user.id, structuredClone(user));
+  }
+
+  get(id: number): User | undefined {
+    const cached = this.cache.get(id);
+    if (!cached) return undefined;
+
+    // 나쁜 예: 캐시된 객체를 그대로 반환
+    return cached;
+    // 외부에서 반환값을 수정하면 캐시가 오염됨!
+
+    // 좋은 예: 복사본 반환
+    return structuredClone(cached);
+  }
+}
+```
+
+### 3. 계약 기반 프로그래밍
+
+```typescript
+// 함수의 입출력 계약을 명시
+
+function withdraw(account: BankAccount, amount: number): BankAccount {
+  // 사전 조건 (Precondition)
+  if (amount <= 0) {
+    throw new Error('출금액은 양수여야 함');
+  }
+  if (amount > account.balance) {
+    throw new Error('잔액 부족');
+  }
+
+  const newBalance = account.balance - amount;
+
+  // 사후 조건 (Postcondition)
+  if (newBalance < 0) {
+    // 이론상 여기 도달할 수 없지만, 방어적으로 체크
+    throw new Error('잔액이 음수가 됨 — 로직 에러');
+  }
+
+  return { ...account, balance: newBalance };
+}
+
+// 이 함수를 수정할 때:
+// 1. 사전 조건을 만족하는 입력에서 동작해야 함
+// 2. 사후 조건을 항상 만족해야 함
+// 3. 조건 위반 시 바로 에러 → 조기 발견
+```
+
+---
+
+## 리팩토링 시 회귀를 줄이는 전략
+
+```typescript
+// 1단계: 테스트 먼저 작성 (기존 동작 기록)
+
+// 기존 함수
+function parseDate(input: string): Date {
+  // 복잡한 파싱 로직...
+  return new Date(input);
+}
+
+// 리팩토링 전에 기존 동작 기록
+describe('parseDate — 기존 동작 보존', () => {
+  const testCases = [
+    { input: '2026-03-17', expected: new Date(2026, 2, 17) },
+    { input: '03/17/2026', expected: new Date(2026, 2, 17) },
+    { input: '17 Mar 2026', expected: new Date(2026, 2, 17) },
+    { input: '', expected: null },
+    { input: 'invalid', expected: null },
+  ];
+
+  testCases.forEach(({ input, expected }) => {
+    it(`"${input}" → ${expected}`, () => {
+      expect(parseDate(input)).toEqual(expected);
+    });
+  });
+});
+
+// 2단계: 리팩토링 후 테스트 통과 확인
+// 3단계: 새 기능 추가 시 테스트도 추가
+```
+
+<Callout type="info" title="Boy Scout Rule">
+"캠프장을 떠날 때는 올 때보다 깨끗하게" — 로버트 C. 마틴
+
+코드를 수정할 때 관련 테스트가 없으면 테스트를 추가하고 가셈. 지금 10분 투자하면 나중에 10시간 디버깅을 안 해도 됨.
+</Callout>
+
+---
+
+## Git을 활용한 회귀 추적
+
+```bash
+# git bisect — 어느 커밋에서 버그가 시작됐는지 이진 탐색
+
+# 1. bisect 시작
+git bisect start
+
+# 2. 현재(버그 있음)를 bad로 표시
+git bisect bad
+
+# 3. 확실히 정상이던 커밋을 good으로 표시
+git bisect good v1.0.0
+
+# 4. git이 중간 커밋을 checkout하면 테스트하고 good/bad 표시
+git bisect good  # 또는 git bisect bad
+
+# 5. 자동으로 범인 커밋을 찾아줌
+# "abc1234 is the first bad commit"
+# "Author: 박영희"
+# "Date: 2026-03-15"
+# "feat: 할인 로직 변경"
+# → 이 커밋이 범인!
+```
+
+```bash
+# 자동 bisect — 테스트 스크립트로 자동화
+git bisect start HEAD v1.0.0
+git bisect run npm test
+
+# npm test가 실패하는 첫 커밋을 자동으로 찾아줌
+# 100개 커밋이어도 7번(log2(100))만에 찾음
+```
+
+<Callout type="error" title="git bisect가 안 되는 상황">
+- 커밋이 너무 크면 (한 커밋에 변경 1000줄) → 범인 커밋을 찾아도 어디가 문제인지 모름
+- 커밋 메시지가 "fix" 한 줄이면 → 뭘 고친 건지 모름
+- 테스트가 없으면 → good/bad 판단 자체를 수동으로 해야 함
+
+결론: **작은 커밋, 의미 있는 메시지, 테스트 작성** — 이 세 가지가 회귀 버그 대응의 기본임.
+</Callout>
+
+---
+
+## 정리: 99개의 버그를 127개로 만들지 않는 법
+
+| 원칙 | 방법 |
+|------|------|
+| 사이드 이펙트 제거 | 순수 함수, 불변 데이터 |
+| 커플링 줄이기 | 이벤트 기반, 의존성 주입 |
+| 변경 영향 파악 | TypeScript, 컴파일 타임 체크 |
+| 회귀 감지 | 자동 테스트, 스냅샷 테스트 |
+| 범인 추적 | git bisect, 작은 커밋 |
+| 점진적 변경 | Strangler Fig Pattern |
+
+<Callout type="success" title="결론">
+"99 little bugs"가 밈인 이유는 **커플링과 사이드 이펙트를 관리하지 않으면 진짜 일어나는 일**이기 때문임.
+
+하나 고쳤는데 세 개 터지는 건 코드의 문제가 아니라 **아키텍처의 문제**임. 코드 한 줄 고치는 건 쉬운데, 그 한 줄이 영향을 미치는 범위를 파악하는 게 어려운 거임.
+
+테스트를 짜고, 타입을 쓰고, 커플링을 줄이는 게 결국 "하나 고치면 하나만 고쳐지는" 코드를 만드는 방법임.
+</Callout>
+
+---
+
+*"진정한 시니어는 버그를 잘 고치는 사람이 아니라, 고칠 때 다른 버그를 만들지 않는 사람임."*

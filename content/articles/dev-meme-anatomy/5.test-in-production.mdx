@@ -1,0 +1,698 @@
+# "I don't always test my code, but when I do, I do it in production" — 테스트의 현실
+
+*테스트를 안 짜는 건 게으른 게 아님. 일정이 허락하지 않는 거임. (본인 피셜)*
+
+---
+
+## 밈의 기원
+
+이 밈은 "The Most Interesting Man in the World" (Dos Equis 맥주 광고)의 패러디임:
+
+> "I don't always test my code,
+> but when I do,
+> I do it in production."
+
+이게 웃기면서도 슬픈 이유: **실제로 프로덕션이 유일한 테스트 환경인 회사가 꽤 많기 때문.**
+
+스타트업 CTO: "우리는 사용자가 QA팀입니다."
+시니어 개발자: "프로덕션이 가장 정확한 테스트 환경이긴 합니다."
+주니어 개발자: "테스트 짤 시간이 없었습니다..."
+
+<Callout type="note" title="밈의 변형들">
+- "Testing in production" — 원조
+- "Users are the best QA team" — 스타트업 버전
+- "My code doesn't have bugs, it has surprise features" — 자기위안 버전
+- "It compiled, ship it" — 가장 위험한 버전
+- "f*ck it, we'll do it live" — 레전드 Bill O'Reilly 밈과의 크로스오버
+</Callout>
+
+---
+
+## 테스트를 안 짜는 실제 이유들
+
+밈으로 웃고 넘기기 전에, 왜 테스트를 안 짜는지 진짜 이유를 살펴보겠음.
+
+### 1. "시간이 없어요"
+
+```typescript
+// PM: "이 기능 금요일까지 해주세요"
+// 개발자: "테스트까지 하면 다음 주 수요일이요"
+// PM: "금요일까지요"
+// 개발자: "...네"
+
+// 결과: 테스트 없이 배포
+// 다음 주 월요일: "긴급 버그 핫픽스 해주세요"
+// 다음 주 화요일: "핫픽스가 다른 버그를 만들었어요"
+// 다음 주 수요일: 결국 테스트까지 포함한 원래 일정과 같아짐
+
+// 이걸 "테스트 부채의 복리 효과"라고 부름
+const timeWithoutTest = {
+  feature: 3,           // 3일
+  bugFix1: 1,           // 1일
+  bugFix2: 0.5,         // 0.5일
+  bugFix3: 0.5,         // 0.5일
+  total: 5,             // 5일
+};
+
+const timeWithTest = {
+  feature: 4,           // 4일 (테스트 포함)
+  bugFix: 0.5,          // 0.5일 (테스트가 잡아주니까)
+  total: 4.5,           // 4.5일
+};
+
+// 테스트 짜는 게 결과적으로 빠른데
+// 단기적으로 느려보여서 안 짬
+```
+
+### 2. "뭘 테스트해야 할지 모르겠어요"
+
+```typescript
+// 이건 진짜 어려운 문제임
+
+// 이 함수를 테스트하려면 뭘 해야 됨?
+async function processOrder(order: Order): Promise<OrderResult> {
+  // 1. 재고 확인
+  const stock = await inventoryService.check(order.items);
+  if (!stock.available) throw new InsufficientStockError();
+
+  // 2. 결제
+  const payment = await paymentService.charge(order.userId, order.total);
+  if (!payment.success) throw new PaymentFailedError();
+
+  // 3. 주문 저장
+  const saved = await orderRepository.save(order);
+
+  // 4. 알림 발송
+  await notificationService.send(order.userId, 'order_confirmed');
+
+  // 5. 재고 차감
+  await inventoryService.decrease(order.items);
+
+  return { orderId: saved.id, status: 'completed' };
+}
+
+// 테스트할 게 너무 많음:
+// - 재고 있을 때 / 없을 때
+// - 결제 성공 / 실패 / 타임아웃
+// - DB 저장 성공 / 실패
+// - 알림 발송 실패해도 주문은 성공해야 하는지?
+// - 재고 차감 실패하면 결제 취소해야 하는지?
+// - 동시에 같은 상품 주문하면?
+// → 조합이 폭발적으로 늘어남
+// → "이걸 다 테스트한다고?" → 포기
+```
+
+### 3. "레거시 코드라 테스트 불가능해요"
+
+```typescript
+// 테스트 불가능한 코드의 특징
+
+// 1. 전역 상태 의존
+let globalConfig: Config;  // 어디서 설정되는지 모름
+
+function getPrice(productId: number): number {
+  // globalConfig가 뭔지에 따라 결과가 달라짐
+  const taxRate = globalConfig.taxRate;  // 이걸 테스트에서 어떻게 설정함?
+  const product = globalDb.find(productId);  // globalDb는 뭐임?
+  return product.price * (1 + taxRate);
+}
+
+// 2. 하드코딩된 의존성
+function sendReport(): void {
+  const data = new MySQLConnection('prod-db:3306').query('SELECT ...');
+  const smtp = new SMTPClient('mail.company.com');
+  smtp.send('boss@company.com', data);
+  // 테스트하려면 진짜 DB와 메일 서버가 필요함?
+}
+
+// 3. 시간 의존
+function isBusinessHours(): boolean {
+  const now = new Date();
+  const hour = now.getHours();
+  return hour >= 9 && hour < 18;
+  // 이 테스트는 실행 시간에 따라 결과가 달라짐
+  // 야근 중에 테스트 돌리면 실패함
+}
+```
+
+```typescript
+// 테스트 가능하게 리팩토링
+
+// 1. 의존성 주입
+function getPrice(
+  productId: number,
+  config: Config,           // 주입
+  productRepo: ProductRepo  // 주입
+): number {
+  const product = productRepo.find(productId);
+  return product.price * (1 + config.taxRate);
+}
+
+// 이제 테스트 가능
+test('세금 10%가 적용된 가격을 반환', () => {
+  const mockConfig = { taxRate: 0.1 };
+  const mockRepo = { find: () => ({ price: 1000 }) };
+  expect(getPrice(1, mockConfig, mockRepo)).toBe(1100);
+});
+
+// 2. 시간 추상화
+function isBusinessHours(now: Date = new Date()): boolean {
+  const hour = now.getHours();
+  return hour >= 9 && hour < 18;
+}
+
+// 이제 테스트 가능
+test('오전 9시는 업무시간', () => {
+  expect(isBusinessHours(new Date('2026-03-17T09:00:00'))).toBe(true);
+});
+
+test('오후 6시는 업무시간 아님', () => {
+  expect(isBusinessHours(new Date('2026-03-17T18:00:00'))).toBe(false);
+});
+```
+
+<Callout type="warning" title="테스트를 안 짜는 진짜 이유">
+위의 세 가지 이유가 가장 흔하지만, 진짜 근본적인 이유는 하나임:
+
+**"테스트의 가치를 경험하지 못했기 때문."**
+
+테스트가 버그를 잡아줘서 야근을 안 해본 경험이 없으면, 테스트는 그냥 "추가 작업"으로만 느껴짐. 하지만 한 번이라도 "아 테스트 짜놓길 잘했다"를 경험하면 습관이 됨.
+</Callout>
+
+---
+
+## 프로덕션 테스트가 실제로 일어나는 상황들
+
+### 1. 스테이징 환경이 없는 경우
+
+```typescript
+// 환경 구성
+const environments = {
+  development: 'localhost:3000',    // 내 컴퓨터
+  // staging: ???                   // 없음
+  production: 'app.company.com',   // 고객이 쓰는 서버
+};
+
+// "스테이징이 없으니까 프로덕션에서 테스트할 수밖에..."
+// 이건 변명이 아니라 현실인 회사가 많음
+
+// 스테이징이 없는 이유:
+// 1. 서버 비용 (스타트업)
+// 2. 스테이징 관리할 인력 부족
+// 3. "프로덕션이랑 똑같이 만들어야 의미 있는데 그럴 여력이 없음"
+// 4. 프로덕션 데이터 없이는 재현 안 되는 버그가 많음
+```
+
+### 2. 프로덕션 데이터에서만 재현되는 버그
+
+```typescript
+// "개발 환경에서는 안 터지는데 프로덕션에서만 터져요"
+
+// Case 1: 데이터 볼륨
+// 개발 DB: 100명의 유저
+// 프로덕션 DB: 100만 명의 유저
+// 페이지네이션 없는 쿼리 → 개발에서는 빠름, 프로덕션에서는 OOM
+
+// Case 2: 데이터 다양성
+function parsePhoneNumber(phone: string): string {
+  return phone.replace(/[^0-9]/g, '');
+}
+// 개발 데이터: "010-1234-5678" → "01012345678" ✓
+// 프로덕션 데이터: "+82 10-1234-5678" → "821012345678" ← 의도한 건가?
+// 프로덕션 데이터: "없음" → "" ← 빈 문자열
+// 프로덕션 데이터: null → TypeError: Cannot read properties of null
+
+// Case 3: 동시성
+// 개발: 개발자 1명이 사용
+// 프로덕션: 1000명이 동시에 사용
+// Race condition은 동시 접근이 있어야 재현됨
+```
+
+### 3. Feature Flag — 프로덕션 테스트의 합법적 방법
+
+```typescript
+// Feature Flag를 쓰면 프로덕션에서 안전하게 테스트 가능
+
+interface FeatureFlags {
+  newCheckoutFlow: boolean;
+  darkMode: boolean;
+  aiRecommendation: boolean;
+}
+
+function getFeatureFlags(userId: number): FeatureFlags {
+  return {
+    // 내부 직원에게만 새 기능 활성화
+    newCheckoutFlow: isInternalUser(userId),
+
+    // 10% 사용자에게 점진적 배포
+    darkMode: userId % 10 === 0,
+
+    // 특정 유저에게만 활성화
+    aiRecommendation: betaUsers.includes(userId),
+  };
+}
+
+// 사용
+function CheckoutPage({ userId }: { userId: number }) {
+  const flags = getFeatureFlags(userId);
+
+  if (flags.newCheckoutFlow) {
+    return <NewCheckout />;    // 새 버전
+  }
+  return <OldCheckout />;      // 기존 버전
+}
+
+// 문제 발생 시 즉시 비활성화 가능
+// 배포 롤백 없이 기능만 끄면 됨
+```
+
+<Callout type="info" title="카나리 배포 (Canary Deployment)">
+Feature Flag의 인프라 버전임. 새 버전을 전체 서버가 아니라 일부 서버에만 배포하고, 문제없으면 점진적으로 확대하는 방식.
+
+이름의 유래: 옛날 광부들이 유독가스를 감지하기 위해 카나리아를 데리고 갔던 것에서 유래. 카나리아가 먼저 쓰러지면 위험하다는 신호.
+
+프로덕션 테스트를 안전하게 하는 가장 현실적인 방법 중 하나임.
+</Callout>
+
+---
+
+## 테스트 피라미드의 이상과 현실
+
+### 이상적인 테스트 피라미드
+
+```
+         /\
+        /  \
+       / E2E \          — 적게 (느리지만 현실적)
+      /________\
+     /          \
+    / Integration \     — 적당히 (핵심 흐름)
+   /______________\
+  /                \
+ /    Unit Tests    \   — 많이 (빠르고 안정적)
+/____________________\
+```
+
+```typescript
+// 이상적인 비율
+const testPyramid = {
+  unit: '70%',          // 빠름, 고립된 로직 테스트
+  integration: '20%',   // 모듈 간 연동
+  e2e: '10%',           // 전체 시나리오
+};
+```
+
+### 현실의 테스트 피라미드 (아이스크림 콘)
+
+```
+    ____________________
+   /                    \
+  /    E2E / Manual      \   — 대부분 수동 테스트
+ /________________________\
+ |     Integration         |  — 조금
+ |_________________________|
+          |  |
+          |  |                — Unit이 거의 없음
+          |__|
+```
+
+```typescript
+// 현실적인 비율 (많은 회사에서)
+const realTestDistribution = {
+  unit: '5%',           // "시간 없어서..."
+  integration: '10%',   // "뭘 테스트해야 할지..."
+  e2e: '5%',            // "셀레늄이 자꾸 깨져서..."
+  manual: '80%',        // QA팀이 수동으로
+};
+```
+
+### 각 레벨의 실제 테스트 코드
+
+#### Unit Test
+
+```typescript
+// 가장 기본적인 단위 테스트
+// 외부 의존성 없이 순수 로직만 테스트
+
+import { describe, it, expect } from 'vitest';
+
+// 테스트 대상
+function calculateShipping(weight: number, distance: number): number {
+  const baseRate = 3000;
+  const weightRate = weight * 500;
+  const distanceRate = distance * 100;
+  return baseRate + weightRate + distanceRate;
+}
+
+describe('calculateShipping', () => {
+  it('기본 배송비가 포함되어야 함', () => {
+    expect(calculateShipping(0, 0)).toBe(3000);
+  });
+
+  it('무게에 비례해서 증가해야 함', () => {
+    expect(calculateShipping(2, 0)).toBe(4000); // 3000 + 2*500
+  });
+
+  it('거리에 비례해서 증가해야 함', () => {
+    expect(calculateShipping(0, 10)).toBe(4000); // 3000 + 10*100
+  });
+
+  it('무게와 거리 모두 반영되어야 함', () => {
+    expect(calculateShipping(2, 10)).toBe(5000); // 3000 + 1000 + 1000
+  });
+
+  it('음수 무게는 에러', () => {
+    expect(() => calculateShipping(-1, 10)).toThrow();
+  });
+});
+```
+
+#### Integration Test
+
+```typescript
+// 모듈 간 연동 테스트
+// DB, 외부 서비스 등과의 연동 포함
+
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+
+describe('주문 API 통합 테스트', () => {
+  let testDb: TestDatabase;
+
+  beforeAll(async () => {
+    testDb = await TestDatabase.create();
+    await testDb.seed(); // 테스트 데이터 주입
+  });
+
+  afterAll(async () => {
+    await testDb.destroy();
+  });
+
+  it('주문 생성 → 재고 차감 → 결제 처리가 순서대로 동작해야 함', async () => {
+    // 초기 재고 확인
+    const initialStock = await testDb.getStock('PRODUCT-001');
+    expect(initialStock).toBe(100);
+
+    // 주문 생성
+    const response = await request(app)
+      .post('/api/orders')
+      .send({
+        userId: 1,
+        items: [{ productId: 'PRODUCT-001', quantity: 2 }],
+      });
+
+    expect(response.status).toBe(201);
+    expect(response.body.orderId).toBeDefined();
+
+    // 재고 확인
+    const afterStock = await testDb.getStock('PRODUCT-001');
+    expect(afterStock).toBe(98); // 100 - 2
+
+    // 결제 확인
+    const payment = await testDb.getPayment(response.body.orderId);
+    expect(payment.status).toBe('completed');
+  });
+
+  it('재고 부족 시 주문 실패해야 함', async () => {
+    const response = await request(app)
+      .post('/api/orders')
+      .send({
+        userId: 1,
+        items: [{ productId: 'PRODUCT-001', quantity: 99999 }],
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toBe('INSUFFICIENT_STOCK');
+  });
+});
+```
+
+#### E2E Test
+
+```typescript
+// 전체 시나리오 테스트 (Playwright 사용)
+import { test, expect } from '@playwright/test';
+
+test('사용자가 로그인 → 상품 검색 → 장바구니 → 주문 완료', async ({ page }) => {
+  // 1. 로그인
+  await page.goto('/login');
+  await page.fill('#email', 'test@example.com');
+  await page.fill('#password', 'testpassword');
+  await page.click('button[type="submit"]');
+  await expect(page).toHaveURL('/dashboard');
+
+  // 2. 상품 검색
+  await page.fill('#search', '맥북');
+  await page.click('#search-button');
+  await expect(page.locator('.product-card')).toHaveCount(3);
+
+  // 3. 장바구니에 추가
+  await page.click('.product-card:first-child .add-to-cart');
+  await expect(page.locator('.cart-count')).toHaveText('1');
+
+  // 4. 장바구니로 이동
+  await page.click('.cart-icon');
+  await expect(page).toHaveURL('/cart');
+  await expect(page.locator('.cart-item')).toHaveCount(1);
+
+  // 5. 주문하기
+  await page.click('#checkout-button');
+  await page.fill('#address', '서울시 강남구');
+  await page.click('#confirm-order');
+
+  // 6. 주문 완료 확인
+  await expect(page.locator('.order-complete')).toBeVisible();
+  await expect(page.locator('.order-id')).not.toBeEmpty();
+});
+```
+
+<Callout type="warning" title="E2E 테스트의 현실">
+이론상 E2E 테스트는 가장 신뢰도 높은 테스트임. 사용자가 실제로 하는 행동을 그대로 재현하니까.
+
+현실:
+- **느림** — 한 시나리오에 30초~1분
+- **불안정** — 네트워크 지연, 타이밍 이슈로 가끔 실패 (flaky test)
+- **유지보수 비용** — UI 변경할 때마다 테스트도 수정
+- **디버깅 어려움** — 실패해도 어디서 문제인지 찾기 힘듦
+
+그래서 E2E는 핵심 시나리오(결제, 회원가입 등)만 테스트하는 게 현실적임.
+</Callout>
+
+---
+
+## 테스트를 짜는 실용적인 방법
+
+### "완벽한 테스트"보다 "있는 테스트"
+
+```typescript
+// 완벽주의 함정
+// "이 함수의 모든 경우의 수를 테스트해야 해"
+// → 경우의 수가 너무 많음
+// → "다음에 하자"
+// → 영원히 안 함
+
+// 실용적 접근: 핵심 경로만 테스트
+// "이게 안 되면 고객이 돈을 못 내는" 경로
+
+// 결제 로직의 핵심 경로
+describe('결제 핵심 경로', () => {
+  it('정상 결제가 되어야 함', async () => {
+    // Happy path — 이것만 테스트해도 50%는 커버
+    const result = await processPayment({
+      amount: 10000,
+      method: 'card',
+      userId: 1,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('잔액 부족 시 실패해야 함', async () => {
+    // 가장 흔한 실패 케이스
+    const result = await processPayment({
+      amount: 999999999,
+      method: 'card',
+      userId: 1,
+    });
+    expect(result.success).toBe(false);
+    expect(result.error).toBe('INSUFFICIENT_FUNDS');
+  });
+});
+
+// 이 두 개만 있어도 "없는 것"보다 100배 나음
+```
+
+### TDD vs "테스트 나중에 짜기" vs "테스트 안 짜기"
+
+```typescript
+// TDD (Test-Driven Development)
+// 1. 테스트 먼저 작성 (실패)
+// 2. 코드 작성 (통과)
+// 3. 리팩토링
+
+// "테스트 나중에 짜기" (Test-After Development)
+// 1. 코드 작성
+// 2. 테스트 작성
+// 3. "다음 기능 급하니까 테스트는 나중에..."
+// 4. 나중은 오지 않음
+
+// "테스트 안 짜기" (No Test Development, a.k.a YOLO)
+// 1. 코드 작성
+// 2. 배포
+// 3. 기도
+
+// 현실적 제안: TDD가 이상적이지만, 최소한
+// "코드를 고칠 때 관련 테스트를 짜기" 정도는 하셈
+```
+
+### Mock을 잘 쓰는 법
+
+```typescript
+// Mock의 목적: 외부 의존성을 제거하고 테스트 대상에 집중
+
+// 나쁜 Mock — 구현을 테스트함
+test('결제 시 paymentGateway.charge가 호출되어야 함', () => {
+  const mockGateway = vi.fn();
+  processPayment(mockGateway, 10000);
+  expect(mockGateway).toHaveBeenCalledWith(10000);
+  // 이건 "결제가 되었는가"가 아니라
+  // "특정 함수가 호출되었는가"를 테스트하는 거임
+  // 구현이 바뀌면 테스트도 바뀌어야 함 → 취약한 테스트
+});
+
+// 좋은 Mock — 동작을 테스트함
+test('결제 성공 시 주문 상태가 완료로 변경되어야 함', async () => {
+  const mockGateway = {
+    charge: async () => ({ success: true, transactionId: 'tx123' }),
+  };
+
+  const order = await processPayment(mockGateway, 10000);
+
+  expect(order.status).toBe('completed');
+  expect(order.transactionId).toBe('tx123');
+  // 결과(동작)를 테스트함
+  // 구현이 바뀌어도 동작이 같으면 테스트는 통과
+});
+```
+
+---
+
+## 프로덕션 모니터링 — 마지막 방어선
+
+테스트를 아무리 잘 짜도 프로덕션에서 예상 못한 일은 일어남. 그래서 모니터링이 필요함.
+
+```typescript
+// 에러 트래킹 (Sentry 등)
+import * as Sentry from '@sentry/node';
+
+Sentry.init({
+  dsn: process.env.SENTRY_DSN,
+  environment: process.env.NODE_ENV,
+  tracesSampleRate: 0.1, // 10% 샘플링 (비용 조절)
+});
+
+// 핵심 비즈니스 메트릭 모니터링
+class OrderMetrics {
+  static orderCreated(order: Order): void {
+    metrics.increment('order.created');
+    metrics.histogram('order.total', order.total);
+  }
+
+  static orderFailed(reason: string): void {
+    metrics.increment('order.failed', { reason });
+    // 실패율이 급증하면 알림
+  }
+
+  static paymentProcessed(duration: number): void {
+    metrics.histogram('payment.duration', duration);
+    // 결제 시간이 느려지면 알림
+  }
+}
+
+// 헬스체크
+app.get('/health', async (req, res) => {
+  const checks = {
+    database: await checkDatabase(),
+    redis: await checkRedis(),
+    externalApi: await checkExternalApi(),
+  };
+
+  const allHealthy = Object.values(checks).every(c => c.status === 'ok');
+
+  res.status(allHealthy ? 200 : 503).json(checks);
+});
+```
+
+<Callout type="info" title="Observability의 3가지 축">
+1. **Logs** — 무슨 일이 일어났는가 (Winston, Pino)
+2. **Metrics** — 숫자로 얼마나 (Prometheus, DataDog)
+3. **Traces** — 어떤 경로로 (Jaeger, OpenTelemetry)
+
+이 세 가지가 갖춰져 있으면, 프로덕션에서 문제가 생겨도 빠르게 원인을 찾을 수 있음. 테스트가 "예방"이라면 모니터링은 "조기 발견"임.
+</Callout>
+
+---
+
+## 테스트 문화 만들기
+
+```typescript
+// 테스트 문화가 없는 팀에서 테스트를 도입하는 방법
+
+const testCultureRoadmap = {
+  month1: {
+    goal: '기존 버그 수정 시 테스트 추가',
+    effort: '낮음',
+    impact: '높음',
+    // 버그를 고칠 때 "이 버그를 재현하는 테스트"를 먼저 작성
+    // → 같은 버그가 다시 안 나옴
+    // → 팀원들이 테스트의 가치를 체감
+  },
+
+  month2: {
+    goal: '새 기능에 핵심 경로 테스트 추가',
+    effort: '중간',
+    impact: '높음',
+    // 새 기능의 happy path만 테스트
+    // 완벽할 필요 없음. 있는 게 없는 것보다 나음.
+  },
+
+  month3: {
+    goal: 'CI에 테스트 통합',
+    effort: '중간',
+    impact: '매우 높음',
+    // PR 머지 전에 테스트 통과 필수
+    // → 코드 리뷰에서 "테스트 없네요?" 가 자연스러운 피드백이 됨
+  },
+
+  month6: {
+    goal: '커버리지 기준 설정',
+    effort: '높음',
+    impact: '높음',
+    // 커버리지 80% 이상 유지
+    // 단, 커버리지 숫자에 집착하면 의미 없는 테스트가 늘어남
+    // "의미 있는 테스트"가 중요한 거지 숫자가 중요한 게 아님
+  },
+};
+```
+
+---
+
+## 정리
+
+| 문제 | 해결 |
+|------|------|
+| 테스트 짤 시간 없음 | 핵심 경로만 테스트 (전부 할 필요 없음) |
+| 뭘 테스트할지 모름 | "이게 안 되면 돈을 못 버는" 기능부터 |
+| 레거시라 테스트 불가능 | 의존성 주입으로 리팩토링 |
+| E2E가 불안정함 | 핵심 시나리오만 + 재시도 로직 |
+| 프로덕션에서만 재현됨 | Feature Flag + 카나리 배포 |
+
+<Callout type="success" title="결론">
+"프로덕션에서 테스트합니다"가 밈인 이유는 **모두가 한 번은 해봤기 때문**임.
+
+완벽한 테스트는 환상임. 하지만 "테스트가 아예 없는 것"과 "핵심 경로만 테스트하는 것"의 차이는 어마어마함.
+
+오늘 당장 프로젝트에서 가장 중요한 함수 하나에 테스트를 추가해보셈. 그 작은 시작이 나중에 야근을 줄여줄 거임. (아마)
+</Callout>
+
+---
+
+*"테스트를 안 짜는 건 자유지만, 새벽 3시에 핫픽스하는 것도 자유임."*
