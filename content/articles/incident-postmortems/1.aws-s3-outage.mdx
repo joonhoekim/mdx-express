@@ -1,0 +1,434 @@
+# AWS S3 장애 (2017) — 타이핑 실수로 인터넷 절반이 죽은 날
+
+*오타 하나로 미국 동부 인터넷을 4시간 동안 마비시킨 사상 최대의 클라우드 장애*
+
+---
+
+2017년 2월 28일. 평범한 화요일 오전이었음. AWS의 한 엔지니어가 S3(Simple Storage Service)의 빌링 시스템을 디버깅하고 있었다. 서버 몇 대를 내리려고 커맨드를 입력했는데... 여기서 전설이 시작됨.
+
+<Callout type="error" title="실제 사건 요약">
+AWS 엔지니어가 S3 서버 일부를 제거하려고 커맨드를 실행했는데, 입력 값 실수로 예상보다 훨씬 많은 서버가 제거됨. 이로 인해 US-EAST-1 리전의 S3가 약 4시간 동안 완전히 다운. 인터넷 트래픽의 상당 부분이 영향을 받음.
+</Callout>
+
+## 사건 경위: 그날 무슨 일이 있었나
+
+### 타임라인
+
+오전 9시 37분(PST). AWS 엔지니어가 S3의 빌링 시스템 처리 속도가 느려진 것을 조사하고 있었음. 문제를 해결하기 위해 S3 서브시스템의 서버 중 소수를 제거하는 명령을 실행하려고 했다.
+
+```bash
+# 엔지니어가 의도한 것 (가상 재구성)
+# 빌링 서브시스템의 서버 소수만 제거
+remove-servers --subsystem billing --count small
+
+# 실제로 입력한 것 (가상 재구성)
+# 입력 값 오류로 인해 예상보다 훨씬 많은 서버가 대상에 포함됨
+remove-servers --subsystem billing --count MUCH_LARGER_THAN_INTENDED
+```
+
+<Callout type="warning" title="여기서 핵심">
+공식 포스트모템에 따르면, 제거 명령의 입력 값이 잘못 입력되어 의도한 것보다 훨씬 많은 수의 서버가 제거 대상이 됨. 이 "많은 수의 서버"에는 S3의 두 가지 핵심 서브시스템인 INDEX와 PLACEMENT 서브시스템의 서버가 포함되어 있었다.
+</Callout>
+
+이게 왜 치명적이었냐면:
+
+- **INDEX 서브시스템**: S3의 모든 오브젝트의 메타데이터와 위치 정보를 관리. 이게 없으면 어떤 파일이 어디에 있는지 찾을 수 없음.
+- **PLACEMENT 서브시스템**: 새로운 데이터를 어디에 저장할지 결정. 이게 없으면 PUT 요청(데이터 저장)이 불가능.
+
+두 서브시스템이 동시에 죽은 거임. S3가 완전히 먹통이 됨.
+
+### 복구가 느렸던 이유
+
+AWS 팀이 즉시 복구에 착수했지만, 여기서 또 하나의 문제가 발생함. INDEX와 PLACEMENT 서브시스템이 너무 오랫동안 운영되면서 규모가 엄청나게 커져 있었다는 것.
+
+```
+복구 프로세스:
+1. 서버 제거 확인 → 즉시 인지
+2. 재시작 명령 실행 → 시작
+3. INDEX 서브시스템 전체 재시작 → 시간 소요 (데이터 무결성 검증)
+4. PLACEMENT 서브시스템 재시작 → INDEX에 의존하므로 순차 대기
+5. S3 API 정상화 → INDEX + PLACEMENT 모두 정상 후에야 가능
+
+문제: 마지막 전체 재시작을 해본 적이 없어서
+      예상 소요 시간 자체를 몰랐음
+```
+
+<Callout type="info" title="재시작의 아이러니">
+S3는 출시 이후 너무 안정적으로 운영되어서, 이 핵심 서브시스템들의 전체 재시작 프로세스가 최근에 테스트된 적이 없었음. 시스템이 너무 잘 돌아가서 오히려 재시작 시나리오에 대한 준비가 부족했던 아이러니.
+</Callout>
+
+INDEX 서브시스템의 전체 재시작에만 상당한 시간이 소요됨. PLACEMENT는 INDEX가 완전히 복구된 후에야 시작할 수 있었고. 결국 오전 9시 37분에 시작된 장애가 오후 1시 54분이 되어서야 완전 복구됨. 약 4시간 17분.
+
+---
+
+## 도미노 현상: S3가 죽으니 세상이 멈추다
+
+S3 하나가 죽었을 뿐인데, 왜 인터넷 절반이 영향을 받았을까? 답은 간단함. **모든 게 S3에 의존하고 있었기 때문**.
+
+### 영향 받은 주요 서비스들
+
+```
+S3 (죽음)
+├── 직접 의존
+│   ├── S3에 정적 파일 호스팅하는 모든 웹사이트
+│   ├── S3를 스토리지로 쓰는 모든 앱
+│   └── S3 기반 CDN을 사용하는 모든 서비스
+│
+├── 간접 의존 (다른 AWS 서비스 경유)
+│   ├── EC2 (새 인스턴스 시작 불가 — AMI가 S3에 저장)
+│   ├── Lambda (코드가 S3에 저장)
+│   ├── ECS (도커 이미지 레지스트리)
+│   ├── CloudFront (오리진이 S3)
+│   └── 기타 수십 개의 AWS 서비스
+│
+└── 2차 영향
+    ├── Slack (파일 업로드/다운로드 불가)
+    ├── Trello (보드 로딩 실패)
+    ├── Quora (사이트 다운)
+    ├── IFTTT (자동화 중단)
+    ├── Business Insider (뉴스 사이트 다운)
+    └── 수천 개의 웹사이트와 앱
+```
+
+<Callout type="error" title="AWS 서비스 상태 대시보드도 죽었다">
+이 사건의 가장 아이러니한 점. AWS의 서비스 상태 대시보드(AWS Service Health Dashboard)가... S3에 호스팅되어 있었음. 장애 상태를 확인하려는 사용자들이 대시보드에 접속하니 대시보드도 안 뜨는 상황. "장애 났는지 확인하려는데 그 확인 페이지도 장애"라는 코미디가 실시간으로 펼쳐짐. AWS 팀은 결국 트위터로 장애 상황을 업데이트했다.
+</Callout>
+
+### 금전적 영향
+
+S&P 500 기업들의 손실만 추정해봐도 어마어마했음:
+
+```
+장애 시간: 약 4시간
+영향 받은 서비스: 148,213개 이상의 웹사이트
+금전적 손실 추정: $150M ~ $160M (S&P 500 기업 기준)
+영향 받은 리전: US-EAST-1 (미국 동부)
+하지만 US-EAST-1에 전 세계 상당수의 서비스가 몰려 있었음
+```
+
+<Callout type="note" title="왜 US-EAST-1에 다 몰려 있었나">
+US-EAST-1은 AWS의 첫 번째 리전이자 기본(default) 리전임. 많은 서비스들이 별 생각 없이 기본 리전을 선택했고, AWS의 새로운 기능도 대부분 US-EAST-1에 먼저 출시됨. 결과적으로 트래픽이 집중되어 여기가 죽으면 영향이 극대화되는 구조.
+</Callout>
+
+---
+
+## 기술적 분석: 왜 이게 가능했나
+
+### 1. 입력 값 검증의 부재
+
+가장 근본적인 원인. 서버 제거 명령에 대한 세이프가드가 부족했음.
+
+```typescript
+// 당시 상황을 TypeScript로 재구성 (실제 AWS 내부 코드는 공개되지 않음)
+
+// 문제: 제거 대상 서버 수에 대한 검증이 없었음
+async function removeServers(subsystem: string, count: number) {
+  // 바로 실행 — 위험!
+  const servers = await getServers(subsystem);
+  const toRemove = servers.slice(0, count);
+
+  for (const server of toRemove) {
+    await decommission(server);
+  }
+
+  return { removed: toRemove.length };
+}
+
+// 개선: 세이프가드 추가
+async function removeServersSafe(subsystem: string, count: number) {
+  const servers = await getServers(subsystem);
+  const totalCount = servers.length;
+
+  // 가드 1: 전체의 일정 비율 이상은 한 번에 제거 불가
+  const MAX_REMOVAL_RATIO = 0.05; // 5%
+  if (count > totalCount * MAX_REMOVAL_RATIO) {
+    throw new Error(
+      `제거 대상(${count})이 전체(${totalCount})의 ` +
+      `${(MAX_REMOVAL_RATIO * 100)}%를 초과합니다. ` +
+      `최대 ${Math.floor(totalCount * MAX_REMOVAL_RATIO)}대까지 가능.`
+    );
+  }
+
+  // 가드 2: 핵심 서브시스템은 최소 인스턴스 수 보장
+  const CRITICAL_SUBSYSTEMS = ['INDEX', 'PLACEMENT', 'AUTH'];
+  if (CRITICAL_SUBSYSTEMS.includes(subsystem.toUpperCase())) {
+    const remaining = totalCount - count;
+    const MIN_REQUIRED = getMinRequired(subsystem);
+    if (remaining < MIN_REQUIRED) {
+      throw new Error(
+        `핵심 서브시스템 ${subsystem}의 최소 요구 서버 수는 ` +
+        `${MIN_REQUIRED}대입니다. 현재 ${totalCount}대에서 ` +
+        `${count}대를 제거하면 ${remaining}대만 남습니다.`
+      );
+    }
+  }
+
+  // 가드 3: 수동 확인 요구
+  const confirmation = await requestManualConfirmation({
+    action: 'REMOVE_SERVERS',
+    subsystem,
+    count,
+    totalAvailable: totalCount,
+    remainingAfter: totalCount - count,
+  });
+
+  if (!confirmation.approved) {
+    throw new Error('관리자 승인이 거부되었습니다.');
+  }
+
+  // 가드 4: 단계적 제거 (한 번에 다 빼지 않음)
+  const BATCH_SIZE = Math.min(count, 5);
+  for (let i = 0; i < count; i += BATCH_SIZE) {
+    const batch = servers.slice(i, Math.min(i + BATCH_SIZE, count));
+    await Promise.all(batch.map(s => decommission(s)));
+
+    // 각 배치 후 헬스 체크
+    const health = await checkSubsystemHealth(subsystem);
+    if (!health.ok) {
+      // 즉시 중단하고 롤백
+      await rollback(servers.slice(0, i + BATCH_SIZE));
+      throw new Error(`배치 ${i / BATCH_SIZE + 1} 후 헬스 체크 실패. 롤백 완료.`);
+    }
+  }
+}
+```
+
+### 2. 블래스트 레이디우스의 부재
+
+"블래스트 레이디우스(Blast Radius)"란 하나의 장애가 영향을 미치는 범위를 말함. S3는 이 범위를 제한하는 메커니즘이 부족했음.
+
+```typescript
+// 문제: 하나의 명령이 전체 리전에 영향
+interface ServerRemovalCommand {
+  subsystem: string;
+  count: number;
+  // region? 파티션? 제한 범위? → 없었음
+}
+
+// 개선: 블래스트 레이디우스 제한
+interface ServerRemovalCommandV2 {
+  subsystem: string;
+  count: number;
+  // 영향 범위를 명시적으로 제한
+  scope: {
+    region: string;
+    availabilityZone: string;
+    partition: string;  // 서브시스템 내부 파티션
+  };
+  // 최대 영향 범위 설정
+  maxBlastRadius: {
+    maxServersAffected: number;
+    maxPercentageAffected: number;
+    requiresApproval: boolean;
+    approvalLevel: 'team-lead' | 'principal' | 'vp';
+  };
+}
+```
+
+### 3. 재시작 프로세스의 미검증
+
+```typescript
+// 장애 복구에서 발견된 문제를 TypeScript로 표현
+
+interface DisasterRecoveryPlan {
+  subsystem: string;
+  lastTestedAt: Date;
+  estimatedRecoveryTime: number; // minutes
+  actualRecoveryTime?: number;   // minutes — 실제로는 테스트 안 해봐서 모름
+  dependencies: string[];
+}
+
+// 2017년 당시 S3의 DR 플랜 (가상)
+const s3RecoveryPlan: DisasterRecoveryPlan = {
+  subsystem: 'S3-INDEX',
+  lastTestedAt: new Date('2014-??-??'), // 마지막으로 전체 재시작을 테스트한 게 언제인지...
+  estimatedRecoveryTime: 30,  // 예상: 30분
+  actualRecoveryTime: 257,    // 실제: 4시간 17분
+  dependencies: [], // PLACEMENT가 INDEX에 의존한다는 걸 명시 안 함
+};
+
+// 교훈: DR 플랜은 정기적으로 테스트해야 함
+class DisasterRecoveryTester {
+  // 게임 데이(Game Day) — 정기적으로 장애 시나리오를 시뮬레이션
+  async runGameDay(plan: DisasterRecoveryPlan): Promise<GameDayResult> {
+    const startTime = Date.now();
+
+    // 1. 의존성 그래프 검증
+    const deps = await this.buildDependencyGraph(plan.subsystem);
+    console.log(`의존성: ${deps.join(' → ')}`);
+
+    // 2. 실제 재시작 시뮬레이션 (카나리 환경에서)
+    await this.simulateRestart(plan.subsystem, { environment: 'canary' });
+
+    // 3. 실제 소요 시간 측정
+    const actualTime = (Date.now() - startTime) / 1000 / 60;
+
+    // 4. 예상 시간과 비교
+    if (actualTime > plan.estimatedRecoveryTime * 1.5) {
+      console.warn(
+        `경고: 실제 복구 시간(${actualTime}분)이 ` +
+        `예상(${plan.estimatedRecoveryTime}분)의 1.5배를 초과!`
+      );
+    }
+
+    return {
+      subsystem: plan.subsystem,
+      estimatedTime: plan.estimatedRecoveryTime,
+      actualTime,
+      passed: actualTime <= plan.estimatedRecoveryTime * 2,
+      lastTested: new Date(),
+    };
+  }
+}
+```
+
+---
+
+## 장애 대시보드의 아이러니
+
+이 사건에서 가장 유명한 밈이 된 장면. AWS 서비스 상태 대시보드가 S3에 호스팅되어 있어서, S3가 죽으니 대시보드도 같이 죽은 거임.
+
+```
+사용자: "S3 왜 안 되지? 대시보드 확인해보자"
+        ↓
+AWS Service Health Dashboard
+        ↓
+        [S3에서 정적 파일 로딩]
+        ↓
+        S3 죽음 → 대시보드도 죽음
+        ↓
+사용자: "???"
+        ↓
+트위터 가서 확인: "네, S3 장애 맞습니다"
+```
+
+<Callout type="warning" title="모니터링 시스템의 독립성">
+이건 정말 기본 중의 기본인데 의외로 많이 놓치는 부분임. 모니터링/알림 시스템은 모니터링 대상과 독립적인 인프라에 있어야 한다. 서버가 죽었는데 알림을 보내는 시스템도 같은 서버에 있으면 알림이 안 오는 거임. "화재 경보기가 불에 타서 경보가 안 울렸다"와 같은 상황.
+</Callout>
+
+```typescript
+// 모니터링 시스템 독립성 체크리스트
+
+interface MonitoringInfraCheck {
+  // 모니터링 시스템이 모니터링 대상과 인프라를 공유하는가?
+  sharesInfraWithTarget: boolean;
+
+  // 공유하는 인프라 목록
+  sharedComponents: Array<{
+    component: string;
+    risk: 'critical' | 'high' | 'medium' | 'low';
+    mitigation?: string;
+  }>;
+}
+
+// 나쁜 예: AWS 2017
+const badExample: MonitoringInfraCheck = {
+  sharesInfraWithTarget: true,
+  sharedComponents: [
+    {
+      component: 'S3 (스토리지)',
+      risk: 'critical',
+      // mitigation 없음!
+    },
+    {
+      component: 'US-EAST-1 (리전)',
+      risk: 'critical',
+      // 같은 리전에 모든 게 있었음
+    },
+  ],
+};
+
+// 좋은 예: 독립적인 모니터링
+const goodExample: MonitoringInfraCheck = {
+  sharesInfraWithTarget: false,
+  sharedComponents: [
+    {
+      component: 'DNS',
+      risk: 'medium',
+      mitigation: '멀티 DNS 프로바이더 (Route53 + Cloudflare)',
+    },
+  ],
+};
+```
+
+이 사건 이후 AWS는 대시보드를 S3가 아닌 별도 인프라에서 호스팅하도록 변경했음. 그리고 대시보드에 녹색 체크만 떠 있을 때도 "체크 표시의 색이 불안해 보인다"는 밈이 한동안 돌았다.
+
+---
+
+## 이 사건이 바꾼 것들
+
+### AWS의 변경사항
+
+1. **서버 제거 명령에 세이프가드 추가**: 일정 비율 이상의 서버를 한 번에 제거할 수 없도록 제한
+2. **단계적 제거**: 대규모 변경은 점진적으로 수행하도록 강제
+3. **핵심 서브시스템 재시작 테스트**: 정기적인 Game Day 실시
+4. **서비스 상태 대시보드 분리**: S3에 의존하지 않는 별도 인프라로 이전
+
+### 업계 전반의 변화
+
+```typescript
+// 이 사건 이후 "의존성 독립성"에 대한 인식이 높아짐
+
+// 패턴: 중요 시스템의 의존성 검증
+function auditDependencies(service: string) {
+  const deps = getDependencies(service);
+
+  // 순환 의존성 체크
+  const circular = findCircularDeps(deps);
+  if (circular.length > 0) {
+    console.error('순환 의존성 발견:', circular);
+  }
+
+  // 단일 장애점 체크
+  const spofs = findSinglePointsOfFailure(deps);
+  if (spofs.length > 0) {
+    console.error('단일 장애점 발견:', spofs);
+    // 예: 모든 서비스가 US-EAST-1의 S3에 의존
+  }
+
+  // 독립성 체크: 모니터링은 대상과 분리되어 있는가?
+  const monitoringDeps = getDependencies('monitoring');
+  const overlap = findOverlap(deps, monitoringDeps);
+  if (overlap.length > 0) {
+    console.error('모니터링과 서비스가 인프라를 공유:', overlap);
+  }
+}
+```
+
+---
+
+## 교훈 정리
+
+<Callout type="success" title="AWS S3 장애에서 배우는 교훈">
+
+**1. 입력 검증은 아무리 강조해도 지나치지 않다**
+- 특히 인프라 변경 명령에는 반드시 상한선과 확인 프로세스가 필요
+- "실수로 서버 10만 대를 내린다"가 물리적으로 불가능하도록 시스템을 설계해야 함
+
+**2. 단일 장애점(SPOF)을 식별하고 제거하라**
+- "이 서비스 죽으면 뭐가 같이 죽는가?"를 정기적으로 검토
+- 모든 것이 하나의 서비스에 의존하고 있다면, 그건 시한폭탄
+
+**3. 장애 복구 프로세스를 테스트하라**
+- DR 플랜은 정기적으로 실행해봐야 함 (Game Day)
+- "재시작하면 되겠지"가 실제로 되는지는 해봐야 앎
+
+**4. 모니터링 시스템은 독립적이어야 한다**
+- 화재 경보기가 불에 타면 안 됨
+- 장애 대시보드가 장애 대상과 같은 인프라에 있으면 안 됨
+
+**5. 멀티 리전, 멀티 프로바이더를 고려하라**
+- 하나의 리전, 하나의 프로바이더에 올인하는 건 위험
+- 최소한 핵심 서비스는 다중화
+
+</Callout>
+
+---
+
+## 마치며
+
+이 사건은 클라우드 인프라의 안정성에 대한 근본적인 질문을 던졌음. "클라우드니까 안전하다"는 환상이 깨진 날이기도 하다. AWS조차 타이핑 실수 하나로 4시간 동안 죽을 수 있다면, 우리의 시스템은 얼마나 준비되어 있는가?
+
+가장 무서운 건, 이 사건의 근본 원인이 "타이핑 실수"라는 지극히 인간적인 실수였다는 점임. 기술적으로 아무리 완벽한 시스템을 만들어도, 그걸 운영하는 건 결국 사람이고, 사람은 실수를 한다. 그래서 시스템 설계의 핵심은 "실수를 방지하는 것"이 아니라 "실수해도 괜찮은 구조를 만드는 것"임.
+
+다음 편에서는 타이핑 실수보다 더 황당한 사건을 다룬다. npm에서 11줄짜리 패키지 하나가 삭제되자 전 세계 JavaScript 생태계가 멈춘 사건. 2016년 left-pad 사태를 보자.
