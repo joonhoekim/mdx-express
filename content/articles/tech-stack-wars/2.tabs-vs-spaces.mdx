@@ -1,0 +1,668 @@
+# Tabs vs Spaces — 들여쓰기에 목숨 거는 사람들
+
+*"보이지 않는 문자 때문에 보이는 곳에서 싸우는 사람들"*
+
+---
+
+개발자가 아닌 사람에게 "탭이냐 스페이스냐로 싸운다"고 하면
+100% 이런 반응이 돌아옴: "...뭐?"
+
+맞음. 우리는 **눈에 보이지도 않는 공백 문자** 때문에 싸우는 종족임.
+그리고 이 싸움은 생각보다 깊고, 생각보다 감정적이고, 생각보다 오래됨.
+
+<Callout type="info" title="실리콘밸리 시즌 3, 에피소드 6">
+HBO 드라마 "실리콘밸리"에서 리처드가 여자친구가 스페이스를 쓴다는 걸 알고
+관계를 끝내는 장면이 있음. 이게 과장이라고? 레딧에 가봐.
+진짜 이런 사람 있음. "면접에서 탭 쓴다고 해서 불합격시켰다"는 글이 올라옴.
+</Callout>
+
+## 기술적 차이: 뭐가 다른 건데
+
+### Tab 문자 (\\t)
+
+```
+ASCII 코드: 0x09 (9)
+실제 저장: 1바이트
+화면 표시: 에디터 설정에 따라 2칸, 4칸, 8칸 등 가변
+```
+
+### Space 문자 ( )
+
+```
+ASCII 코드: 0x20 (32)
+실제 저장: 1바이트 × 들여쓰기 수
+화면 표시: 항상 1칸 (고정)
+```
+
+실제로 파일에서 어떻게 보이는지:
+
+```
+# Tab으로 들여쓰기 (실제 바이트)
+function hello() {
+→   console.log("hello");    // → 는 탭 1개 (1바이트)
+→   →   return true;          // 탭 2개 (2바이트)
+}
+
+# Space로 들여쓰기 (실제 바이트)
+function hello() {
+····console.log("hello");    // · 는 스페이스 4개 (4바이트)
+········return true;          // 스페이스 8개 (8바이트)
+}
+```
+
+<Callout type="note" title="파일 크기 차이">
+"탭이 파일 크기를 줄여준다"는 탭 진영의 주장은 기술적으로 맞음.
+4-space 들여쓰기 대신 탭을 쓰면 이론적으로 들여쓰기 부분의 크기가 1/4로 줄어듦.
+
+하지만 2025년에 파일 크기 몇 바이트 차이를 신경 쓸 이유가 있냐는 게 스페이스 진영의 반박.
+node_modules 하나가 수백 MB인 세상에서 들여쓰기 바이트를 걱정하는 건 좀...
+</Callout>
+
+## 탭 진영의 주장
+
+### 1. 접근성 (Accessibility)
+
+이건 탭 진영의 가장 강력한 카드임.
+
+```
+// 탭을 쓰면 각자 원하는 너비로 볼 수 있음
+
+// A 개발자 (탭 = 2칸 설정)
+function process() {
+  if (condition) {
+    doSomething();
+  }
+}
+
+// B 개발자 (탭 = 4칸 설정)  — 같은 파일!
+function process() {
+    if (condition) {
+        doSomething();
+    }
+}
+
+// C 개발자 (탭 = 8칸 설정)  — 시력이 안 좋은 분
+function process() {
+        if (condition) {
+                doSomething();
+        }
+}
+```
+
+스페이스 4칸으로 고정하면, 시력이 좋지 않은 개발자는 들여쓰기를 구분하기 어려울 수 있음.
+탭은 각자 에디터에서 원하는 너비로 설정할 수 있어서 접근성 면에서 우월함.
+
+<Callout type="success" title="접근성 논쟁">
+이건 진지한 이야기인데, 실제로 시각 장애가 있는 개발자들 중에
+탭을 선호하는 경우가 많다고 함. 스크린 리더에서도 탭이 더 잘 처리됨.
+이 논쟁에서 탭 진영이 도덕적 우위를 점하는 유일한 지점임.
+</Callout>
+
+### 2. 의미론적 정확성 (Semantic Correctness)
+
+```
+탭의 의미: "여기서 한 단계 들여쓰기"
+스페이스의 의미: "여기에 빈 공간 하나"
+
+탭은 "들여쓰기"라는 의도를 정확히 표현함.
+스페이스 4개는 "빈칸 4개"라는 의미밖에 없음.
+
+이건 마치:
+탭: "여기서 우회전" (방향 지시)
+스페이스: "여기서 핸들을 시계 방향으로 90도 돌려" (구현 상세)
+```
+
+### 3. 파일 크기
+
+```typescript
+// 실험: 10,000줄 TypeScript 파일
+// 평균 들여쓰기 깊이 3
+
+// Spaces (4칸):
+// 들여쓰기 바이트: 10,000 × 3 × 4 = 120,000 bytes
+
+// Tabs:
+// 들여쓰기 바이트: 10,000 × 3 × 1 = 30,000 bytes
+
+// 차이: 90KB
+// ...gzip하면 거의 차이 없음 ㅋ
+```
+
+## 스페이스 진영의 주장
+
+### 1. 정렬 (Alignment)
+
+이건 스페이스 진영의 킬러 논증임.
+
+```typescript
+// 스페이스로 정렬하면 어디서든 똑같이 보임
+const config = {
+  host:     "localhost",
+  port:     3000,
+  database: "mydb",
+  username: "admin",
+};
+
+// 탭으로 이걸 하면?
+// A 개발자 (탭=4): 깔끔하게 정렬됨
+// B 개발자 (탭=2): 정렬 깨짐
+// C 개발자 (탭=8): 정렬 개박살남
+```
+
+```python
+# Python에서 함수 인자 정렬
+result = some_function(argument_one,
+                       argument_two,     # ← 이 정렬
+                       argument_three)   # ← 탭으로는 불가능
+
+# 탭으로 하면 이렇게 됨 (탭 너비에 따라 다 다르게 보임)
+result = some_function(argument_one,
+→   →   →   argument_two,     # ← 너비 깨짐
+→   →   →   argument_three)   # ← 망함
+```
+
+<Callout type="warning" title="정렬 vs 들여쓰기">
+"탭은 들여쓰기에, 스페이스는 정렬에 쓰면 되잖아"라는 절충안이 있긴 함.
+이론적으로는 맞는데, 실제로 이걸 팀 전체가 일관되게 지키는 건 거의 불가능.
+한 명이라도 어기면 끝장남. 그래서 현실적으로는 "그냥 스페이스 쓰자"가 됨.
+</Callout>
+
+### 2. 일관성 (Consistency)
+
+```
+// 스페이스: 어디서 열어도 똑같이 보임
+// - VS Code에서도
+// - GitHub에서도
+// - git diff에서도
+// - cat으로 출력해도
+// - 코드 리뷰 도구에서도
+// - 블로그에 올려도
+// - Stack Overflow에 붙여넣어도
+
+// 탭: 환경마다 다르게 보일 수 있음
+// - GitHub: 탭 = 8칸 (기본값)
+// - VS Code: 탭 = 4칸 (기본값)
+// - 터미널: 탭 = 8칸
+// - 코드 리뷰 도구: ???
+```
+
+### 3. 사실상의 표준
+
+```
+언어별 공식 스타일 가이드:
+
+Python (PEP 8):     스페이스 4칸 ✅
+JavaScript:         스페이스 2칸 ✅ (대부분의 스타일 가이드)
+TypeScript:         스페이스 2칸 ✅
+Ruby:               스페이스 2칸 ✅
+Java:               스페이스 4칸 ✅
+C#:                 스페이스 4칸 ✅
+Rust:               스페이스 4칸 ✅
+Kotlin:             스페이스 4칸 ✅
+
+Go:                 탭 ✅ (gofmt 강제)
+C (Linux kernel):   탭 ✅
+Makefile:           탭 ✅ (문법적으로 필수!)
+```
+
+<Callout type="error" title="Makefile의 함정">
+Makefile은 탭이 문법의 일부임. 스페이스를 쓰면 아예 동작을 안 함.
+이거 모르고 스페이스로 바꿨다가 빌드가 안 돼서 3시간 삽질한 경험,
+개발자라면 한 번쯤 있을 것임. ㅋㅋ
+
+```makefile
+# 이건 됨 (탭)
+build:
+→   gcc -o main main.c
+
+# 이건 안 됨 (스페이스)
+build:
+    gcc -o main main.c    # *** missing separator. Stop.
+```
+
+에러 메시지가 "missing separator"임. "탭 써라"라고 안 알려줌.
+이것 때문에 Makefile을 처음 만져보는 사람들이 매년 수천 명씩 고통받고 있음.
+</Callout>
+
+## 실리콘밸리 드라마 속 명장면
+
+2016년 HBO 드라마 "실리콘밸리" 시즌 3, 에피소드 6 "Bachmanity Insanity".
+
+```
+리처드: (코드를 보며) 잠깐... 너 스페이스 쓰는 거야?
+여자친구: 응, 왜?
+리처드: ...
+여자친구: 왜 그래?
+리처드: 아니... 그냥...
+(어색한 침묵)
+리처드: 나 탭 쓰거든.
+여자친구: 그래서?
+리처드: ...우리 안 맞는 것 같아.
+```
+
+이 장면이 웃긴 이유는 **진짜로 이런 사람이 있기 때문**임.
+개발자 커뮤니티에서 이 에피소드가 방영된 후 수백 개의 밈이 쏟아졌고,
+"tabs vs spaces"의 검색량이 300% 증가했음.
+
+## 연봉 차이 논란
+
+2017년 Stack Overflow 개발자 설문에서 충격적인 결과가 나옴:
+
+```
+스페이스를 사용하는 개발자의 평균 연봉: $59,140
+탭을 사용하는 개발자의 평균 연봉:     $43,750
+
+차이: $15,390 (약 26% 차이)
+```
+
+<Callout type="warning" title="상관관계 ≠ 인과관계">
+이걸 보고 "스페이스 쓰면 연봉이 오른다!"고 해석하면 안 됨.
+
+실제 이유는 아마 이런 것임:
+- 웹 개발 (JavaScript/Python) → 스페이스 → 실리콘밸리 → 높은 연봉
+- 시스템 프로그래밍 (C/C++) → 탭 → 상대적으로 낮은 연봉 지역
+- 시니어 개발자일수록 커뮤니티 관습을 따라 스페이스를 쓰는 경향
+
+하지만 탭 유저들은 이 통계를 보고 분노했고,
+스페이스 유저들은 이걸 증거로 내밀면서 도발함.
+"데이터가 말하고 있잖아~"
+</Callout>
+
+## 언어별 전쟁사
+
+### Python: 스페이스가 법임
+
+```python
+# PEP 8: "Spaces are the preferred indentation method."
+# Python 3에서는 탭과 스페이스 혼용하면 에러남
+
+# 이거 됨
+def hello():
+    print("hello")    # 스페이스 4칸
+
+# 이것도 됨 (하지만 PEP 8 위반)
+def hello():
+	print("hello")    # 탭
+
+# 이건 안 됨 (TabError!)
+def hello():
+    print("hello")    # 스페이스
+	print("world")    # 탭  ← TabError: inconsistent use of tabs and spaces
+```
+
+Python은 들여쓰기가 문법이라 이 문제가 특히 심각함.
+다른 언어는 들여쓰기가 틀려도 동작은 하지만, Python은 아예 에러를 뱉음.
+
+```python
+# Python에서 들여쓰기 실수하면 벌어지는 일
+def transfer_money(from_account, to_account, amount):
+    if from_account.balance >= amount:
+        from_account.balance -= amount
+    to_account.balance += amount    # 들여쓰기 하나 빠짐!
+    # 이거 if 바깥이라 잔액 체크 없이 항상 실행됨
+    # 축하함, 방금 무한 돈 버그를 만든 것임
+```
+
+### Go: 탭이 법임
+
+```go
+// Go는 gofmt가 강제로 탭을 사용함
+// 선택의 여지가 없음. 토론의 여지도 없음.
+// Rob Pike: "Gofmt's style is no one's favorite, yet gofmt is everyone's favorite."
+
+package main
+
+import "fmt"
+
+func main() {
+→   fmt.Println("Go는 탭임")       // gofmt가 강제
+→   if true {
+→   →   fmt.Println("논쟁 끝")    // gofmt가 강제
+→   }
+}
+
+// Go 커뮤니티에서는 탭 vs 스페이스 논쟁이 없음
+// 왜? gofmt가 다 정해주니까.
+// 이건 Go의 가장 현명한 설계 결정 중 하나임.
+```
+
+<Callout type="success" title="Go의 해결책">
+Go가 이 전쟁을 해결한 방법: "논쟁을 금지한다."
+gofmt라는 공식 포매터가 코드 스타일을 강제함.
+탭 vs 스페이스? gofmt가 정함. 괄호 위치? gofmt가 정함.
+줄바꿈? gofmt가 정함.
+
+"스타일에 대한 논쟁은 시간 낭비다. 기계가 정하면 된다."
+이것이 Go의 철학이고, 솔직히 이게 정답인 듯.
+</Callout>
+
+### JavaScript/TypeScript: 2칸 스페이스의 세계
+
+```typescript
+// JavaScript 생태계의 사실상 표준: 스페이스 2칸
+// Airbnb, Google, Standard 스타일 가이드 전부 2칸
+
+function fetchUserData(userId: string): Promise<User> {
+  const response = await fetch(`/api/users/${userId}`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch user: ${response.status}`);
+  }
+  const data = await response.json();
+  return {
+    id: data.id,
+    name: data.name,
+    email: data.email,
+  };
+}
+
+// 왜 2칸이냐?
+// JavaScript는 콜백 지옥 시절에 들여쓰기가 너무 깊어져서
+// 4칸이면 화면 오른쪽이 금방 잘렸음
+// 2칸이면 좀 더 버틸 수 있었음
+
+// 콜백 지옥 (4칸 들여쓰기)
+fs.readdir(source, function (err, files) {
+    if (err) {
+        console.log('Error finding files: ' + err);
+    } else {
+        files.forEach(function (filename, fileIndex) {
+            gm(source + filename).size(function (err, values) {
+                if (err) {
+                    console.log('Error identifying file size: ' + err);
+                } else {
+                    // 여기쯤 되면 화면 오른쪽 끝에 도달함
+                    // 4칸 × 4단계 = 16칸 들여쓰기
+                }
+            });
+        });
+    }
+});
+```
+
+### Rust: 4칸 스페이스 + rustfmt
+
+```rust
+// Rust도 Go처럼 공식 포매터 (rustfmt)가 있음
+// 기본값: 스페이스 4칸
+
+fn process_data(items: &[Item]) -> Result<Vec<ProcessedItem>, Error> {
+    items
+        .iter()
+        .filter(|item| item.is_valid())
+        .map(|item| {
+            let processed = transform(item)?;
+            validate(processed)?;
+            Ok(processed)
+        })
+        .collect()
+}
+
+// rustfmt.toml로 일부 커스터마이징 가능하지만
+// 대부분의 Rust 프로젝트는 기본값을 쓴다
+```
+
+## 전쟁의 종결자들
+
+### .editorconfig (2012)
+
+```ini
+# .editorconfig — 프로젝트 루트에 이 파일 하나면 됨
+# 모든 주요 에디터가 이 파일을 읽음
+
+root = true
+
+[*]
+indent_style = space
+indent_size = 2
+end_of_line = lf
+charset = utf-8
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+[*.md]
+trim_trailing_whitespace = false
+
+[*.go]
+indent_style = tab
+
+[Makefile]
+indent_style = tab
+
+[*.py]
+indent_size = 4
+
+[*.{yml,yaml}]
+indent_size = 2
+```
+
+.editorconfig가 해결한 것: "이 프로젝트에서는 이거 쓰세요"를 명시적으로 선언.
+에디터가 자동으로 설정을 맞춤. 논쟁의 여지가 사라짐.
+
+### ESLint (2013)
+
+```json
+{
+  "rules": {
+    "indent": ["error", 2],
+    "no-tabs": "error",
+    "no-mixed-spaces-and-tabs": "error"
+  }
+}
+```
+
+린터가 강제하면 선택의 여지가 없음. CI에서 빌드가 깨지니까.
+
+### Prettier (2017)
+
+```json
+{
+  "tabWidth": 2,
+  "useTabs": false,
+  "semi": true,
+  "singleQuote": true,
+  "trailingComma": "all",
+  "printWidth": 80
+}
+```
+
+<Callout type="success" title="Prettier — 전쟁의 종결자">
+Prettier의 슬로건: **"An opinionated code formatter"**
+
+"의견이 있는 포매터"라는 뜻인데, 번역하면 "내가 정하니까 니들은 따라와"임.
+Prettier가 등장한 후 JavaScript/TypeScript 생태계에서 스타일 논쟁이 90% 줄었음.
+
+코드 저장만 하면 Prettier가 자동으로 포맷팅해줌.
+탭이든 스페이스든 Prettier 설정에 따라 강제 변환됨.
+논쟁할 에너지가 사라짐. 아름다운 해결책.
+</Callout>
+
+```typescript
+// Prettier 적용 전
+const    user ={name:"John",age:30,
+  email:   "john@example.com",
+    address:
+{city:"Seoul",     country: "Korea"}}
+
+// Prettier 적용 후 (자동)
+const user = {
+  name: "John",
+  age: 30,
+  email: "john@example.com",
+  address: {
+    city: "Seoul",
+    country: "Korea",
+  },
+};
+
+// 탭이든 스페이스든, 세미콜론이든 아니든
+// Prettier가 다 정리해줌.
+// 개발자는 로직에만 집중하면 됨.
+```
+
+## 실전 트러블슈팅
+
+### Git에서 공백 문자 때문에 diff가 더러워지는 문제
+
+```bash
+# 탭을 스페이스로 바꾸거나 그 반대를 했을 때
+# git diff가 모든 줄이 변경된 것으로 나옴
+
+# 공백 변경 무시하고 diff 보기
+git diff -w
+git diff --ignore-all-space
+
+# 또는 이렇게
+git diff --ignore-space-change
+
+# git blame에서 공백 변경 무시
+git blame -w
+
+# .gitattributes로 영구 설정
+echo "*.js diff=space_to_tab" >> .gitattributes
+```
+
+### 탭/스페이스 혼용 감지
+
+```bash
+# 파일에서 탭과 스페이스가 섞여 있는지 확인
+grep -P "^\t+ " file.py    # 탭 뒤에 스페이스
+grep -P "^ +\t" file.py    # 스페이스 뒤에 탭
+
+# VS Code에서: 설정 → "Render Whitespace" → "all"
+# 그러면 탭은 →, 스페이스는 · 로 보임
+```
+
+### 대규모 변환
+
+```bash
+# 프로젝트 전체 탭 → 스페이스 변환 (위험! 꼭 커밋 후에)
+find . -name "*.ts" -exec sed -i 's/\t/    /g' {} +
+
+# 더 안전한 방법: Prettier 사용
+npx prettier --write "**/*.{ts,tsx,js,jsx}"
+
+# 또는 VS Code에서
+# Ctrl+Shift+P → "Convert Indentation to Spaces"
+```
+
+<Callout type="error" title="변환 시 주의사항">
+탭 → 스페이스 변환을 하면 git blame이 다 날아감.
+모든 줄의 마지막 수정자가 "변환한 사람"이 되어버림.
+
+해결 방법:
+```bash
+# .git-blame-ignore-revs 파일에 변환 커밋 해시 추가
+echo "abc123def456" >> .git-blame-ignore-revs
+
+# git blame할 때 이 파일 사용
+git blame --ignore-revs-file .git-blame-ignore-revs file.ts
+
+# 영구 설정
+git config blame.ignoreRevsFile .git-blame-ignore-revs
+```
+</Callout>
+
+## 유명한 밈과 농담들
+
+### 탭 유저의 주장
+
+```
+탭 유저: "탭은 1바이트고 스페이스 4개는 4바이트야.
+         탭이 4배 효율적이야."
+
+스페이스 유저: "2025년에 바이트 수를 걱정하는 거야?
+              너네 node_modules가 몇 GB인데?"
+
+탭 유저: "..."
+
+스페이스 유저: "..."
+
+둘 다: "...그건 다른 문제잖아."
+```
+
+### 진정한 괴물
+
+```
+// 들여쓰기를 3칸 스페이스로 하는 사람
+if (condition) {
+   doSomething();      // 스페이스 3칸
+   if (nested) {
+      doMore();        // 스페이스 6칸
+   }
+}
+
+// 이 사람은 탭 진영과 스페이스 진영 양쪽에서 모두 배척당함
+// 3칸은 누구의 편도 아님
+// 진정한 혼돈의 카오스
+```
+
+### 세미콜론 전쟁 (보너스)
+
+```javascript
+// 세미콜론 있음 (전통파)
+const name = "John";
+const age = 30;
+console.log(name);
+
+// 세미콜론 없음 (모던파)
+const name = "John"
+const age = 30
+console.log(name)
+
+// ASI (Automatic Semicolon Insertion)의 함정
+const a = 1
+const b = 2
+const c = a + b
+[1, 2, 3].forEach(console.log)
+// ↑ 이거 에러남. JavaScript가 c = a + b[1, 2, 3] 으로 해석함
+// 세미콜론이 없으면 이런 엣지 케이스가 존재함
+```
+
+<Callout type="note" title="결론을 말하자면">
+세미콜론 전쟁도 Prettier가 끝냈음.
+Prettier가 세미콜론을 넣든 빼든, 설정하면 자동으로 처리됨.
+도구가 결정하면 인간은 싸울 필요가 없어짐.
+</Callout>
+
+## 최종 결론
+
+### 2025년 현재의 실무 답변
+
+```
+1. 프로젝트에 .editorconfig가 있으면 → 그거 따라가
+2. 팀 규칙이 있으면 → 그거 따라가
+3. 언어 공식 스타일 가이드가 있으면 → 그거 따라가
+4. 아무것도 없으면 → Prettier/포매터 설정하고 따라가
+5. 개인 프로젝트라면 → 니 맘대로 해
+
+어떤 경우에도 "내 취향"으로 팀 전체를 바꾸려 하지 마.
+```
+
+### 역사의 교훈
+
+```
+1990s: "탭이냐 스페이스냐" (수동 전쟁)
+2000s: "IDE가 알아서 해주겠지" (도구에 의존)
+2010s: ".editorconfig + 린터" (규칙 명시)
+2017~: "Prettier가 다 해줌" (강제 평화)
+2020s: "아직도 이 주제로 싸우는 사람 있음?" (전쟁 종결)
+```
+
+<Callout type="success" title="이 전쟁에서 배울 점">
+기술적 논쟁의 가장 좋은 해결책은 **도구가 강제하는 것**임.
+
+인간이 스타일을 정하면 → 의견 충돌 → 감정 소모 → 비생산적 논쟁
+도구가 스타일을 정하면 → 논쟁 불가 → 에너지 절약 → 코드에 집중
+
+Go의 gofmt, Rust의 rustfmt, JS의 Prettier.
+이들이 증명한 것: 어떤 스타일이든 일관되기만 하면 괜찮다.
+최악은 "스타일이 없는 것"이 아니라 "스타일이 섞여 있는 것"임.
+</Callout>
+
+---
+
+*눈에 보이지 않는 문자로 싸우는 전쟁은 이렇게 끝남.*
+*도구가 인간의 자존심을 대신 접어줬음.*
+*다음 전쟁은 좀 더 실질적인 주제임.*
+*API를 어떻게 설계할 것인가. REST냐 GraphQL이냐.*
+*이건 진짜 실무에서 매일 부딪히는 문제임.*

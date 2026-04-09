@@ -1,0 +1,925 @@
+# Docker vs 베어메탈 — 컨테이너 혁명과 저항군
+
+*"내 컴퓨터에서는 되는데요" — Docker가 해결하려 했고, 새로운 문제를 만든 바로 그 말*
+
+---
+
+2013년 이전의 배포:
+1. FTP로 파일 올림
+2. SSH로 서버 접속
+3. `npm install` 실행
+4. `pm2 restart all` 실행
+5. 기도함
+
+2013년 이후의 배포:
+1. Dockerfile 작성
+2. `docker build`
+3. `docker push`
+4. Kubernetes에 배포
+5. Pod가 CrashLoopBackOff
+6. 6시간 디버깅
+7. 기도함
+
+<Callout type="warning" title="이 글의 범위">
+"Docker vs 베어메탈"이라고 했지만, 실제로는 "컨테이너화 vs 전통적 배포"의 전쟁임.
+Docker, Kubernetes, CI/CD 파이프라인, 그리고 이 모든 것의 복잡성에 대해 다룸.
+</Callout>
+
+## Docker 이전의 세계
+
+### 1단계: FTP 시대 (1990s~2000s)
+
+```
+배포 프로세스:
+1. FileZilla 열기
+2. sftp://production-server.com 접속
+3. /var/www/html 폴더로 이동
+4. 로컬 파일을 드래그 앤 드롭
+5. "덮어쓰시겠습니까?" → 예
+6. 브라우저에서 확인
+7. "아 CSS 파일 안 올렸네" → 다시 올림
+8. "아 이미지도 빠졌네" → 다시 올림
+
+롤백 방법:
+"어... 백업해뒀어? 안 해뒀어? ㅋ"
+```
+
+### 2단계: SSH + 스크립트 시대 (2000s~2010s)
+
+```bash
+#!/bin/bash
+# deploy.sh — 2010년대의 배포 스크립트
+
+SERVER="deploy@production-server.com"
+APP_DIR="/home/deploy/myapp"
+
+echo "=== 배포 시작 ==="
+
+# 1. 소스 코드 업데이트
+ssh $SERVER "cd $APP_DIR && git pull origin main"
+
+# 2. 의존성 설치
+ssh $SERVER "cd $APP_DIR && npm install --production"
+
+# 3. 빌드
+ssh $SERVER "cd $APP_DIR && npm run build"
+
+# 4. 서버 재시작
+ssh $SERVER "cd $APP_DIR && pm2 restart all"
+
+# 5. 확인
+ssh $SERVER "cd $APP_DIR && pm2 status"
+
+echo "=== 배포 완료 ==="
+
+# 이 스크립트의 문제점:
+# - 서버에서 git pull이 실패하면?
+# - npm install 중에 메모리 부족하면?
+# - 빌드 중에 서버가 죽으면?
+# - 롤백하려면 어떡하지?
+# - 서버가 2대면? 10대면? 100대면?
+```
+
+### 3단계: "서버를 애완동물처럼 키우던 시대"
+
+```
+서버 이름: webserver-01 (별명: "도비")
+운영체제: Ubuntu 14.04 (업그레이드 무서워서 안 함)
+Node.js: v8.11.3 (업그레이드 하면 뭔가 깨질까봐 안 함)
+npm: v5.6.0 (위와 동일)
+PM2: v3.0.0
+nginx: 무슨 버전인지 기억 안 남
+Redis: 설치한 사람이 퇴사함. 설정 어디 있는지 모름
+MySQL: root 비밀번호를 아는 사람이 3명뿐
+
+서버 관리 규칙:
+1. "도비"에는 절대 sudo apt-get upgrade 하지 마세요
+2. /etc/nginx/nginx.conf를 수정하기 전에 반드시 백업하세요
+3. PM2가 죽으면 /home/deploy/restart.sh를 실행하세요
+4. 금요일에는 배포하지 마세요
+5. 김대리가 퇴사하기 전에 서버 비밀번호 받으세요
+```
+
+<Callout type="error" title="서버 = 애완동물 시대의 공포">
+서버를 "애완동물"처럼 관리하면 벌어지는 일:
+- 서버마다 설정이 다름 (같은 앱인데 서버 A와 서버 B가 다르게 동작)
+- "이 서버에만 이 패키지가 설치되어 있음" (누가 왜 설치했는지 모름)
+- 서버 재구축이 불가능 (문서화가 안 되어 있으니까)
+- 담당자가 퇴사하면 블랙박스가 됨
+
+Docker는 이 문제를 해결하기 위해 태어난 것임.
+서버를 "애완동물"이 아니라 "가축"으로 관리하자.
+이름을 붙이지 말고, 문제가 생기면 죽이고 새로 만들자.
+</Callout>
+
+## Docker의 등장 (2013)
+
+### Docker가 해결한 문제
+
+```dockerfile
+# Dockerfile — "이 앱을 실행하는 데 필요한 모든 것"을 코드로 정의
+
+FROM node:20-alpine
+
+# 시스템 의존성
+RUN apk add --no-cache python3 make g++
+
+# 작업 디렉토리
+WORKDIR /app
+
+# 의존성 설치 (레이어 캐싱 활용)
+COPY package.json package-lock.json ./
+RUN npm ci --production
+
+# 소스 코드 복사
+COPY . .
+
+# 빌드
+RUN npm run build
+
+# 포트 노출
+EXPOSE 3000
+
+# 실행
+CMD ["node", "dist/server.js"]
+```
+
+```bash
+# 이 한 줄이 모든 걸 바꿈
+docker build -t myapp:v1.0.0 .
+
+# 이미지를 만들면:
+# - Node.js 20이 포함됨 (정확한 버전)
+# - 모든 시스템 의존성이 포함됨
+# - npm 패키지가 포함됨 (정확한 버전)
+# - 빌드 결과물이 포함됨
+# - 어디서 실행하든 동일하게 동작함
+
+# 로컬에서:
+docker run -p 3000:3000 myapp:v1.0.0
+
+# 프로덕션에서:
+docker run -p 3000:3000 myapp:v1.0.0
+
+# CI에서:
+docker run myapp:v1.0.0 npm test
+
+# "내 컴퓨터에서는 되는데요" → "그 컴퓨터랑 프로덕션이 같은 이미지잖아요"
+```
+
+<Callout type="success" title="Docker의 핵심 가치">
+**"Build once, run anywhere"**
+
+개발 환경 = 테스트 환경 = 프로덕션 환경
+이 등식이 성립한다는 게 Docker의 가장 큰 가치임.
+
+환경 차이로 인한 버그가 구조적으로 제거됨.
+"왜 프로덕션에서만 안 되지?"가 사라짐 (이론상).
+</Callout>
+
+### docker-compose: 멀티 컨테이너 오케스트레이션
+
+```yaml
+# docker-compose.yml — 개발 환경 전체를 코드로 정의
+version: '3.8'
+
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=postgresql://user:pass@db:5432/mydb
+      - REDIS_URL=redis://redis:6379
+      - NODE_ENV=development
+    volumes:
+      - .:/app
+      - /app/node_modules
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    command: npm run dev
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: pass
+      POSTGRES_DB: mydb
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d mydb"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  mailhog:
+    image: mailhog/mailhog
+    ports:
+      - "1025:1025"  # SMTP
+      - "8025:8025"  # Web UI
+
+volumes:
+  postgres_data:
+  redis_data:
+```
+
+```bash
+# 한 줄로 전체 개발 환경 실행
+docker compose up -d
+
+# 새 팀원 온보딩:
+# 1. git clone
+# 2. docker compose up
+# 끝.
+
+# 전에는:
+# 1. git clone
+# 2. Node.js 설치 (버전 맞추기)
+# 3. PostgreSQL 설치 + 설정
+# 4. Redis 설치
+# 5. 환경 변수 설정
+# 6. DB 마이그레이션
+# 7. "안 되는데요?" "M1 맥이세요?" "아 그러면..."
+# 8. 3시간 후 개발 시작 가능
+```
+
+## Docker가 만든 새로운 문제들
+
+### 1. 이미지 크기 문제
+
+```dockerfile
+# ❌ 초보자의 Dockerfile
+FROM node:20
+WORKDIR /app
+COPY . .
+RUN npm install
+RUN npm run build
+CMD ["node", "dist/server.js"]
+
+# 결과 이미지 크기: 1.2GB ㅋㅋ
+# Node.js 전체 + 개발 의존성 + 빌드 도구 + 소스 코드 전부 포함
+```
+
+```dockerfile
+# ✅ 프로덕션 Dockerfile (멀티스테이지 빌드)
+# Stage 1: 빌드
+FROM node:20-alpine AS builder
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY . .
+RUN npm run build
+
+# Stage 2: 실행 (빌드 도구 없이)
+FROM node:20-alpine AS runner
+WORKDIR /app
+
+# 프로덕션 의존성만 설치
+COPY package.json package-lock.json ./
+RUN npm ci --production && npm cache clean --force
+
+# 빌드 결과물만 복사
+COPY --from=builder /app/dist ./dist
+
+# 비-root 유저로 실행
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nextjs -u 1001
+USER nextjs
+
+EXPOSE 3000
+CMD ["node", "dist/server.js"]
+
+# 결과 이미지 크기: ~180MB (7배 감소!)
+```
+
+<Callout type="warning" title="Docker 이미지 최적화 팁">
+```dockerfile
+# 레이어 캐싱을 활용한 최적화
+
+# ❌ 이렇게 하면 소스 코드 바꿀 때마다 npm install이 다시 실행됨
+COPY . .
+RUN npm install
+
+# ✅ package.json을 먼저 복사하면 의존성이 바뀌지 않는 한 캐시 사용
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY . .
+
+# .dockerignore도 필수!
+# node_modules, .git, .env 등 불필요한 파일 제외
+```
+</Callout>
+
+### 2. 네트워킹 복잡성
+
+```yaml
+# 컨테이너 간 통신이 생각보다 복잡함
+
+# 문제 1: localhost의 의미가 바뀜
+# 호스트에서: localhost:5432 → PostgreSQL
+# 컨테이너에서: localhost:5432 → 컨테이너 자기 자신!
+# 컨테이너에서 DB 접근: db:5432 (서비스 이름으로)
+
+# 문제 2: 포트 충돌
+# 팀원 A: docker compose up → 포트 3000 사용
+# 팀원 B: 다른 프로젝트 docker compose up → 포트 3000 충돌!
+# "Error: port 3000 is already in use"
+
+# 문제 3: DNS 해석
+# 컨테이너 이름으로 통신하는 건 같은 네트워크 안에서만 됨
+# docker compose가 자동으로 네트워크를 만들어주지만
+# 다른 docker compose 프로젝트 간 통신은 별도 설정 필요
+```
+
+### 3. 볼륨과 퍼포먼스
+
+```yaml
+# macOS/Windows에서 Docker 볼륨 마운트 성능 문제
+
+# 개발 환경에서 소스 코드를 볼륨 마운트하면:
+volumes:
+  - .:/app  # 호스트 파일 시스템 → 컨테이너
+
+# macOS에서 이게 느린 이유:
+# Docker Desktop이 Linux VM 위에서 돌아가고
+# 호스트 ↔ VM 간 파일 시스템 동기화가 필요함
+# 특히 node_modules (수만 개의 작은 파일) 마운트하면 극도로 느림
+
+# 해결 방법:
+volumes:
+  - .:/app
+  - /app/node_modules  # node_modules는 컨테이너 내부에서만 관리
+  # 호스트의 node_modules를 마운트하지 않음
+
+# 또는 macOS에서 Docker 대신 Orbstack 사용 (훨씬 빠름)
+```
+
+### 4. 디버깅의 어려움
+
+```bash
+# 컨테이너 안에서 뭐가 일어나고 있는지 확인하기
+
+# 로그 보기
+docker compose logs -f app
+
+# 컨테이너 안에 들어가기
+docker compose exec app sh
+
+# 컨테이너 상태 확인
+docker compose ps
+
+# 리소스 사용량
+docker stats
+
+# "왜 안 되지?" 디버깅 과정:
+# 1. 로그를 봄 → "로그가 없네?"
+# 2. exec으로 들어감 → "alpine이라 bash도 없고 curl도 없네?"
+# 3. apt-get install curl → "alpine에서는 apk인데?"
+# 4. apk add curl → "네트워크가 안 되네?"
+# 5. DNS 확인 → "DNS도 컨테이너 네트워크 안에서 다르네?"
+# 6. 1시간 후: "아 환경 변수 오타였네..."
+```
+
+<Callout type="error" title="Docker 디버깅 지옥">
+Docker에서 가장 흔한 문제들:
+1. 환경 변수 오타/누락 (50%)
+2. 포트 매핑 오류 (20%)
+3. 볼륨 마운트 문제 (15%)
+4. 네트워크 설정 오류 (10%)
+5. 이미지/빌드 캐시 문제 (5%)
+
+이 중 90%는 "설정 오류"임.
+Docker 자체의 문제가 아니라, 설정할 게 너무 많아서 실수가 발생하는 것.
+</Callout>
+
+## Kubernetes: 복잡성의 극치
+
+Docker 하나면 충분할 줄 알았는데, 현실은 달랐음.
+
+```
+"서버 1대에서 Docker로 잘 돌아가는데,
+ 서버가 100대면 어떡하지?"
+
+→ 컨테이너 오케스트레이션의 필요성
+→ Kubernetes (K8s) 등장 (2014, Google)
+```
+
+### Kubernetes의 복잡성
+
+```yaml
+# 하나의 웹앱을 K8s에 배포하는 데 필요한 YAML
+# (최소한의 프로덕션 설정)
+
+# 1. Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: myapp
+  labels:
+    app: myapp
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: myapp
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: myapp
+    spec:
+      containers:
+        - name: myapp
+          image: myapp:v1.0.0
+          ports:
+            - containerPort: 3000
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: myapp-secrets
+                  key: database-url
+            - name: NODE_ENV
+              value: "production"
+---
+# 2. Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: myapp-service
+spec:
+  selector:
+    app: myapp
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 3000
+  type: ClusterIP
+---
+# 3. Ingress
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: myapp-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  tls:
+    - hosts:
+        - myapp.example.com
+      secretName: myapp-tls
+  rules:
+    - host: myapp.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: myapp-service
+                port:
+                  number: 80
+---
+# 4. Secret
+apiVersion: v1
+kind: Secret
+metadata:
+  name: myapp-secrets
+type: Opaque
+data:
+  database-url: cG9zdGdyZXNxbDovL3VzZXI6cGFzc0BkYjo1NDMyL215ZGI=
+---
+# 5. HorizontalPodAutoscaler
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: myapp-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: myapp
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+```
+
+```
+# 위의 YAML이 120줄임.
+# 웹앱 하나 배포하는 데 YAML 120줄.
+# 거기에 ConfigMap, PersistentVolume, NetworkPolicy,
+# ServiceAccount, RBAC... 추가하면 300줄 넘음.
+
+# "YAML 엔지니어"라는 자조적 표현이 괜히 나온 게 아님.
+```
+
+<Callout type="warning" title="Kubernetes의 현실">
+K8s가 필요한 규모:
+- 수십 개 이상의 마이크로서비스
+- 수백~수천 대의 서버
+- 자동 스케일링이 필수
+- 다양한 배포 전략 (카나리, 블루-그린)
+- 전담 DevOps/SRE 팀이 있을 때
+
+K8s가 필요 없는 규모 (대부분의 프로젝트):
+- 서비스 1~5개
+- 서버 1~10대
+- 팀원 10명 이하
+- DevOps 전담자 없음
+
+"YAML 120줄 쓰는 대신 Railway에 git push 한 번이면 되는데?"
+이게 현실적인 판단임.
+</Callout>
+
+## 2025년의 배포 옵션들
+
+### PaaS: "서버 관리 안 하고 싶어요"
+
+```bash
+# Vercel — Next.js 최적화
+git push origin main
+# 끝. 자동 빌드, 자동 배포, 자동 SSL, 자동 CDN.
+# PR 올리면 프리뷰 URL까지 자동 생성.
+
+# Railway — 풀스택 PaaS
+railway up
+# Docker 지원, DB 지원, 자동 배포.
+# Heroku의 현대적 대체재.
+
+# Fly.io — 엣지 배포
+fly deploy
+# Docker 이미지를 전 세계 엣지에 배포.
+# 한국 리전도 있음.
+
+# Render — Heroku 대안
+# git push하면 자동 배포.
+# 무료 티어 있음.
+```
+
+### VPS: "서버 관리 좀 할 줄 아는데"
+
+```bash
+# 전통적인 VPS (Vultr, DigitalOcean, AWS EC2)
+# + Docker + docker compose
+
+# 1. 서버 설정
+ssh root@my-server
+apt update && apt install docker.io docker-compose-v2
+
+# 2. 프로젝트 배포
+git clone https://github.com/me/myapp.git
+cd myapp
+docker compose -f docker-compose.prod.yml up -d
+
+# 3. 리버스 프록시 (Caddy — 자동 SSL!)
+# Caddyfile
+myapp.example.com {
+    reverse_proxy localhost:3000
+}
+
+# 이게 전부임. nginx 설정 + certbot + 크론잡 다 필요 없음.
+# Caddy가 자동으로 SSL 인증서 발급 + 갱신해줌.
+```
+
+### Coolify: 셀프 호스트 PaaS
+
+```bash
+# Coolify — Vercel을 직접 운영할 수 있게 해주는 오픈소스
+# "내 서버에 Vercel을 만든다"
+
+# 설치 (VPS에)
+curl -fsSL https://cdn.coollabs.io/coolify/install.sh | bash
+
+# 그 다음은 웹 UI에서:
+# 1. GitHub 연결
+# 2. 프로젝트 선택
+# 3. 환경 변수 설정
+# 4. 배포!
+
+# 특징:
+# - Vercel/Netlify 같은 UI
+# - Docker 기반 배포
+# - 자동 SSL (Let's Encrypt)
+# - DB 원클릭 배포 (PostgreSQL, Redis, MongoDB...)
+# - 비용: VPS 비용만 (Vercel Pro $20/월 vs VPS $5~10/월)
+```
+
+<Callout type="success" title="2025년 실무 추천">
+**1인~소규모 팀 (서비스 1~3개):**
+Vercel/Netlify (프론트) + Railway/Render (백엔드)
+→ 서버 관리 0, 배포 자동화 100%
+
+**중규모 팀 (서비스 3~10개), 비용 절감:**
+VPS + Docker Compose + Coolify
+→ 서버 관리 약간, 비용 80% 절감
+
+**대규모 조직 (서비스 10개+):**
+Kubernetes (EKS/GKE/AKS) + ArgoCD + Helm
+→ 전담 팀 필요, 하지만 스케일링 무한
+
+**개인 프로젝트:**
+Vercel 무료 티어 또는 Fly.io 무료 티어
+→ 0원으로 프로덕션 배포 가능
+</Callout>
+
+## 실전 docker-compose: 풀스택 배포
+
+```yaml
+# docker-compose.prod.yml — 실제 프로덕션에서 쓸 수 있는 구성
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runner
+    restart: always
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://user:${DB_PASSWORD}@db:5432/mydb
+      - REDIS_URL=redis://redis:6379
+    ports:
+      - "3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  db:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: mydb
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+
+  redis:
+    image: redis:7-alpine
+    restart: always
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  caddy:
+    image: caddy:2-alpine
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+
+volumes:
+  postgres_data:
+  redis_data:
+  caddy_data:
+  caddy_config:
+```
+
+```
+# Caddyfile — 자동 SSL, 리버스 프록시
+myapp.example.com {
+    reverse_proxy app:3000
+    encode gzip
+
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+    }
+}
+```
+
+```bash
+# 배포 (서버에서)
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml up -d
+
+# 업데이트
+docker compose -f docker-compose.prod.yml build app
+docker compose -f docker-compose.prod.yml up -d app
+
+# 롤백 (이전 이미지로)
+docker compose -f docker-compose.prod.yml up -d --no-deps app
+
+# 로그 확인
+docker compose -f docker-compose.prod.yml logs -f app
+
+# 상태 확인
+docker compose -f docker-compose.prod.yml ps
+```
+
+## 베어메탈의 반격
+
+### "Docker 없이도 잘 되는데?"
+
+```bash
+# systemd + 직접 설치 방식 — 2025년에도 유효함
+
+# 1. Node.js 설치 (nvm으로)
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.0/install.sh | bash
+nvm install 20
+nvm use 20
+
+# 2. 앱 배포
+git clone https://github.com/me/myapp.git /opt/myapp
+cd /opt/myapp
+npm ci --production
+npm run build
+
+# 3. systemd 서비스 등록
+cat > /etc/systemd/system/myapp.service << EOF
+[Unit]
+Description=My App
+After=network.target
+
+[Service]
+Type=simple
+User=deploy
+WorkingDirectory=/opt/myapp
+ExecStart=/home/deploy/.nvm/versions/node/v20/bin/node dist/server.js
+Restart=on-failure
+RestartSec=5
+Environment=NODE_ENV=production
+Environment=PORT=3000
+EnvironmentFile=/opt/myapp/.env
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# 4. 서비스 시작
+systemctl daemon-reload
+systemctl enable myapp
+systemctl start myapp
+
+# 장점:
+# - Docker 오버헤드 없음
+# - 디버깅 쉬움 (journalctl -u myapp -f)
+# - 리소스 효율적 (컨테이너 레이어 없음)
+# - 단순함
+
+# 단점:
+# - 환경 재현 어려움
+# - 서버마다 설정이 달라질 수 있음
+# - 의존성 관리가 수동
+```
+
+<Callout type="note" title="베어메탈이 합리적인 경우">
+솔직히 말하면, 서비스 1~2개에 서버 1대인 프로젝트에서
+Docker를 쓰는 건 오버엔지니어링일 수 있음.
+
+systemd + Caddy + 직접 설치로도 충분히 안정적으로 운영 가능함.
+Docker의 가치는 **"재현 가능한 환경"**과 **"스케일링"**인데,
+서버 1대에서 돌리는 사이드 프로젝트에 그게 필요한가?
+
+"기술적으로 맞는 선택"과 "현실적으로 맞는 선택"은 다를 수 있음.
+</Callout>
+
+## 결론: 복잡성 예산
+
+소프트웨어 프로젝트에는 **"복잡성 예산"**이라는 개념이 있음.
+프로젝트가 감당할 수 있는 복잡성의 총량이 정해져 있고,
+한 곳에서 복잡성을 쓰면 다른 곳에서 줄여야 함.
+
+```
+복잡성 예산 배분 예시:
+
+프로젝트 A (스타트업, 3명):
+├── 비즈니스 로직:  █████████░ 60%
+├── 프론트엔드:     ████░░░░░░ 25%
+├── 인프라:         ██░░░░░░░░ 10%  ← Vercel + Railway
+└── 기타:           █░░░░░░░░░ 5%
+
+프로젝트 B (중견기업, 30명):
+├── 비즈니스 로직:  ██████░░░░ 40%
+├── 프론트엔드:     ████░░░░░░ 20%
+├── 인프라:         █████░░░░░ 25%  ← Docker + K8s
+└── 기타:           ███░░░░░░░ 15%
+
+프로젝트 C (빅테크, 300명):
+├── 비즈니스 로직:  ████░░░░░░ 30%
+├── 프론트엔드:     ███░░░░░░░ 15%
+├── 인프라:         ███████░░░ 35%  ← K8s + 서비스 메시 + 옵저버빌리티
+└── 기타:           ███░░░░░░░ 20%
+```
+
+<Callout type="success" title="최종 결론">
+Docker vs 베어메탈 전쟁의 답:
+
+**"복잡성을 어디에 투자할 것인가?"**
+
+- Docker는 **환경 재현성 문제를 해결**하지만, **운영 복잡성을 추가**함
+- K8s는 **스케일링 문제를 해결**하지만, **학습/관리 비용이 막대**함
+- PaaS는 **인프라 복잡성을 제거**하지만, **비용과 유연성을 교환**함
+- 베어메탈은 **단순**하지만, **환경 재현이 어렵고 스케일링이 수동**임
+
+규모에 맞는 도구를 선택하라.
+서버 1대에 K8s를 올리는 건 대포로 모기 잡는 것이고,
+서버 100대를 FTP로 관리하는 건 총 없이 전쟁하는 것임.
+</Callout>
+
+### 역사의 교훈
+
+```
+2000s: FTP → SSH → 스크립트 (수동의 시대)
+2013:  Docker 등장 (컨테이너 혁명)
+2014:  Kubernetes 등장 (오케스트레이션 혁명)
+2018:  K8s가 업계 표준이 됨 (YAML 엔지니어의 탄생)
+2020s: "K8s가 너무 복잡하다" (반발)
+2023~: PaaS의 부활 (Vercel, Railway, Fly.io)
+       셀프호스트 PaaS (Coolify, Dokku)
+       "적정 기술"의 중요성 재인식
+
+결국 기술은 순환함.
+"서버 관리 안 하고 싶어" → PaaS → "너무 비싸" → VPS + Docker
+→ "관리가 복잡해" → K8s → "더 복잡해졌잖아" → PaaS (다시)
+
+중요한 건 자기 상황에 맞는 지점을 찾는 것임.
+</Callout>
+
+---
+
+*이것으로 기술 스택 전쟁사 시리즈를 마침.*
+
+*에디터부터 인프라까지, 개발자들의 끝없는 전쟁을 돌아봤음.*
+*이 전쟁들에서 배울 수 있는 건 딱 하나:*
+
+***"최고의 기술은 없다. 상황에 맞는 기술이 있을 뿐이다."***
+
+*...라고 말해도 다음 주에 또 새로운 전쟁이 시작될 것임.*
+*그게 개발자니까.*
