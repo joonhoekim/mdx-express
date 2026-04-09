@@ -1,0 +1,680 @@
+# Java 1.4 제네릭 없던 시절 — Object 캐스팅의 공포
+
+*"(String) list.get(0) 이 한 줄에 ClassCastException의 공포가 담겨있음"*
+
+---
+
+2004년 이전, Java에는 제네릭이 없었음. `ArrayList`에 뭘 넣든 전부 `Object`로 저장됐고, 꺼낼 때는 매번 캐스팅을 해야 했음. 컴파일은 잘 되는데 런타임에 `ClassCastException`이 터지는 공포. 타입 안전성? 그런 거 없었음. 모든 것은 `Object`였고, 모든 캐스팅은 기도였음.
+
+지금 TypeScript를 쓰면서 "타입 시스템이 왜 필요한지 모르겠다"는 사람들에게 이 글을 바침. 제네릭 없는 세계의 공포를 직접 보여줄 테니, 타입 시스템에 감사하게 될 것임.
+
+## Object의 세계 — 제네릭 이전의 Java 컬렉션
+
+Java 1.4에서 컬렉션을 사용하는 코드:
+
+```java
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Iterator;
+
+public class OrderService {
+
+    // ArrayList에 타입 파라미터가 없음. 뭐든 넣을 수 있음.
+    public ArrayList getOrdersByCustomer(String customerId) {
+        ArrayList orders = new ArrayList();
+
+        // DB에서 주문 목록을 가져온다고 가정
+        // orders에 Order 객체를 넣음
+        orders.add(new Order("ORD-001", customerId, 50000));
+        orders.add(new Order("ORD-002", customerId, 30000));
+
+        // 실수로 String을 넣어도 컴파일 에러가 안 남
+        orders.add("이건 Order가 아닌데?");  // 컴파일 OK ㅋㅋ
+        orders.add(new Integer(42));          // 이것도 OK ㅋㅋㅋ
+
+        return orders;
+    }
+
+    // 주문 총액 계산
+    public int calculateTotal(ArrayList orders) {
+        int total = 0;
+        Iterator it = orders.iterator();
+
+        while (it.hasNext()) {
+            // 매번 캐스팅해야 함
+            Order order = (Order) it.next();  // ClassCastException 가능!
+            total += order.getAmount();
+        }
+
+        return total;
+    }
+}
+```
+
+<Callout type="error" title="ClassCastException">
+위 코드에서 `getOrdersByCustomer`가 리턴한 ArrayList에는 Order 객체뿐 아니라 String과 Integer도 섞여있음. `calculateTotal`에서 `(Order) it.next()`를 실행하면 String을 Order로 캐스팅하려다가 `ClassCastException`이 터짐. 컴파일 시점에는 알 수 없고, 런타임에서야 발견되는 시한폭탄임.
+</Callout>
+
+## HashMap의 캐스팅 지옥
+
+```java
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Set;
+
+public class UserCache {
+    // HashMap도 타입 파라미터 없음
+    private HashMap cache = new HashMap();
+
+    public void put(String userId, Object userData) {
+        cache.put(userId, userData);
+    }
+
+    public User getUser(String userId) {
+        // 매번 캐스팅
+        Object obj = cache.get(userId);
+
+        if (obj == null) {
+            return null;
+        }
+
+        // 누군가 실수로 String을 넣었다면?
+        return (User) obj;  // 폭발 가능
+    }
+
+    // Map을 순회하려면...
+    public void printAll() {
+        Set entries = cache.entrySet();
+        Iterator it = entries.iterator();
+
+        while (it.hasNext()) {
+            Map.Entry entry = (Map.Entry) it.next();  // 캐스팅 1
+            String key = (String) entry.getKey();       // 캐스팅 2
+            User user = (User) entry.getValue();        // 캐스팅 3
+            // 한 줄에 캐스팅 3번 ㅋㅋ
+
+            System.out.println(key + ": " + user.getName());
+        }
+    }
+}
+```
+
+<Callout type="warning" title="캐스팅 카운트">
+Map을 순회하는 코드에서 캐스팅이 3번 발생함. 제네릭이 있으면 `Map&lt;String, User&gt;`로 선언하고 캐스팅 0번. 코드량도 줄고, 안전성도 확보됨. 근데 2004년 이전에는 이게 유일한 방법이었음.
+</Callout>
+
+## 타입 안전한 컬렉션을 만들려는 몸부림
+
+제네릭 없이 타입 안전성을 확보하려는 시도들:
+
+```java
+// 방법 1: 래퍼 클래스를 만든다 (비용이 큼)
+public class OrderList {
+    private ArrayList list = new ArrayList();
+
+    public void add(Order order) {
+        list.add(order);  // Order만 받음
+    }
+
+    public Order get(int index) {
+        return (Order) list.get(index);  // 캐스팅은 여기서만
+    }
+
+    public int size() {
+        return list.size();
+    }
+
+    public Iterator iterator() {
+        return list.iterator();
+        // 근데 Iterator에서 꺼내면 또 캐스팅 해야 함...
+    }
+
+    // ArrayList의 모든 메서드를 래핑해야 함
+    // add, remove, contains, indexOf, isEmpty...
+    // 컬렉션 타입 하나당 래퍼 클래스 하나 필요
+    // 10개 타입이면 10개 클래스 ㅋㅋ
+}
+
+// 방법 2: instanceof로 체크 (번거로움)
+public int calculateTotalSafe(ArrayList orders) {
+    int total = 0;
+    Iterator it = orders.iterator();
+
+    while (it.hasNext()) {
+        Object obj = it.next();
+
+        if (obj instanceof Order) {
+            Order order = (Order) obj;
+            total += order.getAmount();
+        } else {
+            System.err.println(
+                "WARNING: Expected Order, got "
+                + obj.getClass().getName()
+            );
+            // 로그만 찍고 넘어감... 이래도 되나?
+        }
+    }
+
+    return total;
+}
+
+// 방법 3: 배열 사용 (타입 안전하지만 크기 고정)
+public Order[] getOrders() {
+    Order[] orders = new Order[10];
+    // 배열은 타입이 있지만 크기가 고정이라 불편함
+    // ArrayList처럼 동적으로 늘어나지 않음
+    return orders;
+}
+```
+
+<Callout type="note" title="래퍼 클래스의 한계">
+래퍼 클래스 접근법은 타입별로 클래스를 만들어야 하는 문제가 있었음. OrderList, UserList, ProductList, StringList... 로직은 동일한데 타입만 다른 클래스를 수십 개 만들어야 함. 이것이 바로 제네릭이 해결하려고 했던 "코드 중복" 문제임.
+</Callout>
+
+## Comparable과 정렬 — Object의 어두운 면
+
+```java
+import java.util.Collections;
+import java.util.Comparator;
+
+// Java 1.4에서 객체 정렬
+public class Employee implements Comparable {
+    private String name;
+    private int salary;
+
+    public Employee(String name, int salary) {
+        this.name = name;
+        this.salary = salary;
+    }
+
+    // Comparable 인터페이스 구현
+    // Object를 받아야 함 (제네릭이 없으니까)
+    public int compareTo(Object o) {
+        // 타입 체크를 직접 해야 함
+        if (!(o instanceof Employee)) {
+            throw new ClassCastException(
+                "Employee 객체와만 비교 가능합니다"
+            );
+        }
+        Employee other = (Employee) o;
+        return this.salary - other.salary;
+    }
+
+    public String getName() { return name; }
+    public int getSalary() { return salary; }
+}
+
+// 사용
+ArrayList employees = new ArrayList();
+employees.add(new Employee("김개발", 5000));
+employees.add(new Employee("이시니어", 8000));
+employees.add(new Employee("박주니어", 3500));
+
+// 실수로 다른 타입을 넣으면?
+employees.add("문자열인데요?");
+
+// 정렬 시도
+Collections.sort(employees);
+// "문자열인데요?"를 Employee로 캐스팅하려다 ClassCastException!
+
+// Comparator도 마찬가지
+Comparator nameComparator = new Comparator() {
+    public int compare(Object o1, Object o2) {
+        // 또 캐스팅...
+        Employee e1 = (Employee) o1;
+        Employee e2 = (Employee) o2;
+        return e1.getName().compareTo(e2.getName());
+    }
+};
+
+Collections.sort(employees, nameComparator);
+```
+
+## Java 5 제네릭의 등장 — 빛이 있으라
+
+2004년 9월, Java 5(1.5)가 출시되면서 제네릭이 도입됨. 세상이 바뀌는 순간:
+
+```java
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+public class OrderServiceModern {
+
+    // 타입 파라미터로 안전한 컬렉션
+    public List<Order> getOrdersByCustomer(String customerId) {
+        List<Order> orders = new ArrayList<Order>();
+
+        orders.add(new Order("ORD-001", customerId, 50000));
+        orders.add(new Order("ORD-002", customerId, 30000));
+
+        // orders.add("문자열");  // 컴파일 에러! 넣을 수 없음!
+        // orders.add(42);       // 컴파일 에러! 안전함!
+
+        return orders;
+    }
+
+    // 캐스팅이 필요 없음
+    public int calculateTotal(List<Order> orders) {
+        int total = 0;
+
+        for (Order order : orders) {  // enhanced for loop도 도입됨
+            total += order.getAmount();  // 캐스팅 없음!
+        }
+
+        return total;
+    }
+
+    // Map도 타입 안전
+    public Map<String, User> getUserCache() {
+        Map<String, User> cache = new HashMap<String, User>();
+        // key는 String, value는 User만 가능
+
+        cache.put("user1", new User("김개발"));
+        // cache.put(42, "문자열");  // 컴파일 에러!
+
+        // 순회도 깔끔
+        for (Map.Entry<String, User> entry : cache.entrySet()) {
+            String key = entry.getKey();      // 캐스팅 불필요
+            User user = entry.getValue();     // 캐스팅 불필요
+            System.out.println(key + ": " + user.getName());
+        }
+
+        return cache;
+    }
+}
+```
+
+<Callout type="success" title="Before vs After">
+**Before (Java 1.4):** `ArrayList orders = new ArrayList();` + 매번 `(Order) list.get(i)` 캐스팅 + 런타임 ClassCastException 위험. **After (Java 5):** `List&lt;Order&gt; orders = new ArrayList&lt;Order&gt;();` + 캐스팅 불필요 + 컴파일 타임에 타입 오류 감지. 한 줄의 선언이 수십 개의 캐스팅과 런타임 버그를 제거함.
+</Callout>
+
+## 제네릭의 진화 — Java 5부터 현재까지
+
+```java
+// ===========================
+// Java 5 (2004) — 제네릭 도입
+// ===========================
+List<String> list = new ArrayList<String>();
+Map<String, List<Integer>> map =
+    new HashMap<String, List<Integer>>();
+// 타입 파라미터를 양쪽에 다 써야 했음 (장황함)
+
+// ===========================
+// Java 7 (2011) — 다이아몬드 연산자
+// ===========================
+List<String> list = new ArrayList<>();  // 오른쪽 생략 가능!
+Map<String, List<Integer>> map = new HashMap<>();
+// 훨씬 깔끔해짐
+
+// ===========================
+// Java 10 (2018) — var 키워드
+// ===========================
+var list = new ArrayList<String>();
+var map = new HashMap<String, List<Integer>>();
+// 로컬 변수 타입 추론
+
+// ===========================
+// Java 14+ (2020+) — Record + Pattern Matching
+// ===========================
+record Order(String id, String customerId, int amount) {}
+
+// instanceof 패턴 매칭
+if (obj instanceof Order order) {
+    // 캐스팅 자동 — order를 바로 사용 가능
+    System.out.println(order.id());
+}
+
+// switch 패턴 매칭 (Java 21)
+String describe(Object obj) {
+    return switch (obj) {
+        case Order o -> "주문: " + o.id();
+        case User u -> "사용자: " + u.getName();
+        case String s -> "문자열: " + s;
+        case null -> "null";
+        default -> "알 수 없는 타입";
+    };
+}
+```
+
+## Type Erasure — 제네릭의 숨겨진 비밀
+
+Java 제네릭에는 잘 알려진 한계가 있음. Type Erasure(타입 소거):
+
+```java
+// 컴파일 시점의 코드
+List<String> strings = new ArrayList<String>();
+List<Integer> integers = new ArrayList<Integer>();
+
+// 컴파일 후 바이트코드 (타입 정보가 사라짐!)
+List strings = new ArrayList();  // 그냥 List
+List integers = new ArrayList(); // 그냥 List
+
+// 결과: 런타임에서 제네릭 타입을 알 수 없음
+strings.getClass() == integers.getClass()  // true!
+
+// 이런 것이 불가능함:
+// if (list instanceof List<String>) { }  // 컴파일 에러
+// new T()  // 불가능
+// new T[10]  // 불가능
+// T.class   // 불가능
+```
+
+<Callout type="info" title="왜 Type Erasure를 선택했나?">
+Java 5가 제네릭을 도입할 때 하위 호환성을 유지해야 했음. Java 1.4로 작성된 라이브러리와 코드가 Java 5에서도 동작해야 했기 때문에, 컴파일 시점에만 타입을 체크하고 바이트코드에서는 타입 정보를 지우는 방식을 선택한 것임. 완벽한 해결책은 아니었지만, 현실적인 타협이었음. C#은 이와 달리 런타임에도 제네릭 타입 정보를 유지하는 "reified generics"를 구현했음.
+</Callout>
+
+## TypeScript와 비교하는 타입 시스템의 가치
+
+Java 1.4의 경험은 TypeScript를 이해하는 데 도움이 됨:
+
+```typescript
+// TypeScript — "JavaScript에 제네릭을 더한 것"이 아님
+// 하지만 타입 안전성의 가치는 동일함
+
+// 제네릭 없는 JavaScript (Java 1.4와 유사한 상황)
+function getFirst(list) {
+  return list[0];  // 타입을 알 수 없음
+}
+
+const item = getFirst([1, 2, 3]);
+item.toUpperCase();  // 런타임 에러! number에 toUpperCase 없음
+
+// TypeScript 제네릭
+function getFirst<T>(list: T[]): T | undefined {
+  return list[0];
+}
+
+const num = getFirst([1, 2, 3]);
+// num의 타입: number | undefined
+// num.toUpperCase()  // 컴파일 에러! 안전함!
+
+const str = getFirst(["a", "b", "c"]);
+// str의 타입: string | undefined
+if (str) {
+  str.toUpperCase();  // OK
+}
+```
+
+Java 1.4와 TypeScript가 없는 JavaScript의 공통점:
+
+```typescript
+// Java 1.4의 ArrayList = JavaScript의 Array
+// 둘 다 아무 타입이나 넣을 수 있음
+
+// Java 1.4
+// ArrayList list = new ArrayList();
+// list.add("string");
+// list.add(42);
+// list.add(new User("kim"));
+// String s = (String) list.get(2);  // ClassCastException!
+
+// JavaScript (타입 없음)
+const list: any[] = [];
+list.push("string");
+list.push(42);
+list.push({ name: "kim" });
+const s: string = list[2];  // 타입 에러지만 any라서 통과
+s.toUpperCase();  // 런타임 에러!
+
+// TypeScript (타입 있음)
+const list: string[] = [];
+list.push("string");
+// list.push(42);         // 컴파일 에러!
+// list.push({name:"kim"}); // 컴파일 에러!
+const s = list[0];  // string | undefined
+```
+
+<Callout type="info" title="역사는 반복된다">
+Java 1.4 → Java 5의 제네릭 도입은 JavaScript → TypeScript의 타입 시스템 도입과 정확히 같은 패턴임. "타입 없이도 잘 되는데 왜 필요해?"라는 반발도 동일했음. 결국 프로젝트가 커지면 타입 시스템의 가치가 기하급수적으로 증가한다는 것을 양쪽 다 증명했음.
+</Callout>
+
+## 실제 레거시 Java 코드 — 엔터프라이즈의 유적
+
+실제 Java 1.4 시절의 엔터프라이즈 코드 패턴:
+
+```java
+// DAO (Data Access Object) — Java 1.4 스타일
+public class OrderDAO {
+    private Connection conn;
+
+    public OrderDAO(Connection conn) {
+        this.conn = conn;
+    }
+
+    // 리턴 타입이 ArrayList (무슨 타입이 들어있는지 모름)
+    public ArrayList findByCustomerId(String customerId) {
+        ArrayList results = new ArrayList();
+        PreparedStatement stmt = null;
+        ResultSet rs = null;
+
+        try {
+            stmt = conn.prepareStatement(
+                "SELECT * FROM orders WHERE customer_id = ?"
+            );
+            stmt.setString(1, customerId);
+            rs = stmt.executeQuery();
+
+            while (rs.next()) {
+                // HashMap으로 row를 표현 (DTO 클래스 안 만듦)
+                HashMap row = new HashMap();
+                row.put("orderId", rs.getString("order_id"));
+                row.put("amount", new Integer(rs.getInt("amount")));
+                row.put("status", rs.getString("status"));
+                row.put("orderDate", rs.getTimestamp("order_date"));
+                results.add(row);
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();  // 에러 처리 = 스택트레이스 찍기
+        } finally {
+            // 리소스 정리 (try-with-resources? 그런 거 없음)
+            try { if (rs != null) rs.close(); } catch (Exception e) {}
+            try { if (stmt != null) stmt.close(); } catch (Exception e) {}
+        }
+
+        return results;
+    }
+
+    // 사용하는 쪽
+    public void printOrders(String customerId) {
+        ArrayList orders = findByCustomerId(customerId);
+        Iterator it = orders.iterator();
+
+        while (it.hasNext()) {
+            HashMap row = (HashMap) it.next();           // 캐스팅 1
+            String orderId = (String) row.get("orderId"); // 캐스팅 2
+            Integer amount = (Integer) row.get("amount"); // 캐스팅 3
+            String status = (String) row.get("status");   // 캐스팅 4
+
+            // 키 이름을 오타 내면? 런타임에 null 반환
+            String oops = (String) row.get("ordreId");  // 오타! null!
+
+            System.out.println(
+                orderId + ": " + amount + " (" + status + ")"
+            );
+        }
+    }
+}
+```
+
+<Callout type="error" title="HashMap을 DTO로 사용하는 패턴">
+제네릭이 없던 시절, HashMap을 DTO(Data Transfer Object) 대신 사용하는 패턴이 흔했음. 키 이름을 오타 내면 null이 반환되는데, 컴파일 시점에는 발견할 수 없음. 한국 SI 업계에서 이 패턴이 특히 많이 사용됐고, 2024년에도 이런 코드를 유지보수하는 사람들이 있음. 진짜 고통받고 있을 것임.
+</Callout>
+
+### 현대 Java로 리팩토링
+
+```java
+// Java 21 스타일로 리팩토링
+
+// Record로 DTO 정의 (불변 + 자동 equals/hashCode/toString)
+public record OrderDto(
+    String orderId,
+    int amount,
+    String status,
+    LocalDateTime orderDate
+) {}
+
+// DAO — 제네릭 + try-with-resources + Optional
+public class OrderDAO {
+    private final DataSource dataSource;
+
+    public OrderDAO(DataSource dataSource) {
+        this.dataSource = dataSource;
+    }
+
+    public List<OrderDto> findByCustomerId(String customerId) {
+        var sql = "SELECT * FROM orders WHERE customer_id = ?";
+
+        try (var conn = dataSource.getConnection();
+             var stmt = conn.prepareStatement(sql)) {
+
+            stmt.setString(1, customerId);
+
+            try (var rs = stmt.executeQuery()) {
+                var results = new ArrayList<OrderDto>();
+
+                while (rs.next()) {
+                    results.add(new OrderDto(
+                        rs.getString("order_id"),
+                        rs.getInt("amount"),
+                        rs.getString("status"),
+                        rs.getTimestamp("order_date")
+                              .toLocalDateTime()
+                    ));
+                }
+
+                return List.copyOf(results); // 불변 리스트 반환
+            }
+        } catch (SQLException e) {
+            throw new DataAccessException(
+                "주문 조회 실패: " + customerId, e
+            );
+        }
+    }
+
+    // 사용하는 쪽 — 캐스팅 제로, 타입 안전, 깔끔
+    public void printOrders(String customerId) {
+        var orders = findByCustomerId(customerId);
+
+        orders.forEach(order ->
+            System.out.printf("%s: %,d (%s)%n",
+                order.orderId(),
+                order.amount(),
+                order.status()
+            )
+        );
+    }
+}
+```
+
+<Callout type="success" title="20년의 차이">
+캐스팅 7번이 0번으로. HashMap의 문자열 키가 Record의 컴파일 타임 필드로. try-catch-finally의 리소스 정리가 try-with-resources로. `Iterator` 순회가 `forEach`로. 코드의 양과 버그 가능성이 동시에 줄어듦. 20년간 Java가 얼마나 발전했는지 보여주는 예시임.
+</Callout>
+
+## 와일드카드와 공변성 — 제네릭의 깊은 곳
+
+제네릭을 좀 더 깊이 들어가면:
+
+```java
+// 공변성(Covariance) 문제
+// 배열은 공변적임 (Java의 설계 실수)
+Object[] objects = new String[3];  // 컴파일 OK
+objects[0] = 42;  // 컴파일 OK, 런타임 ArrayStoreException!
+
+// 제네릭은 불변(invariant)
+// List<Object> list = new ArrayList<String>();  // 컴파일 에러!
+// 안전하지만 불편한 경우가 있음
+
+// 와일드카드로 유연성 확보
+public double sum(List<? extends Number> numbers) {
+    double total = 0;
+    for (Number n : numbers) {
+        total += n.doubleValue();
+    }
+    return total;
+}
+
+// Integer, Double, Long 리스트 모두 받을 수 있음
+List<Integer> ints = List.of(1, 2, 3);
+List<Double> doubles = List.of(1.1, 2.2, 3.3);
+
+sum(ints);     // OK
+sum(doubles);  // OK
+
+// PECS 원칙: Producer Extends, Consumer Super
+// 컬렉션에서 읽기만 하면 extends, 쓰기만 하면 super
+public <T> void copy(
+    List<? extends T> src,   // 읽기 전용 (Producer)
+    List<? super T> dest     // 쓰기 전용 (Consumer)
+) {
+    for (T item : src) {
+        dest.add(item);
+    }
+}
+```
+
+<Callout type="info" title="TypeScript의 공변성">
+TypeScript에서는 배열이 기본적으로 공변적임. `string[]`을 `(string | number)[]`에 할당할 수 있음. 이는 Java의 배열과 같은 설계 선택이지만, TypeScript는 구조적 타입 시스템(structural typing)이라 Java와는 다른 트레이드오프가 존재함. Java의 와일드카드(`? extends`, `? super`)에 해당하는 개념이 TypeScript에는 없는데, 구조적 타이핑으로 대부분 해결되기 때문임.
+</Callout>
+
+## 레거시 Java 프로젝트를 만났을 때
+
+### 1단계: Java 버전 확인
+
+```bash
+java -version
+# 1.4? 1.5? 1.6? 먼저 확인
+
+# 프로젝트의 소스 레벨 확인
+# pom.xml 또는 build.xml에서
+# source/target 버전 확인
+```
+
+### 2단계: 제네릭 점진 도입
+
+```java
+// Raw Type 경고를 하나씩 해결
+// IDE의 "Add type parameter" 기능 활용
+
+// Before
+ArrayList list = new ArrayList();
+HashMap map = new HashMap();
+
+// After
+ArrayList<Order> list = new ArrayList<>();
+HashMap<String, User> map = new HashMap<>();
+```
+
+### 3단계: Enhanced for loop 도입
+
+```java
+// Before
+Iterator it = list.iterator();
+while (it.hasNext()) {
+    Order order = (Order) it.next();
+    // ...
+}
+
+// After
+for (Order order : list) {
+    // 캐스팅 불필요, 훨씬 깔끔
+}
+```
+
+### 4단계: HashMap DTO를 Record/Class로 교체
+
+```java
+// Before
+HashMap row = new HashMap();
+row.put("name", "김개발");
+row.put("age", new Integer(30));
+
+// After
+record Person(String name, int age) {}
+var person = new Person("김개발", 30);
+```
+
+<Callout type="note" title="고고학자의 노트">
+Java 1.4 코드를 보면 캐스팅의 바다임. 하지만 당시 Java는 C++의 복잡성 없이 가비지 컬렉션과 크로스 플랫폼을 제공하는 혁신적인 언어였음. 제네릭이 없었던 것은 한계였지만, "Write Once, Run Anywhere"라는 비전은 실현됐음. 모든 기술에는 시대적 맥락이 있음. Java 1.4를 까는 것은 쉽지만, 그 시절 Java가 엔터프라이즈 세계를 바꾼 것은 사실임. 지금의 Kotlin, Scala가 JVM 위에서 동작할 수 있는 것도 Java가 닦아놓은 길 덕분임.
+</Callout>

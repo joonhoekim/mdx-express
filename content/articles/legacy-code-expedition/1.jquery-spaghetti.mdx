@@ -1,0 +1,773 @@
+# jQuery 스파게티 — 2010년대의 프론트엔드 유적
+
+*"$(document).ready(function() \{ 여기서부터 지옥이 시작됨 \})"*
+
+---
+
+2010년대 초반, 프론트엔드 개발이라는 건 사실상 jQuery 개발이었음. "바닐라 JavaScript로 하면 되지 않나요?"라고 물어보면 선배 개발자가 진지한 눈빛으로 "IE6에서 돌아가야 해"라고 답하던 시절. `document.getElementById()`를 치기 싫어서, `addEventListener`가 IE에서 안 먹어서, AJAX를 `XMLHttpRequest`로 직접 짜기 싫어서 jQuery를 썼음. 그리고 그 선택은 당시에는 완전히 합리적이었음.
+
+문제는 jQuery 자체가 아니었음. jQuery는 훌륭한 라이브러리였고, 브라우저 호환성 지옥에서 개발자를 구원한 영웅이었음. 진짜 문제는 jQuery를 쓰는 **방식**이었음. 구조 없이, 패턴 없이, 그냥 `$(function() {})` 안에 모든 걸 때려박는 코딩 스타일. 이것이 바로 전설의 jQuery 스파게티임.
+
+## $(document).ready() — 모든 것의 시작
+
+<Callout type="note" title="고고학적 맥락">
+jQuery의 `$(document).ready()`는 DOM이 완전히 로드된 후 코드를 실행하는 함수임. 지금은 `DOMContentLoaded` 이벤트나 `defer` 속성으로 간단히 해결되지만, 2008년에는 이것조차 브라우저마다 동작이 달랐음. jQuery가 이걸 통일해준 것은 혁명이었음.
+</Callout>
+
+전형적인 2010년대 프론트엔드 코드를 보자. 실제 프로덕션에서 발굴된 코드를 각색한 것임:
+
+```javascript
+// app.js — 2,847줄짜리 단일 파일 (실화)
+$(document).ready(function() {
+  // 글로벌 변수들 (맨 위에 30개쯤 선언)
+  var isLoggedIn = false;
+  var currentPage = 1;
+  var totalPages = 0;
+  var userData = null;
+  var cartItems = [];
+  var isModalOpen = false;
+  var selectedCategory = 'all';
+  var searchTimeout = null;
+  var lastScrollPosition = 0;
+  // ... 20개 더
+
+  // 페이지 로드 시 초기화
+  $.ajax({
+    url: '/api/user/info',
+    type: 'GET',
+    dataType: 'json',
+    success: function(data) {
+      isLoggedIn = true;
+      userData = data;
+      $('.user-name').text(data.name);
+      $('.user-avatar').attr('src', data.avatar);
+      $('.login-btn').hide();
+      $('.logout-btn').show();
+      $('.cart-count').text(data.cartCount);
+
+      // 로그인된 사용자만 볼 수 있는 UI 초기화
+      $.ajax({
+        url: '/api/cart',
+        type: 'GET',
+        success: function(cartData) {
+          cartItems = cartData.items;
+          renderCart();
+
+          // 장바구니 로드 후 추천 상품 로드
+          $.ajax({
+            url: '/api/recommendations?userId=' + data.id,
+            type: 'GET',
+            success: function(recData) {
+              renderRecommendations(recData);
+            },
+            error: function() {
+              console.log('추천 상품 로드 실패');
+            }
+          });
+        },
+        error: function() {
+          console.log('장바구니 로드 실패');
+        }
+      });
+    },
+    error: function() {
+      isLoggedIn = false;
+      $('.login-btn').show();
+      $('.logout-btn').hide();
+    }
+  });
+
+  // 여기서부터 2000줄의 이벤트 핸들러와 함수들이 이어짐...
+});
+```
+
+<Callout type="error" title="콜백 지옥 발견">
+위 코드에서 AJAX 호출이 3단계 중첩됨. 실제 프로덕션 코드에서는 5~7단계 중첩도 흔했음. 이것이 바로 "콜백 지옥(Callback Hell)" 또는 "파멸의 피라미드(Pyramid of Doom)"임. Promise도 없고 async/await도 없던 시절, 비동기 처리의 유일한 방법이 콜백이었음.
+</Callout>
+
+## 이벤트 바인딩의 무법지대
+
+jQuery 스파게티의 핵심 특징 중 하나는 이벤트 바인딩이 코드 전체에 흩어져 있다는 것임. 어떤 버튼에 어떤 이벤트가 걸려있는지 파악하려면 2,847줄을 전부 읽어야 함:
+
+```javascript
+$(document).ready(function() {
+  // 1번째 이벤트 핸들러 — 47번 줄
+  $('#search-btn').click(function() {
+    var query = $('#search-input').val();
+    if (query.length > 0) {
+      doSearch(query);
+    }
+  });
+
+  // ... 300줄 후 ...
+
+  // 검색 자동완성 — 350번 줄
+  $('#search-input').keyup(function() {
+    clearTimeout(searchTimeout);
+    var query = $(this).val();
+    searchTimeout = setTimeout(function() {
+      if (query.length >= 2) {
+        $.get('/api/autocomplete?q=' + query, function(data) {
+          var html = '';
+          for (var i = 0; i < data.length; i++) {
+            html += '<li class="autocomplete-item" data-id="'
+                 + data[i].id + '">' + data[i].name + '</li>';
+          }
+          $('#autocomplete-list').html(html).show();
+        });
+      } else {
+        $('#autocomplete-list').hide();
+      }
+    }, 300);
+  });
+
+  // ... 500줄 후 ...
+
+  // 어? 검색 버튼에 또 이벤트를 건다 — 850번 줄
+  $('#search-btn').on('click', function(e) {
+    e.preventDefault();
+    // 위의 click 핸들러와 뭐가 다른 건지 아무도 모름
+    var query = $.trim($('#search-input').val());
+    if (query !== '') {
+      window.location.href = '/search?q=' + encodeURIComponent(query);
+    }
+  });
+
+  // ... 1200줄 후 ...
+
+  // 동적으로 생성된 요소에 이벤트 바인딩
+  $(document).on('click', '.autocomplete-item', function() {
+    var id = $(this).data('id');
+    var name = $(this).text();
+    $('#search-input').val(name);
+    $('#autocomplete-list').hide();
+    doSearch(name);
+  });
+});
+```
+
+<Callout type="warning" title="이벤트 중복 바인딩">
+같은 `#search-btn`에 `click` 이벤트가 두 번 걸려있음. jQuery는 이벤트를 교체하는 게 아니라 **추가**하기 때문에, 버튼을 한 번 클릭하면 두 핸들러가 **모두** 실행됨. 이런 버그를 찾으려면 코드 전체를 grep 해야 함. 그리고 이 코드를 짠 사람은 이미 퇴사했음.
+</Callout>
+
+## DOM을 직접 조작하는 스타일
+
+React의 Virtual DOM이 왜 혁명이었는지 이해하려면, jQuery 시절의 DOM 조작을 봐야 함:
+
+```javascript
+// 상품 목록 렌더링 — jQuery 스타일
+function renderProducts(products) {
+  var $container = $('#product-list');
+  $container.empty(); // 기존 내용 전부 삭제
+
+  for (var i = 0; i < products.length; i++) {
+    var p = products[i];
+    var $card = $('<div>')
+      .addClass('product-card')
+      .attr('data-id', p.id);
+
+    $card.append($('<img>').attr('src', p.image).attr('alt', p.name));
+    $card.append($('<h3>').addClass('product-name').text(p.name));
+
+    var $price = $('<p>').addClass('product-price');
+    if (p.discountPrice) {
+      $price.append(
+        $('<span>').addClass('original-price')
+          .text('\\u20A9' + p.price.toLocaleString())
+      );
+      $price.append(
+        $('<span>').addClass('discount-price')
+          .text('\\u20A9' + p.discountPrice.toLocaleString())
+      );
+    } else {
+      $price.text('\\u20A9' + p.price.toLocaleString());
+    }
+    $card.append($price);
+
+    var $actions = $('<div>').addClass('product-actions');
+    $actions.append(
+      $('<button>').addClass('btn-cart')
+        .attr('data-id', p.id).text('장바구니')
+    );
+    $actions.append(
+      $('<button>').addClass('btn-wish' + (p.isWished ? ' active' : ''))
+        .attr('data-id', p.id)
+        .text(p.isWished ? '♥' : '♡')
+    );
+    $card.append($actions);
+    $container.append($card);
+  }
+
+  // 페이지네이션 렌더링
+  var $pagination = $('#pagination');
+  $pagination.empty();
+
+  for (var page = 1; page <= totalPages; page++) {
+    var activeClass = page === currentPage ? ' active' : '';
+    $pagination.append(
+      $('<button>').addClass('page-btn' + activeClass)
+        .attr('data-page', page).text(page)
+    );
+  }
+}
+```
+
+이 코드의 문제점을 정리하면:
+
+1. **DOM 전체를 매번 교체** — `.empty()` + `.append()`는 기존 DOM을 완전히 날리고 새로 만듦. 스크롤 위치, 포커스, 애니메이션 상태 전부 날아감
+2. **로직과 뷰가 완전히 섞여있음** — 가격 표시 로직, 위시리스트 상태, HTML 구조가 한 함수에 전부 있음
+3. **성능 문제** — `for` 루프 안에서 `.append()`를 반복하면 매번 리플로우가 발생함
+
+```javascript
+// 장바구니 업데이트 — DOM 직접 조작의 끝판왕
+function addToCart(productId) {
+  $.post('/api/cart/add', { productId: productId }, function(result) {
+    if (result.success) {
+      // 헤더의 장바구니 카운트 업데이트
+      var currentCount = parseInt($('.cart-count').text()) || 0;
+      $('.cart-count').text(currentCount + 1);
+
+      // 장바구니 미리보기 업데이트
+      var $preview = $('#cart-preview');
+      var $item = $('<div>').addClass('cart-item').attr('data-id', result.item.id);
+      $item.append($('<span>').text(result.item.name));
+      $item.append($('<span>').text('\\u20A9' + result.item.price.toLocaleString()));
+      $item.append(
+        $('<button>').addClass('remove-cart-item')
+          .attr('data-id', result.item.id).text('x')
+      );
+      $preview.find('.cart-items').append($item);
+
+      // 총 가격 업데이트
+      var totalPrice = 0;
+      $preview.find('.cart-item span:nth-child(2)').each(function() {
+        // ??? 가격을 DOM에서 파싱해서 계산???
+        var priceText = $(this).text();
+        var price = parseInt(priceText.replace(/[\\u20A9,]/g, ''));
+        totalPrice += price;
+      });
+      $preview.find('.total-price')
+        .text('\\u20A9' + totalPrice.toLocaleString());
+
+      // 성공 토스트 메시지
+      showToast('장바구니에 추가되었습니다');
+
+      // 버튼 상태 변경
+      $('[data-id="' + productId + '"].btn-cart')
+        .text('담김')
+        .addClass('in-cart')
+        .prop('disabled', true);
+    }
+  });
+}
+```
+
+<Callout type="error" title="DOM에서 데이터를 읽는다고?">
+총 가격을 계산하기 위해 DOM 요소에서 텍스트를 파싱하는 패턴이 보임. 이것은 jQuery 시절의 전형적인 안티패턴으로, DOM을 데이터 저장소로 사용하는 것임. 상태가 JavaScript 변수가 아니라 DOM에 흩어져 있기 때문에, 상태 추적이 불가능하고 버그가 양산됨. React의 state 관리가 왜 혁명이었는지 이해되는 대목.
+</Callout>
+
+## jQuery 플러그인 충돌의 세계
+
+2010년대 jQuery 프로젝트의 HTML `head` 태그를 열면 이런 풍경이 펼쳐졌음:
+
+```html
+<!-- jQuery 본체 -->
+<script src="/js/jquery-1.8.3.min.js"></script>
+
+<!-- jQuery UI (달력, 탭, 다이얼로그 등) -->
+<script src="/js/jquery-ui-1.9.2.min.js"></script>
+<link rel="stylesheet" href="/css/jquery-ui-smoothness.css" />
+
+<!-- 슬라이더 -->
+<script src="/js/jquery.bxslider.min.js"></script>
+
+<!-- 모달 (jQuery UI 다이얼로그 쓰면 되는데 왜 또 넣었는지 아무도 모름) -->
+<script src="/js/jquery.fancybox.min.js"></script>
+
+<!-- 날짜 선택 (jQuery UI datepicker 있는데 또 넣음) -->
+<script src="/js/bootstrap-datepicker.min.js"></script>
+
+<!-- 유효성 검사 -->
+<script src="/js/jquery.validate.min.js"></script>
+
+<!-- 자동완성 (jQuery UI에도 있는데...) -->
+<script src="/js/jquery.autocomplete.min.js"></script>
+
+<!-- 스크롤 애니메이션 -->
+<script src="/js/jquery.scrollTo.min.js"></script>
+<script src="/js/jquery.waypoints.min.js"></script>
+
+<!-- 차트 -->
+<script src="/js/jquery.flot.min.js"></script>
+
+<!-- 테이블 정렬 -->
+<script src="/js/jquery.tablesorter.min.js"></script>
+
+<!-- DataTable (tablesorter와 공존...) -->
+<script src="/js/jquery.dataTables.min.js"></script>
+
+<!-- 마스크 입력 -->
+<script src="/js/jquery.mask.min.js"></script>
+
+<!-- 파일 업로드 -->
+<script src="/js/jquery.fileupload.min.js"></script>
+
+<!-- 우리 코드 (맨 마지막에) -->
+<script src="/js/app.js"></script>
+<script src="/js/app2.js"></script>  <!-- app.js가 너무 길어서 분리 -->
+<script src="/js/app3.js"></script>  <!-- 급하게 추가된 기능들 -->
+<script src="/js/hotfix.js"></script> <!-- 뭔지 모르지만 지우면 결제 안 됨 -->
+```
+
+<Callout type="warning" title="hotfix.js의 전설">
+실제 프로덕션에서 이런 파일이 존재함. 누가, 언제, 왜 만들었는지 아무도 모르지만 지우면 특정 기능이 안 됨. 주석도 없고, git log를 봐도 "fix" 한 줄임. 이런 파일이 있는 프로젝트를 맡게 되면 축하함. 레거시 코드 탐험대에 입대한 것임.
+</Callout>
+
+## jQuery 버전 충돌 — 전설의 noConflict
+
+여러 jQuery 플러그인을 쓰다 보면 jQuery 버전이 서로 달라야 하는 경우가 생겼음. 이때 등장하는 것이 `jQuery.noConflict()`:
+
+```html
+<!-- 먼저 로드된 jQuery 1.8 -->
+<script src="/js/jquery-1.8.3.min.js"></script>
+<script>
+  var jQuery_1_8 = jQuery.noConflict(true);
+</script>
+
+<!-- 나중에 필요한 jQuery 1.11 (새 플러그인이 요구) -->
+<script src="/js/jquery-1.11.1.min.js"></script>
+<script>
+  var jQuery_1_11 = jQuery.noConflict(true);
+</script>
+```
+
+```javascript
+// 사용할 때
+jQuery_1_8(document).ready(function($) {
+  // 여기서 $는 1.8
+  $('#old-slider').bxSlider();
+});
+
+jQuery_1_11(document).ready(function($) {
+  // 여기서 $는 1.11
+  $('#new-datatable').DataTable();
+});
+```
+
+ㅋㅋㅋㅋ 같은 페이지에서 jQuery를 두 개 로드하는 거임. 이건 "기술 부채"가 아니라 "기술 파산"에 가까움. 근데 실제로 이렇게 돌아가는 사이트가 있었음. 아니 지금도 있음.
+
+## 이벤트 위임의 지옥
+
+동적으로 생성된 DOM 요소에 이벤트를 바인딩하려면 이벤트 위임을 써야 했음. 그런데 이게 남용되면 지옥이 펼쳐짐:
+
+```javascript
+// 이벤트 위임 — "일단 document에 다 걸자" 패턴
+$(document).on('click', '.product-card', function(e) {
+  if ($(e.target).hasClass('btn-cart')) {
+    // 장바구니 추가
+    e.stopPropagation();
+    var id = $(this).data('id');
+    addToCart(id);
+  } else if ($(e.target).hasClass('btn-wish')) {
+    // 위시리스트 토글
+    e.stopPropagation();
+    var id = $(this).data('id');
+    toggleWish(id);
+  } else if ($(e.target).hasClass('remove-cart-item')) {
+    // 장바구니 제거
+    e.stopPropagation();
+    var id = $(e.target).data('id');
+    removeFromCart(id);
+  } else if ($(e.target).closest('.product-image').length) {
+    // 이미지 클릭시 모달
+    e.stopPropagation();
+    var src = $(e.target).attr('src');
+    showImageModal(src);
+  } else {
+    // 나머지는 상품 상세 페이지
+    var id = $(this).data('id');
+    window.location.href = '/product/' + id;
+  }
+});
+
+// 모달 관련 이벤트 위임
+$(document).on('click', '.modal-overlay', function(e) {
+  if ($(e.target).hasClass('modal-overlay')) {
+    closeModal();
+  }
+});
+
+$(document).on('click', '.modal-close', function() {
+  closeModal();
+});
+
+$(document).on('keyup', function(e) {
+  if (e.keyCode === 27 && isModalOpen) { // ESC키
+    closeModal();
+  }
+});
+
+// 드롭다운 관련 이벤트 위임
+$(document).on('click', '.dropdown-toggle', function(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  var $dropdown = $(this).next('.dropdown-menu');
+  $('.dropdown-menu').not($dropdown).hide();
+  $dropdown.toggle();
+});
+
+$(document).on('click', function() {
+  // 바깥 클릭 시 드롭다운 닫기
+  // 근데 이게 다른 클릭 핸들러와 충돌함...
+  $('.dropdown-menu').hide();
+});
+```
+
+<Callout type="error" title="document에 모든 이벤트를 위임하면 생기는 일">
+모든 이벤트를 `$(document)`에 위임하면 페이지의 **모든 클릭**이 이 핸들러를 거쳐감. 성능 문제도 있지만, 더 큰 문제는 `stopPropagation()` 남용으로 인해 이벤트 전파가 예측 불가능해진다는 것임. A 기능을 고쳤더니 B 기능이 깨지는 "이벤트 전파 지옥"이 시작됨.
+</Callout>
+
+## AJAX 에러 처리? 그게 뭔데?
+
+2010년대 jQuery 코드에서 에러 처리는 대부분 이랬음:
+
+```javascript
+// 레벨 1: 에러 처리를 아예 안 함
+$.get('/api/data', function(data) {
+  renderData(data);
+});
+
+// 레벨 2: console.log만 찍음
+$.ajax({
+  url: '/api/data',
+  success: function(data) {
+    renderData(data);
+  },
+  error: function() {
+    console.log('에러남');
+  }
+});
+
+// 레벨 3: alert을 띄움 (사용자 경험 최악)
+$.ajax({
+  url: '/api/data',
+  success: function(data) {
+    renderData(data);
+  },
+  error: function(xhr, status, error) {
+    alert('데이터를 불러오는데 실패했습니다: ' + error);
+  }
+});
+
+// 레벨 4: 진짜 에러 처리 (매우 희귀)
+$.ajax({
+  url: '/api/data',
+  success: function(data) {
+    if (data && data.items && data.items.length > 0) {
+      renderData(data);
+    } else {
+      showEmptyState();
+    }
+  },
+  error: function(xhr) {
+    if (xhr.status === 401) {
+      redirectToLogin();
+    } else if (xhr.status === 404) {
+      showNotFound();
+    } else if (xhr.status >= 500) {
+      showServerError();
+    } else {
+      showGenericError();
+    }
+  },
+  timeout: 10000,
+  complete: function() {
+    hideLoadingSpinner();
+  }
+});
+```
+
+레벨 4를 본 적이 있다면 그 코드를 짠 사람은 진짜 프로였음. 대부분은 레벨 1~2에서 끝남.
+
+## $.data()와 data 속성 — 숨겨진 상태 저장소
+
+jQuery의 `.data()` 메서드는 DOM 요소에 임의의 데이터를 저장할 수 있게 해줬음. 이게 남용되면 상태 관리가 완전히 불투명해짐:
+
+```javascript
+// DOM 요소에 상태를 숨기는 패턴
+$('#product-card-123').data('original-price', 50000);
+$('#product-card-123').data('discount-rate', 0.2);
+$('#product-card-123').data('in-cart', true);
+$('#product-card-123').data('wish-count', 42);
+$('#product-card-123').data('last-viewed', new Date());
+
+// 나중에 다른 함수에서...
+function applyDiscount(productId) {
+  var $card = $('#product-card-' + productId);
+  var originalPrice = $card.data('original-price');
+  var rate = $card.data('discount-rate');
+
+  if (originalPrice && rate) {
+    var discounted = originalPrice * (1 - rate);
+    $card.find('.price').text('\\u20A9' + discounted.toLocaleString());
+    $card.data('current-price', discounted); // 또 저장
+  }
+}
+```
+
+<Callout type="warning" title="보이지 않는 상태">
+`.data()`로 저장된 값은 HTML 속성에 나타나지 않음. 개발자 도구로 DOM을 봐도 안 보임. 디버깅이 불가능에 가까운 수준임. "이 요소에 어떤 데이터가 저장돼 있는지" 알려면 코드 전체를 읽어야 함. 이것이 React의 props/state가 명시적인 것과 대비되는 jQuery 시절의 암흑기임.
+</Callout>
+
+## jQuery에서 현대 프레임워크로의 마이그레이션
+
+자, 이제 이 유적을 어떻게 현대화하는지 보자. 핵심은 한 번에 다 바꾸는 게 아니라 점진적으로 교체하는 것임.
+
+### 단계 1: 글로벌 상태를 모듈로 분리
+
+```javascript
+// Before: 글로벌 변수 떡칠
+$(document).ready(function() {
+  var isLoggedIn = false;
+  var userData = null;
+  var cartItems = [];
+  // 2000줄의 코드가 이 변수들에 의존...
+});
+
+// After: 모듈 패턴으로 분리
+var CartModule = (function() {
+  var items = [];
+
+  function add(item) {
+    items.push(item);
+    render();
+    updateCount();
+  }
+
+  function remove(id) {
+    items = items.filter(function(item) {
+      return item.id !== id;
+    });
+    render();
+    updateCount();
+  }
+
+  function render() {
+    var $container = $('#cart-items');
+    $container.empty();
+    items.forEach(function(item) {
+      $container.append(createCartItemElement(item));
+    });
+    updateTotal();
+  }
+
+  function updateCount() {
+    $('.cart-count').text(items.length);
+  }
+
+  function updateTotal() {
+    var total = items.reduce(function(sum, item) {
+      return sum + item.price;
+    }, 0);
+    $('.total-price').text('\\u20A9' + total.toLocaleString());
+  }
+
+  return {
+    add: add,
+    remove: remove,
+    getItems: function() { return items.slice(); }
+  };
+})();
+```
+
+### 단계 2: 콜백 지옥을 Promise로 교체
+
+```javascript
+// Before: 콜백 3단 중첩
+$.ajax({
+  url: '/api/user',
+  success: function(user) {
+    $.ajax({
+      url: '/api/cart?userId=' + user.id,
+      success: function(cart) {
+        $.ajax({
+          url: '/api/recommendations?userId=' + user.id,
+          success: function(recs) {
+            renderPage(user, cart, recs);
+          }
+        });
+      }
+    });
+  }
+});
+
+// After: Promise 체이닝 (jQuery 1.5+의 Deferred 활용)
+$.get('/api/user')
+  .then(function(user) {
+    return $.when(
+      $.get('/api/cart?userId=' + user.id),
+      $.get('/api/recommendations?userId=' + user.id)
+    ).then(function(cartResult, recsResult) {
+      return {
+        user: user,
+        cart: cartResult[0],
+        recs: recsResult[0]
+      };
+    });
+  })
+  .then(function(data) {
+    renderPage(data.user, data.cart, data.recs);
+  })
+  .fail(function(err) {
+    showError('페이지 로드 실패');
+  });
+```
+
+### 단계 3: React 점진적 도입
+
+```typescript
+// React를 기존 jQuery 페이지에 점진적으로 도입
+// 특정 DOM 영역만 React로 교체하는 패턴
+
+import { createRoot } from 'react-dom/client';
+import { useState, useEffect } from 'react';
+
+interface Product {
+  id: string;
+  name: string;
+  price: number;
+  image: string;
+}
+
+function ProductList() {
+  const [products, setProducts] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch('/api/products')
+      .then(res => {
+        if (!res.ok) throw new Error('Failed to fetch');
+        return res.json();
+      })
+      .then(data => {
+        setProducts(data.items);
+        setLoading(false);
+      })
+      .catch(err => {
+        setError(err.message);
+        setLoading(false);
+      });
+  }, []);
+
+  if (loading) return <div className="spinner">Loading...</div>;
+  if (error) return <div className="error">{error}</div>;
+
+  return (
+    <div className="product-grid">
+      {products.map(product => (
+        <ProductCard key={product.id} product={product} />
+      ))}
+    </div>
+  );
+}
+
+// 기존 jQuery 페이지의 특정 영역만 React로 교체
+const container = document.getElementById('product-list');
+if (container) {
+  const root = createRoot(container);
+  root.render(<ProductList />);
+}
+```
+
+<Callout type="success" title="점진적 마이그레이션의 핵심">
+jQuery 프로젝트를 React로 전환할 때 절대 "빅뱅 리라이트"를 하면 안 됨. 한 페이지, 한 컴포넌트씩 교체하는 것이 핵심임. React는 `createRoot()`로 페이지의 일부분만 관리할 수 있어서 jQuery와 공존이 가능함. 이것이 Strangler Fig 패턴의 프론트엔드 버전임.
+</Callout>
+
+## jQuery의 진짜 문제는 jQuery가 아니었음
+
+```typescript
+// 2024년의 바닐라 JavaScript — jQuery 없이도 충분
+
+// DOM 선택
+const btn = document.querySelector('#search-btn');
+const items = document.querySelectorAll('.product-card');
+
+// 이벤트
+btn?.addEventListener('click', handleSearch);
+
+// AJAX
+const response = await fetch('/api/products');
+const data = await response.json();
+
+// 클래스 토글
+element.classList.toggle('active'); // jQuery의 .toggleClass()
+
+// 애니메이션
+element.animate(
+  [{ opacity: 0 }, { opacity: 1 }],
+  { duration: 300, fill: 'forwards' }
+);
+
+// 이벤트 위임
+document.getElementById('list')?.addEventListener('click', (e) => {
+  const target = (e.target as HTMLElement).closest('.item');
+  if (target instanceof HTMLElement) {
+    handleItemClick(target.dataset.id);
+  }
+});
+```
+
+결국 jQuery의 진짜 문제는 라이브러리 자체가 아니라 **구조의 부재**였음:
+
+1. **상태 관리 없음** — 데이터가 DOM에 흩어져 있음
+2. **컴포넌트 개념 없음** — 재사용 가능한 UI 단위가 없음
+3. **단방향 데이터 흐름 없음** — 어디서든 아무 DOM이나 수정 가능
+4. **모듈 시스템 없음** — 전부 글로벌 스코프
+
+React, Vue, Angular가 이 문제들을 해결했음. 컴포넌트 기반 아키텍처, 선언적 UI, 상태 관리, 모듈 시스템. jQuery는 "DOM을 쉽게 조작하자"였고, 현대 프레임워크는 "DOM 조작을 추상화하자"임. 패러다임이 다른 거임.
+
+<Callout type="info" title="jQuery는 아직 살아있음">
+2024년 기준 전 세계 웹사이트의 약 75%가 여전히 jQuery를 사용 중임. WordPress, Drupal 같은 CMS가 jQuery에 의존하기 때문임. jQuery는 "레거시"가 아니라 "인프라"에 가까움. 그냥 까지 말고 존중하자. 인터넷의 3/4을 떠받치고 있는 라이브러리임.
+</Callout>
+
+## 레거시 jQuery 프로젝트를 맡았을 때의 생존 전략
+
+### 1단계: 지도 만들기
+
+프로젝트를 인수인계 받으면 먼저 전체 구조를 파악해야 함:
+
+```bash
+# 이벤트 바인딩 찾기
+grep -rn "\\.on(" js/ --include="*.js"
+grep -rn "\\.click(" js/ --include="*.js"
+grep -rn "\\.submit(" js/ --include="*.js"
+
+# AJAX 호출 찾기
+grep -rn "\\$.ajax\\|\\$.get\\|\\$.post" js/ --include="*.js"
+
+# 글로벌 변수 찾기
+grep -rn "^var " js/ --include="*.js"
+
+# jQuery 플러그인 목록
+grep -rn "jquery" index.html
+```
+
+### 2단계: 테스트 먼저
+
+리팩토링하기 전에 E2E 테스트라도 작성해서 "현재 동작"을 기록해야 함. 코드를 이해 못 해도 테스트는 쓸 수 있음.
+
+### 3단계: 점진적 교체
+
+- **모듈 패턴 도입** — 글로벌 변수를 IIFE로 감싸기
+- **이벤트 핸들러 정리** — 중복 바인딩 제거, 적절한 스코프에 위임
+- **DOM 조작 함수 분리** — 렌더링 로직을 별도 함수로 추출
+- **새 기능은 새 스택으로** — 기존 코드는 두고, 새로운 기능은 React/Vue로
+
+### 4단계: 빅뱅 리라이트는 절대 금물
+
+2년 동안 새 버전 만들다가 기존 서비스 유지보수 못 해서 망하는 케이스가 진짜 많음. Netscape의 실패가 교과서적 사례임.
+
+<Callout type="note" title="고고학자의 노트">
+jQuery 스파게티를 발굴할 때 가장 중요한 것은 "왜 이렇게 짰을까?"라는 질문임. 당시에는 브라우저 호환성이 최우선이었고, 모듈 번들러도 없었고, ES6도 없었음. 그 제약 조건 속에서 개발자들이 최선을 다한 결과임. 10년 후 누군가 우리의 React 코드를 보면서 "useEffect에 deps를 왜 이따구로 넣었지? ㅋㅋ"라고 할 것임. 레거시를 대하는 태도는 곧 과거의 동료를 대하는 태도임.
+</Callout>

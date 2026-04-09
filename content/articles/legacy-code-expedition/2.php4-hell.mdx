@@ -1,0 +1,715 @@
+# PHP 4 시절 코드 — include 지옥과 글로벌 변수의 향연
+
+*"register_globals = On 이 한 줄이 인류에게 가져다 준 재앙의 크기는 측정 불가"*
+
+---
+
+2000년대 초반 웹 개발의 지배자는 PHP였음. 정확히는 PHP 4. "웹사이트 만들어야 하는데 뭘 써야 하나요?"라는 질문에 대한 답은 항상 PHP였음. 호스팅 업체에서 기본 제공하고, Apache에서 바로 돌아가고, `<?php echo "Hello"; ?>`만 치면 뭔가 나오니까. 진입장벽이 지면 아래에 있었음.
+
+근데 진입장벽이 낮다는 건 "아무나 코드를 짤 수 있다"는 뜻이기도 함. 프로그래밍을 체계적으로 배우지 않은 사람들이 PHP로 게시판을 만들고, 쇼핑몰을 만들고, 회사 홈페이지를 만들었음. 그 결과물이 바로 PHP 4 레거시 코드임. 지금 보면 공포 그 자체지만, 당시에는 "돌아가면 장땡"이었음.
+
+## register_globals — 모든 악의 근원
+
+PHP 4 시절 `php.ini`에 있던 설정 하나가 역사를 바꿨음:
+
+```ini
+; php.ini
+register_globals = On  ; <-- 이것
+```
+
+이 설정이 켜져 있으면 URL 파라미터, POST 데이터, 쿠키 값이 **자동으로 글로벌 변수**가 됨:
+
+```php
+<?php
+// URL: /admin.php?is_admin=1
+
+// register_globals = On 이면
+// $is_admin 변수가 자동으로 1로 설정됨
+
+if ($is_admin) {
+    // 관리자 페이지 표시
+    show_admin_panel();  // URL만 조작하면 관리자 됨 ㅋㅋ
+}
+?>
+```
+
+<Callout type="error" title="보안 재앙">
+URL에 `?is_admin=1`만 붙이면 누구나 관리자가 될 수 있었음. 이것은 과장이 아니라 실제로 2000년대 초반 수많은 PHP 사이트가 이런 식으로 해킹당했음. `register_globals`는 PHP 5.3에서 deprecated되고 PHP 5.4에서 완전히 제거됨. 인류에 대한 PHP 개발팀의 가장 큰 공헌 중 하나임.
+</Callout>
+
+실제 PHP 4 스타일의 인증 코드를 보자:
+
+```php
+<?php
+// login.php — 2002년경 코드
+
+// register_globals = On이므로
+// $_POST['username']이 아니라 그냥 $username으로 접근
+// (폼에서 name="username"으로 보내면 자동으로 $username에 들어감)
+
+$query = "SELECT * FROM users WHERE username = '$username'
+          AND password = '$password'";
+$result = mysql_query($query);
+
+if (mysql_num_rows($result) > 0) {
+    $is_logged_in = 1;
+    $user_level = mysql_result($result, 0, 'level');
+
+    // 세션에 저장... 하는 게 아니라 쿠키에 저장
+    setcookie('is_logged_in', '1');
+    setcookie('user_level', $user_level);
+    setcookie('username', $username);
+
+    header('Location: /dashboard.php');
+} else {
+    echo "<script>alert('로그인 실패'); history.back();</script>";
+}
+?>
+```
+
+<Callout type="error" title="이 코드의 보안 취약점 카운트">
+1. **SQL Injection** — `$username`에 `' OR 1=1 --`를 넣으면 모든 계정으로 로그인 가능. 2. **평문 비밀번호** — 해싱 없이 비밀번호를 직접 비교. 3. **쿠키 기반 인증** — 쿠키를 조작하면 관리자 접근 가능. 4. **register_globals** — 외부 입력을 검증 없이 사용. 5. **mysql_* 함수** — deprecated된 함수, prepared statement 미지원. 총 5개. 근데 이게 2000년대 초반 PHP 코드의 **평균**이었음. 이보다 나쁜 코드도 많았음.
+</Callout>
+
+## include 지옥 — MVC를 모르는 세계
+
+PHP 4에서 코드를 재사용하는 방법은 `include`뿐이었음. 프레임워크? 그런 거 없었음. MVC? 들어본 적 없음. 그냥 `include`로 파일을 갖다 붙이는 거임:
+
+```php
+<?php
+// index.php — 전형적인 PHP 4 구조
+
+include 'config.php';         // DB 설정
+include 'functions.php';      // 유틸 함수 모음 (500줄)
+include 'header.php';         // HTML 헤더 + 네비게이션
+
+// URL 파라미터로 페이지 분기
+$page = isset($_GET['page']) ? $_GET['page'] : 'home';
+
+switch ($page) {
+    case 'home':
+        include 'pages/home.php';
+        break;
+    case 'board':
+        include 'pages/board.php';
+        break;
+    case 'view':
+        include 'pages/view.php';
+        break;
+    case 'write':
+        include 'pages/write.php';
+        break;
+    case 'admin':
+        include 'pages/admin.php';
+        break;
+    default:
+        include 'pages/404.php';
+}
+
+include 'footer.php';         // HTML 푸터
+?>
+```
+
+<Callout type="warning" title="LFI (Local File Inclusion) 취약점">
+`$page` 값을 사용자 입력에서 그대로 가져오고 있음. 만약 `include "pages/$page.php"`로 작성했다면 `?page=../../../etc/passwd%00` 같은 입력으로 서버의 시스템 파일을 읽을 수 있었음. PHP 4 시절에는 이런 취약점이 기본 장착이었음.
+</Callout>
+
+### config.php — 비밀번호가 하드코딩된 그 파일
+
+```php
+<?php
+// config.php — 모든 프로젝트에 하나씩 있던 그 파일
+
+$db_host = 'localhost';
+$db_user = 'root';           // root 계정 사용 ㅋㅋ
+$db_pass = 'asd123';         // 비밀번호 하드코딩 ㅋㅋㅋ
+$db_name = 'mysite_db';
+
+$conn = mysql_connect($db_host, $db_user, $db_pass);
+mysql_select_db($db_name, $conn);
+mysql_query("SET NAMES euckr", $conn);  // UTF-8이 아니라 euckr
+
+// 사이트 설정
+$site_name = '김대리의 홈페이지';
+$admin_email = 'admin@mysite.com';
+$upload_path = '/var/www/html/uploads/';
+$max_upload_size = 2097152;  // 2MB
+
+// 글로벌 변수로 어디서든 접근 가능
+$GLOBALS['conn'] = $conn;
+$GLOBALS['site_name'] = $site_name;
+?>
+```
+
+<Callout type="error" title="이 파일을 git에 커밋한 사람 손들어">
+DB 비밀번호가 하드코딩된 config.php를 git에 커밋하는 건 2000년대의 국룰이었음. `.gitignore`? 그게 뭔데? 환경 변수? 그건 또 뭔데? 지금도 GitHub에서 `"mysql_connect" "root" password`로 검색하면 수천 개의 결과가 나옴. 과거의 유산은 영원함.
+</Callout>
+
+### functions.php — 모든 것이 들어있는 신의 파일
+
+```php
+<?php
+// functions.php — 500줄짜리 유틸 함수 모음
+// 게시판 함수, 회원 함수, 파일 업로드, 메일 발송이 전부 여기 있음
+
+// 게시판 글 목록
+function get_board_list($board_id, $page, $per_page) {
+    $start = ($page - 1) * $per_page;
+    $query = "SELECT * FROM board_$board_id
+              ORDER BY num DESC
+              LIMIT $start, $per_page";
+    $result = mysql_query($query);
+
+    $list = array();
+    while ($row = mysql_fetch_assoc($result)) {
+        $list[] = $row;
+    }
+    return $list;
+}
+
+// 게시판 글 작성
+function write_board($board_id, $subject, $content, $name) {
+    // XSS? 뭐 그런 거 신경 안 씀
+    $query = "INSERT INTO board_$board_id
+              (subject, content, name, regdate, hit)
+              VALUES ('$subject', '$content', '$name', NOW(), 0)";
+    mysql_query($query);
+    return mysql_insert_id();
+}
+
+// 회원 정보 조회
+function get_member($user_id) {
+    $query = "SELECT * FROM members
+              WHERE user_id = '$user_id'";
+    $result = mysql_query($query);
+    return mysql_fetch_assoc($result);
+}
+
+// 파일 업로드
+function upload_file($file) {
+    global $upload_path, $max_upload_size;
+
+    if ($file['size'] > $max_upload_size) {
+        return false;
+    }
+
+    // 파일 확장자 체크... 를 안 함
+    $filename = $file['name'];  // 원본 파일명 그대로 사용
+    $dest = $upload_path . $filename;
+
+    move_uploaded_file($file['tmp_name'], $dest);
+    return $filename;
+}
+
+// 페이지네이션 HTML 생성
+function make_pagination($total, $page, $per_page, $url) {
+    $total_pages = ceil($total / $per_page);
+    $html = '<div class="pagination">';
+
+    for ($i = 1; $i <= $total_pages; $i++) {
+        if ($i == $page) {
+            $html .= "<strong>$i</strong> ";
+        } else {
+            $html .= "<a href=\"$url&page=$i\">$i</a> ";
+        }
+    }
+
+    $html .= '</div>';
+    return $html;
+}
+
+// 비밀번호 암호화... 라고 하기엔 너무 약한
+function encrypt_password($password) {
+    return md5($password);  // MD5... ㅋ
+}
+
+// IP 차단 체크
+function is_blocked_ip() {
+    $ip = $_SERVER['REMOTE_ADDR'];
+    $query = "SELECT * FROM blocked_ips WHERE ip = '$ip'";
+    $result = mysql_query($query);
+    return mysql_num_rows($result) > 0;
+}
+
+// 방문자 카운터
+function update_visitor_count() {
+    $today = date('Y-m-d');
+    $ip = $_SERVER['REMOTE_ADDR'];
+
+    $query = "SELECT * FROM visitors
+              WHERE visit_date = '$today' AND ip = '$ip'";
+    $result = mysql_query($query);
+
+    if (mysql_num_rows($result) == 0) {
+        mysql_query("INSERT INTO visitors (visit_date, ip)
+                     VALUES ('$today', '$ip')");
+        mysql_query("UPDATE site_stats
+                     SET today_count = today_count + 1,
+                         total_count = total_count + 1");
+    }
+}
+?>
+```
+
+이 `functions.php`에서 발견되는 문제점들:
+
+1. **SQL Injection 기본 장착** — 모든 쿼리에서 사용자 입력을 직접 문자열 연결
+2. **파일 업로드 취약점** — 확장자 검증 없음, `shell.php`를 업로드하면 서버 장악 가능
+3. **MD5 해싱** — 레인보우 테이블 공격에 취약, salt도 없음
+4. **글로벌 상태 의존** — `global` 키워드로 전역 변수에 접근
+5. **에러 처리 없음** — `mysql_query()` 실패 시 그냥 무시
+
+## 게시판 코드 — 한국 PHP 레거시의 정수
+
+한국 웹 개발 역사에서 게시판은 빠질 수 없는 존재임. 제로보드(Zeroboard), 그누보드(GnuBoard)를 쓰거나, 직접 게시판을 만들었음:
+
+```php
+<?php
+// board_view.php — 게시판 글 보기
+
+include 'config.php';
+include 'functions.php';
+include 'header.php';
+
+$num = $_GET['num'];  // 글 번호 (검증 없음)
+$board_id = $_GET['board'];
+
+// 조회수 증가 (중복 체크 없음, F5 누르면 계속 올라감)
+mysql_query("UPDATE board_$board_id SET hit = hit + 1
+             WHERE num = $num");
+
+// 글 조회
+$query = "SELECT * FROM board_$board_id WHERE num = $num";
+$result = mysql_query($query);
+$row = mysql_fetch_assoc($result);
+?>
+
+<table border="1" cellpadding="5" cellspacing="0" width="100%">
+<tr>
+  <td bgcolor="#f0f0f0" width="80">제목</td>
+  <td><?=$row['subject']?></td>
+</tr>
+<tr>
+  <td bgcolor="#f0f0f0">작성자</td>
+  <td><?=$row['name']?>
+      (<?=substr($row['ip'], 0, strrpos($row['ip'], '.'))?>.*)</td>
+</tr>
+<tr>
+  <td bgcolor="#f0f0f0">작성일</td>
+  <td><?=$row['regdate']?> | 조회: <?=$row['hit']?></td>
+</tr>
+<tr>
+  <td colspan="2" style="padding: 20px;">
+    <?=nl2br($row['content'])?>
+  </td>
+</tr>
+</table>
+
+<br>
+
+<?php
+// 댓글 목록
+$comments = mysql_query("SELECT * FROM comments
+                         WHERE board_id = '$board_id'
+                         AND post_num = $num
+                         ORDER BY num ASC");
+
+while ($comment = mysql_fetch_assoc($comments)):
+?>
+<div class="comment">
+  <b><?=$comment['name']?></b>
+  (<?=substr($comment['ip'], 0, strrpos($comment['ip'], '.'))?>.*)
+  <?=$comment['regdate']?>
+  <br>
+  <?=nl2br($comment['content'])?>
+</div>
+<?php endwhile; ?>
+
+<!-- 댓글 작성 폼 -->
+<form method="post" action="comment_write.php">
+<input type="hidden" name="board_id" value="<?=$board_id?>">
+<input type="hidden" name="post_num" value="<?=$num?>">
+이름: <input type="text" name="name" size="10">
+비밀번호: <input type="password" name="password" size="10">
+<br>
+<textarea name="content" cols="60" rows="3"></textarea>
+<br>
+<input type="submit" value="댓글등록">
+</form>
+
+<?php include 'footer.php'; ?>
+```
+
+<Callout type="warning" title="IP 부분 공개의 추억">
+IP 주소의 마지막 자리만 가리고 나머지를 공개하는 패턴. 2000년대 한국 게시판의 특징임. 디시인사이드에서 아직도 쓰는 그것 맞음. 개인정보 보호 개념이 지금과는 달랐던 시절의 유산임.
+</Callout>
+
+## SQL Injection — 2000년대의 국민 해킹
+
+SQL Injection이 얼마나 쉬웠는지 보여주겠음:
+
+```php
+<?php
+// 로그인 처리 — SQL Injection의 교과서
+
+$username = $_POST['username'];
+$password = $_POST['password'];
+
+$query = "SELECT * FROM users
+          WHERE username = '$username'
+          AND password = MD5('$password')";
+
+$result = mysql_query($query);
+
+if (mysql_num_rows($result) > 0) {
+    session_start();
+    $user = mysql_fetch_assoc($result);
+    $_SESSION['user_id'] = $user['id'];
+    $_SESSION['username'] = $user['username'];
+}
+?>
+```
+
+공격자가 username에 `admin' --`을 입력하면:
+
+```sql
+-- 실제 실행되는 쿼리
+SELECT * FROM users
+WHERE username = 'admin' --' AND password = MD5('아무거나')
+
+-- -- 이후는 주석이므로 비밀번호 검증이 사라짐!
+-- admin 계정으로 무조건 로그인 성공
+```
+
+더 무서운 공격도 가능했음:
+
+```sql
+-- username에 이걸 넣으면
+-- ' UNION SELECT * FROM users WHERE user_level = 'admin' --
+
+-- 또는 테이블 전체 삭제
+-- '; DROP TABLE users; --
+```
+
+<Callout type="error" title="Bobby Tables">
+xkcd의 유명한 만화 "Little Bobby Tables"가 바로 이 상황을 풍자한 것임. 학생 이름을 `Robert'); DROP TABLE students;--`로 등록하면 학생 테이블이 날아가는 스토리. 웃기지만, 2000년대에는 실제로 이런 일이 벌어졌음. 진짜 실화임.
+</Callout>
+
+### 현대적 해결법
+
+```php
+<?php
+// PHP 8 + PDO — 2024년 스타일
+
+// 환경 변수에서 DB 설정 로드
+$dsn = sprintf(
+    'mysql:host=%s;dbname=%s;charset=utf8mb4',
+    getenv('DB_HOST'),
+    getenv('DB_NAME')
+);
+
+$pdo = new PDO($dsn, getenv('DB_USER'), getenv('DB_PASS'), [
+    PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+    PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+    PDO::ATTR_EMULATE_PREPARES => false,
+]);
+
+// Prepared Statement — SQL Injection 불가능
+$stmt = $pdo->prepare(
+    'SELECT id, username, email FROM users
+     WHERE username = :username'
+);
+$stmt->execute(['username' => $username]);
+$user = $stmt->fetch();
+
+if ($user && password_verify($password, $user['password_hash'])) {
+    session_regenerate_id(true);
+    $_SESSION['user_id'] = $user['id'];
+}
+?>
+```
+
+## PHP 4의 "객체지향" — 이름만 OOP
+
+PHP 4에도 클래스가 있었지만, 진정한 OOP라고 부르기엔 너무 부족했음:
+
+```php
+<?php
+// PHP 4 스타일 "클래스"
+
+class User {
+    var $name;       // public/private/protected? 없음. 전부 var
+    var $email;
+    var $level;
+
+    // 생성자 — 클래스명과 같은 이름의 함수
+    function User($name, $email) {
+        $this->name = $name;
+        $this->email = $email;
+        $this->level = 'user';
+    }
+
+    function get_name() {
+        return $this->name;
+    }
+
+    function set_level($level) {
+        $this->level = $level;
+    }
+
+    function is_admin() {
+        return $this->level == 'admin';
+    }
+}
+
+// 사용
+$user = new User('김개발', 'kim@dev.com');
+
+// 객체 복사가 기본 — 참조가 아님!
+$admin = $user;  // 이건 복사됨!! (PHP 5부터 참조가 기본)
+$admin->set_level('admin');
+
+echo $user->is_admin();   // false — $user는 안 바뀜
+echo $admin->is_admin();  // true
+
+// PHP 4에서 참조로 전달하려면
+$admin = &$user;  // & 필요
+?>
+```
+
+<Callout type="info" title="PHP 5의 혁명">
+PHP 5 (2004년)에서 `public/private/protected` 접근 제어자, `__construct()` 생성자, 추상 클래스, 인터페이스, 예외 처리가 도입됨. 객체가 기본적으로 참조로 전달되게 바뀌었음. PHP 4에서 PHP 5로의 전환은 사실상 "다른 언어"로의 마이그레이션에 가까웠음.
+</Callout>
+
+## 에러 처리? 그냥 @ 붙이면 됨
+
+PHP 4 시절의 에러 처리 방식:
+
+```php
+<?php
+// 방법 1: 에러를 무시한다 (@ 연산자)
+$result = @mysql_query($query);  // 에러 나도 무시
+$data = @file_get_contents($url);  // 파일 못 읽어도 무시
+$conn = @mysql_connect($host, $user, $pass);  // 연결 실패해도 무시
+
+// 방법 2: or die()
+$conn = mysql_connect($host, $user, $pass)
+    or die('DB 연결 실패: ' . mysql_error());
+// 사용자에게 mysql_error()를 그대로 보여주면
+// DB 구조가 노출됨 ㅋㅋ
+
+// 방법 3: 에러 메시지 끄기 (php.ini)
+// display_errors = Off
+// 에러를 안 보여주면 에러가 없는 거 아닌가? (아님)
+
+// 방법 4: 커스텀 에러 핸들러 (매우 희귀)
+function my_error_handler($errno, $errstr, $errfile, $errline) {
+    $log_message = date('Y-m-d H:i:s')
+        . " [$errno] $errstr in $errfile on line $errline";
+    error_log($log_message, 3, '/var/log/php_errors.log');
+
+    if ($errno == E_USER_ERROR) {
+        echo '<h1>시스템 오류가 발생했습니다</h1>';
+        exit(1);
+    }
+}
+set_error_handler('my_error_handler');
+?>
+```
+
+<Callout type="warning" title="or die()의 문제">
+`or die()`는 프로그램을 즉시 종료함. 데이터베이스 연결을 닫지 않고, 세션을 저장하지 않고, 로그를 남기지 않고 그냥 죽음. 에러 페이지도 안 나오고 흰 화면만 뜸. "White Page of Death"라고 불렀음. PHP 개발자들의 공통 트라우마임.
+</Callout>
+
+## 한국 PHP 생태계의 특수성
+
+한국의 PHP 레거시에는 특유의 패턴들이 있었음:
+
+```php
+<?php
+// 1. EUC-KR 인코딩 지옥
+// 2000년대 한국 웹은 EUC-KR이 표준이었음
+header('Content-Type: text/html; charset=euc-kr');
+mysql_query("SET NAMES euckr");
+
+// UTF-8로 마이그레이션? 모든 DB 데이터를 변환해야 함
+// iconv('euc-kr', 'utf-8', $string); 를 어디에나 넣어야 함
+
+// 2. 주민등록번호 처리 (2014년 이전)
+function check_jumin($jumin) {
+    // 주민번호 유효성 검사 로직이 있었음
+    // 지금은 수집 자체가 불법
+    $sum = 0;
+    $weight = array(2,3,4,5,6,7,8,9,2,3,4,5);
+    for ($i = 0; $i < 12; $i++) {
+        $sum += $jumin[$i] * $weight[$i];
+    }
+    $mod = (11 - ($sum % 11)) % 10;
+    return $mod == $jumin[12];
+}
+
+// 3. 카페24, 가비아 등 웹호스팅 환경
+// 서버 설정을 바꿀 수 없어서 .htaccess로 해결
+// mod_rewrite를 이용한 URL 리라이팅이 대세
+// /bbs/board.php?bo_table=free&wr_id=123 같은 URL
+?>
+```
+
+## PHP의 진화 — 4에서 8까지
+
+PHP가 어떻게 변해왔는지 비교해보면:
+
+```php
+<?php
+// ============================
+// PHP 4 (2000) — 원시 시대
+// ============================
+$conn = mysql_connect('localhost', 'root', 'pass');
+$result = mysql_query("SELECT * FROM users
+                       WHERE id = $id");
+$user = mysql_fetch_assoc($result);
+echo $user['name'];
+?>
+```
+
+```php
+<?php
+// ============================
+// PHP 5.x (2004-2014) — 개화기
+// ============================
+try {
+    $pdo = new PDO('mysql:host=localhost;dbname=mydb',
+                   'user', 'pass');
+    $stmt = $pdo->prepare('SELECT * FROM users WHERE id = ?');
+    $stmt->execute([$id]);
+    $user = $stmt->fetch(PDO::FETCH_OBJ);
+    echo $user->name;
+} catch (PDOException $e) {
+    error_log($e->getMessage());
+}
+?>
+```
+
+```php
+<?php
+// ============================
+// PHP 7.x (2015-2020) — 성숙기
+// ============================
+declare(strict_types=1);
+
+class UserRepository {
+    private PDO $pdo;
+
+    public function __construct(PDO $pdo) {
+        $this->pdo = $pdo;
+    }
+
+    public function find(int $id): ?User {
+        $stmt = $this->pdo->prepare(
+            'SELECT * FROM users WHERE id = :id'
+        );
+        $stmt->execute(['id' => $id]);
+        $data = $stmt->fetch();
+
+        return $data ? User::fromArray($data) : null;
+    }
+}
+?>
+```
+
+```php
+<?php
+// ============================
+// PHP 8.x (2020-현재) — 현대
+// ============================
+readonly class User {
+    public function __construct(
+        public int $id,
+        public string $name,
+        public string $email,
+        public UserLevel $level = UserLevel::Regular,
+    ) {}
+}
+
+enum UserLevel: string {
+    case Regular = 'regular';
+    case Admin = 'admin';
+    case SuperAdmin = 'super_admin';
+}
+
+class UserRepository {
+    public function __construct(
+        private readonly PDO $pdo,
+    ) {}
+
+    public function find(int $id): ?User {
+        $stmt = $this->pdo->prepare(
+            'SELECT * FROM users WHERE id = :id'
+        );
+        $stmt->execute(['id' => $id]);
+        $data = $stmt->fetch();
+
+        return $data
+            ? new User(
+                id: $data['id'],
+                name: $data['name'],
+                email: $data['email'],
+                level: UserLevel::from($data['level']),
+            )
+            : null;
+    }
+}
+?>
+```
+
+<Callout type="success" title="PHP 8의 모습">
+PHP 8은 readonly 클래스, enum, named arguments, match 표현식, union types, fibers 등 현대적 기능을 갖춘 언어임. PHP 4와 비교하면 사실상 완전히 다른 언어임. "PHP는 구린 언어"라는 편견은 PHP 4 시절에 형성된 것이고, 현대 PHP는 충분히 강력하고 안전한 언어임. Laravel, Symfony 같은 프레임워크도 매우 잘 만들어져 있음.
+</Callout>
+
+## PHP 4 레거시를 만났을 때의 생존 가이드
+
+### 1단계: 보안 취약점부터 막기
+
+```php
+<?php
+// 가장 급한 것: SQL Injection 방지
+// mysql_* 함수를 PDO로 교체하는 것이 최우선
+
+// Before
+$result = mysql_query("SELECT * FROM users
+                       WHERE id = $id");
+
+// After (최소한의 변경)
+$id = intval($id);  // 숫자 강제 변환
+$result = mysql_query("SELECT * FROM users
+                       WHERE id = $id");
+
+// Best (PDO로 교체)
+$stmt = $pdo->prepare('SELECT * FROM users WHERE id = ?');
+$stmt->execute([$id]);
+?>
+```
+
+### 2단계: 문자 인코딩 통일
+
+```sql
+-- DB: ALTER TABLE users
+--     CONVERT TO CHARACTER SET utf8mb4;
+```
+
+```php
+<?php
+// PHP
+header('Content-Type: text/html; charset=utf-8');
+// HTML: <meta charset="utf-8">
+// 파일 자체도 UTF-8로 저장
+?>
+```
+
+### 3단계: 프레임워크 도입
+
+새 코드는 Laravel이나 Symfony로, 기존 코드는 점진적으로 마이그레이션. 절대 한 번에 다 바꾸려고 하면 안 됨.
+
+<Callout type="note" title="고고학자의 노트">
+PHP 4 레거시 코드를 볼 때 "이따구로 짠 사람이 누구야"라고 생각하기 쉽지만, 당시에는 웹 개발에 대한 체계적인 교육이 거의 없었음. "PHP와 MySQL로 24시간 안에 게시판 만들기" 같은 책을 보고 독학한 사람들이 대부분이었음. 보안은 나중에 추가하는 것이라 생각했고, SQL Injection이라는 개념 자체를 모르는 개발자가 많았음. 비난하기보다 역사를 이해하고, 같은 실수를 반복하지 않는 것이 중요함. 지금도 NoSQL Injection, SSRF, Prototype Pollution 같은 새로운 취약점이 발견되고 있음. 우리도 10년 후에는 까일 예정임.
+</Callout>

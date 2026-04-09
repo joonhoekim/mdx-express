@@ -1,0 +1,832 @@
+# 레거시 리팩토링 실전 — 칼을 뽑았으면 무라도 썰어야지
+
+*"리팩토링 해야 하는데..." 라고 말한 지 6개월째인 사람 손들어*
+
+---
+
+레거시 코드를 분석했고, 문제를 파악했고, "리팩토링 해야지"라고 다짐했음. 좋음. 근데 여기서 90%의 사람들이 멈춤. 왜? 무서우니까. 돌아가는 코드를 건드리면 뭔가 깨질 것 같으니까. 테스트도 없고, 문서도 없고, 이 코드를 이해하는 사람도 없는 상황에서 리팩토링을 시작하는 건 지뢰밭에서 춤추는 것과 비슷함.
+
+근데 안 하면? 기술 부채는 이자를 낳음. 복리로. "나중에 하지"의 "나중"은 영원히 오지 않고, 코드는 점점 더 복잡해지고, 새 기능 추가에 2배, 3배의 시간이 걸리고, 결국 "다 새로 짜자"는 말이 나옴. 그리고 "다 새로 짜자"는 대부분 실패함. Netscape가 그랬고, Lotus Notes가 그랬고, 수많은 스타트업이 그랬음.
+
+칼을 뽑았으면 무라도 썰어야 함. 하지만 **올바른 방법으로** 썰어야 함.
+
+## Strangler Fig 패턴 — 레거시를 교살하는 나무
+
+<Callout type="info" title="Strangler Fig이란?">
+교살 무화과나무(Strangler Fig)는 숙주 나무를 감싸며 자라다가 결국 숙주를 대체하는 식물임. Martin Fowler가 레거시 시스템 마이그레이션에 이 비유를 차용했음. 핵심은 **기존 시스템을 한 번에 교체하지 않고, 새 시스템이 점진적으로 기존 시스템을 감싸며 대체**하는 것임.
+</Callout>
+
+```typescript
+// Strangler Fig 패턴 실전 예시
+// 기존: 모놀리식 OrderService (1000줄)
+// 목표: 깔끔한 서비스 아키텍처로 전환
+
+// ===========================
+// Step 1: 프록시 레이어 추가
+// ===========================
+
+// 기존 코드를 감싸는 파사드를 만듦
+// 외부에서는 파사드만 호출하고, 파사드가 기존 코드를 호출
+
+class OrderServiceFacade {
+  private legacyService: LegacyOrderService;
+  private newService: NewOrderService;
+  private featureFlags: FeatureFlags;
+
+  constructor(
+    legacy: LegacyOrderService,
+    newService: NewOrderService,
+    flags: FeatureFlags
+  ) {
+    this.legacyService = legacy;
+    this.newService = newService;
+    this.featureFlags = flags;
+  }
+
+  async createOrder(data: CreateOrderDto): Promise<Order> {
+    // Feature Flag로 트래픽 분기
+    if (this.featureFlags.isEnabled('new-order-service')) {
+      return this.newService.createOrder(data);
+    }
+    return this.legacyService.createOrder(data);
+  }
+
+  async getOrder(id: string): Promise<Order> {
+    // 조회는 먼저 새 서비스로 전환 (읽기는 안전하니까)
+    if (this.featureFlags.isEnabled('new-order-read')) {
+      return this.newService.getOrder(id);
+    }
+    return this.legacyService.getOrder(id);
+  }
+
+  async cancelOrder(id: string): Promise<void> {
+    // 위험한 기능은 나중에 전환
+    return this.legacyService.cancelOrder(id);
+  }
+}
+
+// ===========================
+// Step 2: 기능 하나씩 새 서비스로 이전
+// ===========================
+
+// 1주차: 조회(read) 기능 이전
+// 2주차: 생성(create) 기능 이전
+// 3주차: 수정(update) 기능 이전
+// 4주차: 삭제/취소 기능 이전
+// 5주차: 레거시 코드 제거
+
+// ===========================
+// Step 3: 점진적 트래픽 이전
+// ===========================
+
+// 1% → 5% → 10% → 50% → 100% 순으로
+// 새 서비스로 트래픽을 전환
+// 문제 발생 시 즉시 0%로 롤백
+```
+
+<Callout type="success" title="Strangler Fig의 핵심 장점">
+1. **항상 롤백 가능** — Feature Flag를 끄면 즉시 레거시로 복원. 2. **점진적 검증** — 트래픽을 조금씩 늘리며 문제를 조기 발견. 3. **비즈니스 중단 없음** — 기존 서비스가 계속 동작하는 상태에서 전환. 4. **팀 전체가 참여 가능** — 한 사람이 전체를 리라이트하는 게 아니라 기능별로 분배.
+</Callout>
+
+## 리팩토링 전 테스트 작성 — 안전망 먼저
+
+<Callout type="warning" title="절대 원칙">
+**테스트 없이 리팩토링하지 마라.** 이건 절대 원칙임. 테스트가 없으면 리팩토링 후에 "기존과 동일하게 동작하는가?"를 확인할 방법이 없음. 눈으로 확인? 수백 가지 엣지 케이스를 눈으로 확인할 수 있다고? ㅋㅋ 못함.
+</Callout>
+
+레거시 코드에 테스트를 추가하는 전략:
+
+### 전략 1: Characterization Test (특성 테스트)
+
+```typescript
+// "코드가 어떻게 동작해야 하는지"가 아니라
+// "코드가 현재 어떻게 동작하는지"를 기록하는 테스트
+// Michael Feathers가 "Working Effectively with Legacy Code"에서 제안
+
+// 기존 코드 (동작을 정확히 모름)
+function calculateShipping(
+  weight: number,
+  distance: number,
+  isExpress: boolean
+): number {
+  // 100줄짜리 복잡한 로직...
+  // 비즈니스 규칙이 주석 없이 뒤섞여 있음
+  let base = weight * 100;
+  if (distance > 100) base *= 1.5;
+  if (isExpress) base *= 2;
+  if (weight > 30) base += 10000;
+  if (base < 3000) base = 3000;
+  return Math.ceil(base / 100) * 100;
+}
+
+// 특성 테스트: 현재 동작을 기록
+describe('calculateShipping - characterization', () => {
+  // 다양한 입력에 대한 현재 출력을 기록
+  it.each([
+    // [weight, distance, isExpress, expected]
+    [1, 10, false, 3000],      // 최소 금액 적용
+    [5, 10, false, 3000],      // 아직 최소 금액
+    [10, 10, false, 3000],     // 여전히 최소 금액
+    [20, 10, false, 3000],     // weight*100 = 2000 < 3000
+    [35, 10, false, 13500],    // 30kg 초과 추가 요금
+    [10, 150, false, 3000],    // 100km 초과 1.5배
+    [10, 10, true, 3000],      // 익스프레스 2배
+    [50, 200, true, 25000],    // 모든 조건 적용
+  ])(
+    'weight=%d, distance=%d, express=%s => %d',
+    (weight, distance, isExpress, expected) => {
+      expect(
+        calculateShipping(weight, distance, isExpress)
+      ).toBe(expected);
+    }
+  );
+});
+```
+
+### 전략 2: E2E 테스트로 안전망 구축
+
+```typescript
+// 단위 테스트를 작성하기 어려운 경우
+// (의존성이 너무 많고, 모킹이 불가능한 경우)
+// E2E 테스트로 "시스템 전체가 동작하는지" 확인
+
+import { test, expect } from '@playwright/test';
+
+test.describe('주문 프로세스', () => {
+  test('상품을 장바구니에 담고 결제할 수 있다', async ({ page }) => {
+    // 1. 로그인
+    await page.goto('/login');
+    await page.fill('#email', 'test@test.com');
+    await page.fill('#password', 'password123');
+    await page.click('button[type="submit"]');
+
+    // 2. 상품 페이지로 이동
+    await page.goto('/products/PROD-001');
+
+    // 3. 장바구니에 추가
+    await page.click('#add-to-cart');
+    await expect(page.locator('.cart-count')).toHaveText('1');
+
+    // 4. 결제 페이지
+    await page.goto('/checkout');
+    await expect(
+      page.locator('.order-total')
+    ).toContainText('50,000');
+
+    // 5. 결제 실행 (테스트 PG)
+    await page.click('#pay-button');
+    await expect(page).toHaveURL(/\/orders\/ORD-/);
+    await expect(
+      page.locator('.order-status')
+    ).toHaveText('결제 완료');
+  });
+});
+```
+
+### 전략 3: Golden Master Testing
+
+```typescript
+// 레거시 함수의 출력을 "정답 파일"로 저장하고
+// 리팩토링 후 출력이 동일한지 비교
+
+// 1단계: Golden Master 생성
+function generateGoldenMaster() {
+  const testCases = generateTestInputs(); // 수천 개의 입력
+  const results: Record<string, unknown> = {};
+
+  for (const tc of testCases) {
+    const key = JSON.stringify(tc);
+    results[key] = legacyFunction(tc);
+  }
+
+  // 파일로 저장
+  writeFileSync(
+    'golden-master.json',
+    JSON.stringify(results, null, 2)
+  );
+}
+
+// 2단계: 리팩토링 후 비교
+function verifyAgainstGoldenMaster() {
+  const golden = JSON.parse(
+    readFileSync('golden-master.json', 'utf-8')
+  );
+
+  let passed = 0;
+  let failed = 0;
+
+  for (const [input, expected] of Object.entries(golden)) {
+    const tc = JSON.parse(input);
+    const actual = refactoredFunction(tc);
+
+    if (JSON.stringify(actual) === JSON.stringify(expected)) {
+      passed++;
+    } else {
+      failed++;
+      console.error(
+        `MISMATCH: input=${input}`,
+        `expected=${JSON.stringify(expected)}`,
+        `actual=${JSON.stringify(actual)}`
+      );
+    }
+  }
+
+  console.log(`Passed: ${passed}, Failed: ${failed}`);
+}
+```
+
+## 실제 리팩토링 코드 — Before / After
+
+### 예시 1: God Function 분리
+
+```typescript
+// BEFORE: 300줄짜리 주문 처리 함수
+async function processOrder(orderData: any) {
+  // 유효성 검사 (50줄)
+  if (!orderData.userId) throw new Error('userId 필요');
+  if (!orderData.items || orderData.items.length === 0)
+    throw new Error('상품 필요');
+  // ... 30줄 더 ...
+
+  // 재고 확인 (40줄)
+  for (const item of orderData.items) {
+    const product = await db.query(
+      'SELECT stock FROM products WHERE id = ?',
+      [item.productId]
+    );
+    if (product.stock < item.quantity) {
+      throw new Error('재고 부족: ' + item.productId);
+    }
+  }
+
+  // 가격 계산 (60줄)
+  let totalAmount = 0;
+  for (const item of orderData.items) {
+    const product = await db.query(
+      'SELECT price, discount_rate FROM products WHERE id = ?',
+      [item.productId]
+    );
+    const itemPrice = product.price * (1 - product.discount_rate);
+    totalAmount += itemPrice * item.quantity;
+  }
+
+  // 쿠폰 적용 (30줄)
+  if (orderData.couponId) {
+    const coupon = await db.query(
+      'SELECT * FROM coupons WHERE id = ?',
+      [orderData.couponId]
+    );
+    if (coupon && coupon.expires_at > new Date()) {
+      if (coupon.type === 'percent') {
+        totalAmount *= (1 - coupon.value / 100);
+      } else {
+        totalAmount -= coupon.value;
+      }
+    }
+  }
+
+  // 배송비 계산 (20줄)
+  let shippingFee = 3000;
+  if (totalAmount >= 50000) shippingFee = 0;
+
+  // 포인트 차감 (20줄)
+  if (orderData.usePoints) {
+    const user = await db.query(
+      'SELECT points FROM users WHERE id = ?',
+      [orderData.userId]
+    );
+    const pointsToUse = Math.min(
+      orderData.usePoints, user.points
+    );
+    totalAmount -= pointsToUse;
+    await db.query(
+      'UPDATE users SET points = points - ? WHERE id = ?',
+      [pointsToUse, orderData.userId]
+    );
+  }
+
+  // 주문 생성 (30줄)
+  const orderId = generateOrderId();
+  await db.query(
+    `INSERT INTO orders (id, user_id, total_amount,
+     shipping_fee, status) VALUES (?, ?, ?, ?, ?)`,
+    [orderId, orderData.userId,
+     totalAmount, shippingFee, 'pending']
+  );
+
+  // 결제 처리 (40줄)
+  const paymentResult = await pg.processPayment({
+    orderId,
+    amount: totalAmount + shippingFee,
+    method: orderData.paymentMethod,
+  });
+
+  if (!paymentResult.success) {
+    await db.query(
+      'UPDATE orders SET status = ? WHERE id = ?',
+      ['payment_failed', orderId]
+    );
+    throw new Error('결제 실패');
+  }
+
+  // 알림 발송 (20줄)
+  await sendEmail(orderData.userId, '주문 완료', orderId);
+  await sendSlack('#orders', `새 주문: ${orderId}`);
+
+  return { orderId, totalAmount, shippingFee };
+}
+```
+
+```typescript
+// AFTER: 단일 책임 원칙에 따라 분리
+
+// 주문 처리 오케스트레이터 (흐름만 관리)
+class OrderProcessor {
+  constructor(
+    private validator: OrderValidator,
+    private calculator: PriceCalculator,
+    private inventory: InventoryService,
+    private payment: PaymentService,
+    private notification: NotificationService,
+    private orderRepo: OrderRepository,
+  ) {}
+
+  async process(data: CreateOrderDto): Promise<OrderResult> {
+    // 1. 유효성 검사
+    this.validator.validate(data);
+
+    // 2. 재고 확인
+    await this.inventory.checkStock(data.items);
+
+    // 3. 가격 계산
+    const pricing = await this.calculator.calculate({
+      items: data.items,
+      couponId: data.couponId,
+      usePoints: data.usePoints,
+      userId: data.userId,
+    });
+
+    // 4. 주문 생성
+    const order = await this.orderRepo.create({
+      userId: data.userId,
+      totalAmount: pricing.totalAmount,
+      shippingFee: pricing.shippingFee,
+    });
+
+    // 5. 결제
+    try {
+      await this.payment.process({
+        orderId: order.id,
+        amount: pricing.finalAmount,
+        method: data.paymentMethod,
+      });
+    } catch (error) {
+      await this.orderRepo.updateStatus(
+        order.id, 'payment_failed'
+      );
+      throw error;
+    }
+
+    // 6. 알림 (실패해도 주문은 유효)
+    await this.notification
+      .notifyOrderCreated(order)
+      .catch(err => console.error('알림 실패:', err));
+
+    return {
+      orderId: order.id,
+      totalAmount: pricing.totalAmount,
+      shippingFee: pricing.shippingFee,
+    };
+  }
+}
+
+// 가격 계산 서비스 (독립적으로 테스트 가능)
+class PriceCalculator {
+  constructor(
+    private productRepo: ProductRepository,
+    private couponRepo: CouponRepository,
+    private userRepo: UserRepository,
+  ) {}
+
+  async calculate(params: PriceParams): Promise<PricingResult> {
+    const itemsTotal = await this.calculateItemsTotal(
+      params.items
+    );
+    const couponDiscount = await this.applyCoupon(
+      params.couponId, itemsTotal
+    );
+    const pointDiscount = await this.applyPoints(
+      params.userId, params.usePoints
+    );
+    const shippingFee = this.calculateShipping(
+      itemsTotal - couponDiscount - pointDiscount
+    );
+
+    return {
+      itemsTotal,
+      couponDiscount,
+      pointDiscount,
+      shippingFee,
+      totalAmount: itemsTotal - couponDiscount - pointDiscount,
+      finalAmount: itemsTotal - couponDiscount
+                   - pointDiscount + shippingFee,
+    };
+  }
+
+  private calculateShipping(amount: number): number {
+    return amount >= FREE_SHIPPING_THRESHOLD ? 0 : BASE_SHIPPING_FEE;
+  }
+
+  // ... 각 계산 메서드
+}
+```
+
+<Callout type="success" title="리팩토링의 효과">
+**Before:** 300줄 함수 1개. 테스트 불가능. 한 곳을 수정하면 전체에 영향. **After:** 20-50줄 클래스 6개. 각각 독립적으로 테스트 가능. 가격 계산 로직만 변경하면 PriceCalculator만 수정하면 됨. 코드 총량은 비슷하지만 유지보수성이 비교 불가.
+</Callout>
+
+### 예시 2: 콜백 지옥을 async/await로
+
+```typescript
+// BEFORE: 콜백 지옥
+function getUserOrders(userId, callback) {
+  db.getUser(userId, function(err, user) {
+    if (err) return callback(err);
+
+    db.getOrders(user.id, function(err, orders) {
+      if (err) return callback(err);
+
+      var results = [];
+      var completed = 0;
+
+      if (orders.length === 0) {
+        return callback(null, []);
+      }
+
+      orders.forEach(function(order, index) {
+        db.getOrderItems(order.id, function(err, items) {
+          if (err) return callback(err);
+
+          order.items = items;
+
+          db.getShippingStatus(
+            order.id,
+            function(err, shipping) {
+              if (err) return callback(err);
+
+              order.shipping = shipping;
+              results[index] = order;
+              completed++;
+
+              if (completed === orders.length) {
+                callback(null, results);
+              }
+            }
+          );
+        });
+      });
+    });
+  });
+}
+```
+
+```typescript
+// AFTER: async/await
+async function getUserOrders(
+  userId: string
+): Promise<OrderWithDetails[]> {
+  const user = await db.getUser(userId);
+  const orders = await db.getOrders(user.id);
+
+  return Promise.all(
+    orders.map(async (order) => {
+      const [items, shipping] = await Promise.all([
+        db.getOrderItems(order.id),
+        db.getShippingStatus(order.id),
+      ]);
+
+      return { ...order, items, shipping };
+    })
+  );
+}
+```
+
+<Callout type="info" title="코드 줄 수 비교">
+Before: 35줄, 5단계 중첩, 에러 처리 5번 반복. After: 14줄, 중첩 없음, 에러는 호출자에서 한 번만 처리. 동작은 완전히 동일하지만 가독성과 유지보수성이 비교 불가임. 그리고 After 버전은 `Promise.all`로 병렬 실행까지 챙겼음 (items와 shipping을 동시에 가져옴).
+</Callout>
+
+### 예시 3: 조건문 리팩토링
+
+```typescript
+// BEFORE: 끝없는 if-else
+function getDiscount(
+  user: User,
+  order: Order,
+  season: string
+): number {
+  let discount = 0;
+
+  if (user.level === 'VIP') {
+    discount = 0.15;
+    if (order.amount > 100000) {
+      discount = 0.2;
+      if (season === 'summer' || season === 'winter') {
+        discount = 0.25;
+      }
+    }
+  } else if (user.level === 'GOLD') {
+    discount = 0.1;
+    if (order.amount > 100000) {
+      discount = 0.15;
+    }
+  } else if (user.level === 'SILVER') {
+    discount = 0.05;
+    if (order.amount > 200000) {
+      discount = 0.08;
+    }
+  } else {
+    discount = 0;
+    if (order.amount > 300000) {
+      discount = 0.03;
+    }
+  }
+
+  // 신규 가입 30일 이내 추가 할인
+  if (user.createdAt > thirtyDaysAgo()) {
+    discount += 0.05;
+  }
+
+  // 생일 할인
+  if (isUserBirthday(user)) {
+    discount += 0.05;
+  }
+
+  return Math.min(discount, 0.3); // 최대 30%
+}
+```
+
+```typescript
+// AFTER: 전략 패턴 + 할인 규칙 분리
+
+interface DiscountRule {
+  name: string;
+  calculate(context: DiscountContext): number;
+}
+
+interface DiscountContext {
+  user: User;
+  order: Order;
+  season: string;
+}
+
+// 각 할인 규칙을 독립적인 클래스로 분리
+const levelDiscount: DiscountRule = {
+  name: 'level',
+  calculate({ user, order }) {
+    const table: Record<string, { base: number;
+      threshold: number; bonus: number }> = {
+      VIP:    { base: 0.15, threshold: 100000, bonus: 0.05 },
+      GOLD:   { base: 0.10, threshold: 100000, bonus: 0.05 },
+      SILVER: { base: 0.05, threshold: 200000, bonus: 0.03 },
+    };
+
+    const config = table[user.level];
+    if (!config) {
+      return order.amount > 300000 ? 0.03 : 0;
+    }
+
+    return order.amount > config.threshold
+      ? config.base + config.bonus
+      : config.base;
+  },
+};
+
+const seasonalDiscount: DiscountRule = {
+  name: 'seasonal',
+  calculate({ user, order, season }) {
+    if (user.level !== 'VIP') return 0;
+    if (order.amount <= 100000) return 0;
+    if (!['summer', 'winter'].includes(season)) return 0;
+    return 0.05; // VIP + 고액 + 시즌일 때만 추가 5%
+  },
+};
+
+const newUserDiscount: DiscountRule = {
+  name: 'newUser',
+  calculate({ user }) {
+    const thirtyDays = 30 * 24 * 60 * 60 * 1000;
+    const isNew =
+      Date.now() - user.createdAt.getTime() < thirtyDays;
+    return isNew ? 0.05 : 0;
+  },
+};
+
+const birthdayDiscount: DiscountRule = {
+  name: 'birthday',
+  calculate({ user }) {
+    return isUserBirthday(user) ? 0.05 : 0;
+  },
+};
+
+// 할인 계산기
+class DiscountCalculator {
+  private rules: DiscountRule[];
+  private maxDiscount: number;
+
+  constructor(
+    rules: DiscountRule[],
+    maxDiscount = 0.3
+  ) {
+    this.rules = rules;
+    this.maxDiscount = maxDiscount;
+  }
+
+  calculate(context: DiscountContext): number {
+    const total = this.rules.reduce(
+      (sum, rule) => sum + rule.calculate(context),
+      0
+    );
+    return Math.min(total, this.maxDiscount);
+  }
+}
+
+// 사용
+const calculator = new DiscountCalculator([
+  levelDiscount,
+  seasonalDiscount,
+  newUserDiscount,
+  birthdayDiscount,
+]);
+
+const discount = calculator.calculate({ user, order, season });
+```
+
+## 리팩토링 vs 리라이트 — 판단 기준
+
+이것은 프로젝트의 운명을 결정하는 질문임:
+
+```
+리팩토링을 선택해야 하는 경우:
+✅ 코드가 현재 동작하고 있음
+✅ 비즈니스 로직이 코드에만 존재함
+✅ 점진적 개선이 가능함
+✅ 팀이 기존 기술 스택을 이해함
+✅ 기존 코드의 80% 이상이 유효함
+
+리라이트를 고려할 수 있는 경우:
+⚠️ 기술 스택이 완전히 사장됨 (예: Flash, Silverlight)
+⚠️ 기존 코드의 아키텍처가 근본적으로 잘못됨
+⚠️ 보안 취약점이 구조적이라 패치 불가
+⚠️ 기존 코드 대비 새로 짜는 게 확실히 빠름
+⚠️ 팀 전체가 리라이트에 동의하고 리소스가 충분함
+
+리라이트를 하면 안 되는 경우:
+❌ "코드가 더러워서" (리팩토링으로 해결 가능)
+❌ "새 기술 써보고 싶어서" (기술적 호기심은 이유가 아님)
+❌ "이해할 수 없어서" (이해하는 게 먼저)
+❌ 기존 시스템의 비즈니스 로직을 완전히 파악하지 못한 상태
+❌ 리라이트 동안 기존 시스템 유지보수 인력이 없는 경우
+```
+
+<Callout type="error" title="리라이트의 함정 — Second System Effect">
+Joel Spolsky가 "Things You Should Never Do"에서 경고한 것: Netscape는 브라우저를 처음부터 다시 짜겠다고 결정했고, 3년 동안 새 버전을 개발하는 동안 시장을 IE에 빼앗겼음. 리라이트는 **보이는 것보다 항상 오래 걸림**. 기존 시스템에 숨어있는 엣지 케이스, 버그 패치, 비즈니스 규칙을 새 시스템에 모두 구현해야 하기 때문임. 리라이트 예상 기간에 3을 곱한 것이 실제 소요 기간이라는 우스갯소리가 있는데, 우스갯소리가 아님.
+</Callout>
+
+## 리팩토링의 실전 규칙
+
+### 규칙 1: Boy Scout Rule
+
+```typescript
+// "캠핑장을 왔을 때보다 깨끗하게 떠나라"
+// 코드를 수정할 때, 수정하는 부분 주변을 조금씩 개선
+
+// 예: 버그를 수정하러 왔을 때
+// Before
+function calc(a, b, c) {
+  var x = a * b;
+  if (c) x = x * 1.1;
+  return x;
+}
+
+// After (버그 수정 + 주변 개선)
+function calculatePrice(
+  unitPrice: number,
+  quantity: number,
+  includesTax: boolean
+): number {
+  const subtotal = unitPrice * quantity;
+  return includesTax
+    ? subtotal * TAX_RATE_MULTIPLIER
+    : subtotal;
+}
+
+const TAX_RATE_MULTIPLIER = 1.1;
+```
+
+### 규칙 2: 하나씩, 작게, 자주
+
+```bash
+# BAD: 한 번에 큰 리팩토링
+git log --oneline
+# "대규모 리팩토링: 주문 서비스 전체 개편" (+3000, -2500)
+# 이런 커밋은 리뷰도 불가능하고, 롤백도 어려움
+
+# GOOD: 작은 단위로 자주
+git log --oneline
+# "refactor: OrderService에서 유효성 검사 분리" (+80, -60)
+# "refactor: 가격 계산 로직을 PriceCalculator로 추출" (+120, -90)
+# "refactor: 결제 처리를 PaymentService로 분리" (+100, -80)
+# "test: PriceCalculator 단위 테스트 추가" (+150, -0)
+# "refactor: 콜백을 async/await로 변환" (+40, -55)
+```
+
+### 규칙 3: 리팩토링과 기능 추가를 섞지 마라
+
+```typescript
+// BAD: 리팩토링하면서 기능도 추가
+// "리팩토링 하는 김에 새 할인 정책도 추가했습니다"
+// → 뭔가 깨졌을 때 리팩토링 때문인지 새 기능 때문인지 모름
+
+// GOOD: 별도 커밋으로 분리
+// 커밋 1: "refactor: 할인 계산 로직 분리"
+// 커밋 2: "feat: 시즌별 할인 정책 추가"
+// → 문제 발생 시 어떤 커밋을 revert할지 명확함
+```
+
+### 규칙 4: 리팩토링 범위를 제한하라
+
+```typescript
+// BAD: "이왕 하는 김에 여기도 고치자, 저기도 고치자"
+// → 범위가 끝없이 확장되고, 결국 완료하지 못함
+
+// GOOD: 타임박스를 정한다
+// "이번 스프린트에서 OrderService의 createOrder만 리팩토링"
+// "다음 스프린트에서 PaymentService 리팩토링"
+// 범위를 명확히 하고, 그 범위만 건드림
+```
+
+## 리팩토링 도구 활용
+
+### IDE 리팩토링 기능
+
+```typescript
+// IDE가 제공하는 자동 리팩토링을 적극 활용
+// 수동으로 하면 실수할 수 있지만, IDE는 정확함
+
+// 1. Rename (이름 변경)
+// 변수, 함수, 클래스 이름을 변경하면
+// 모든 참조를 자동으로 업데이트
+
+// 2. Extract Method (메서드 추출)
+// 코드 블록을 선택하고 "Extract Method"
+// IDE가 파라미터와 리턴 타입을 자동 추론
+
+// 3. Extract Variable (변수 추출)
+// 복잡한 표현식을 의미 있는 이름의 변수로 추출
+
+// 4. Inline (인라인)
+// 불필요한 변수나 함수를 인라인으로 펼침
+
+// 5. Move (이동)
+// 함수나 클래스를 다른 파일/모듈로 이동
+// import 경로 자동 업데이트
+```
+
+### 정적 분석 도구
+
+```bash
+# TypeScript strict 모드 활성화
+# tsconfig.json에서 점진적으로 strict 옵션 켜기
+
+# ESLint 규칙으로 코드 품질 향상
+# no-any: any 타입 사용 금지
+# no-explicit-any: 명시적 any 금지
+# prefer-const: const 우선 사용
+
+# SonarQube, CodeClimate 같은 도구로
+# 코드 품질 메트릭 추적
+# - 복잡도 (Cyclomatic Complexity)
+# - 중복 코드
+# - 테스트 커버리지
+```
+
+<Callout type="note" title="고고학자의 노트">
+리팩토링은 "코드를 예쁘게 만드는 것"이 아님. **동작을 변경하지 않으면서 구조를 개선하는 것**임. 기능은 그대로인데 코드가 더 읽기 쉽고, 수정하기 쉽고, 테스트하기 쉬워지는 것. 이것이 리팩토링의 정의이고, 이것만 기억하면 됨. "예쁜 코드"를 목표로 하면 끝이 없지만, "수정하기 쉬운 코드"를 목표로 하면 멈출 때를 알 수 있음. 다음에 이 코드를 수정할 때 두려움이 없으면, 리팩토링은 성공한 것임.
+</Callout>
+
+## 요약 — 레거시 리팩토링 체크리스트
+
+1. **테스트 먼저** — 특성 테스트, E2E 테스트로 안전망 구축
+2. **작게 시작** — 전체를 한 번에 바꾸려 하지 말고 한 함수, 한 모듈씩
+3. **Strangler Fig** — 새 코드가 기존 코드를 점진적으로 대체
+4. **Feature Flag** — 롤백 가능한 상태를 항상 유지
+5. **리팩토링과 기능 추가 분리** — 별도 커밋, 별도 PR
+6. **Boy Scout Rule** — 코드를 만질 때마다 조금씩 개선
+7. **리라이트는 최후의 수단** — 리팩토링으로 해결 안 될 때만
+8. **문서화** — 리팩토링하면서 발견한 것을 기록
+9. **팀과 공유** — 혼자 하지 말고, 리팩토링 계획을 팀과 공유
+10. **완벽을 추구하지 말것** — "충분히 좋은" 수준이면 멈추기
+
+<Callout type="success" title="레거시 탐험대 시리즈를 마치며">
+6편에 걸쳐 jQuery 스파게티부터 레거시 리팩토링까지 다뤘음. 핵심 메시지는 하나임: **레거시 코드는 적이 아니라 유산**임. 과거의 개발자들이 최선을 다한 결과물이고, 우리가 지금 짜는 코드도 미래의 레거시가 될 것임. 레거시를 대하는 올바른 태도는 비난이 아니라 이해, 그리고 점진적 개선임. 칼을 뽑았으면 무라도 썰되, 지뢰를 밟지 않을 만큼의 신중함을 갖추자.
+</Callout>
