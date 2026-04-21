@@ -1,0 +1,412 @@
+# 마스터 데이터 수신 설계
+
+*CRUD로 보이지만 CRUD가 아니다 — Delete & Insert가 기본인 이유*
+
+---
+
+SAP에서 자재 마스터·벤더 마스터·조직 마스터를 수신해서 우리 DB에 저장하는 작업은 겉보기에 평범한 CRUD 같다. 그런데 실무에서는 다음 세 가지 원칙이 관례로 굳어져 있다.
+
+1. **PK/Unique 제약을 걸지 않는다.**
+2. **FK 제약을 걸지 않는다.**
+3. **UPSERT가 아닌 Delete & Insert로 동기화한다.**
+
+"DB 모범 사례"와 정반대로 보이는 이 관례들이 왜 SAP 마스터 데이터 수신의 기본이 됐는지, 그리고 외부 시스템 개발자가 스키마를 설계할 때 어떻게 접근해야 하는지를 다룬다.
+
+---
+
+## 마스터 데이터 vs 거래 데이터
+
+용어부터 맞추자. **마스터 데이터(Master Data)**와 **거래 데이터(Transaction Data)**는 SAP에서 엄격히 구분된다.
+
+```
+마스터 데이터 (거의 안 변함)       거래 데이터 (계속 발생)
+──────────────────────────     ────────────────────────
+자재 마스터 (MATNR)              구매요청 (PR)
+벤더 마스터 (LIFNR)              발주 (PO)
+직원 마스터 (PERNR)              입고 (GR)
+프로젝트 마스터 (PSPID)          송장 (IV)
+조직 마스터 (BUKRS 등)           입찰, RFQ, 계약...
+```
+
+비유하자면 마스터 데이터는 **사전**이고, 거래 데이터는 그 사전을 참조해서 만든 **문장**이다. 사전에 단어가 등록돼 있지 않으면 문장을 쓸 수 없다. 거래 데이터의 모든 외래키는 결국 마스터 데이터의 어떤 값을 가리킨다.
+
+외부 시스템이 SAP과 붙을 때 마스터 데이터를 수신하는 이유는 두 가지다.
+
+1. **UI에서 드롭다운·자동완성으로 참조하기 위해** (자재를 선택할 때 후보 목록이 필요)
+2. **거래 데이터의 외래키 유효성을 검증하기 위해** (우리 시스템에서 PO를 만들 때 LIFNR이 실제 벤더인지 확인)
+
+---
+
+## 수신 방식의 두 얼굴
+
+마스터 데이터 수신은 **두 가지 모드**가 있고, 둘의 설계 요구사항이 다르다.
+
+### 일상 동기화 (Daily Delta)
+
+변경된 마스터만 보내 온다. 예: "오늘 신규 등록된 자재 50건, 변경된 자재 30건, 삭제된 자재 5건."
+
+- 빈도: 매일·매 시간·실시간
+- 크기: 수십~수천 건
+- 특징: 기존 데이터는 유지하고 변경분만 반영
+
+### 초기·전체 동기화 (Full Load)
+
+전체 마스터 데이터를 한꺼번에 받는다. 예: "자재 마스터 50만 건 전체."
+
+- 빈도: 시스템 구축 초기, 마스터 전면 재구성 시
+- 크기: 수만~수백만 건
+- 특징: 기존 데이터를 전부 지우고 새로 적재 (`TRUNCATE` → `INSERT`)
+
+**설계는 일상 동기화 중심**으로 하고, 전체 동기화는 별도 모드로 둔다.
+
+---
+
+## DB 스키마 설계의 5원칙
+
+"DB 모범 사례"와 반대지만 현장에서는 이 5원칙이 표준이다. 각 원칙마다 근거가 있다.
+
+### 원칙 1 — PK / Unique 제약을 걸지 않는다
+
+**근거**: SAP 데이터에 **중복이 섞여 올 수 있다**.
+
+정의서상 유일해야 할 키(`MATNR`, `LIFNR`)가 실제 운영에서 중복으로 전달되는 일이 생긴다. 원인은 다양하다.
+
+- SAP 내부에서 한 레코드가 변경되면서 **변경 전/후가 한 메시지에 같이** 들어오는 경우
+- 다국어 지원을 위해 **언어 코드(`SPRAS`)마다 별도 레코드**로 나오는 경우 (같은 MATNR, 다른 SPRAS)
+- PI/PO 매핑에서 중복 방지 로직이 없어서 **같은 건이 두 번 발행**되는 경우
+
+Unique 제약을 걸면 이런 메시지 전체가 거부된다. 한 건의 중복 때문에 수천 건의 정상 데이터가 못 들어오는 사고가 자주 난다.
+
+**대안**: PK 대신 **인덱스만** 걸어서 조회 성능만 확보한다.
+
+```sql
+-- 권장
+CREATE TABLE mdg_material_master (
+  matnr VARCHAR(18),
+  matkl VARCHAR(9),
+  meins VARCHAR(3),
+  -- ...
+  INDEX idx_matnr (matnr)
+);
+
+-- 비권장
+CREATE TABLE mdg_material_master (
+  matnr VARCHAR(18) PRIMARY KEY,  -- 중복 들어오면 전체 메시지 실패
+  -- ...
+);
+```
+
+### 원칙 2 — FK 제약을 걸지 않는다
+
+**근거**: 인터페이스 정의서를 **100% 신뢰할 수 없다**.
+
+A 마스터가 B 마스터를 참조한다고 정의서에 있어도, 실제로는 A에는 있고 B에는 아직 없는 상태로 수신되는 경우가 있다. 예:
+
+- 자재 마스터의 `MATKL`(자재그룹)은 자재그룹 마스터의 키를 참조해야 함
+- 하지만 자재 마스터가 먼저 오고 자재그룹 마스터가 나중에 오는 타이밍이 생김
+
+FK를 걸면 이 순서 의존성이 지켜지지 않을 때 INSERT가 실패한다. 결과적으로 자재 마스터가 전부 들어오지 못한다.
+
+**대안**: 참조 무결성은 **애플리케이션 레이어에서 조인 시 확인**. DB 제약으로 강제하지 않는다.
+
+### 원칙 3 — 대부분의 컬럼을 `varchar`로
+
+**근거**: 3편에서 다뤘듯 SAP은 거의 모든 필드를 문자열로 보낸다.
+
+`numeric`·`date` 타입으로 받으려다가 예외 값 하나에 INSERT 전체가 실패하는 것보다, `varchar`로 일단 받고 비즈니스 로직에서 변환·검증하는 편이 안전하다.
+
+```sql
+CREATE TABLE mdg_material_master (
+  matnr   VARCHAR(18),
+  menge   VARCHAR(30),   -- 수량도 varchar (숫자 같지만)
+  lfdat   VARCHAR(8),    -- 날짜도 varchar (YYYYMMDD)
+  netwr   VARCHAR(30),   -- 금액도 varchar
+  waers   VARCHAR(5),
+  -- ...
+);
+```
+
+### 원칙 4 — 인덱스만 설정
+
+PK/Unique 제약은 걸지 않지만 **조회 성능을 위한 인덱스**는 필수다.
+
+```sql
+CREATE INDEX idx_material_matnr ON mdg_material_master(matnr);
+CREATE INDEX idx_material_matkl ON mdg_material_master(matkl);
+CREATE INDEX idx_vendor_lifnr ON mdg_vendor_master(lifnr);
+```
+
+특히 다음 단계의 **Delete & Insert 전략**에서 "기존 데이터 삭제"를 빠르게 하려면 핵심 키에 인덱스가 있어야 한다.
+
+### 원칙 5 — WSDL 구조를 그대로 테이블화
+
+WSDL의 `complexType` 계층을 **테이블 구조로 1:1 매핑**한다. 정규화를 추가로 하지 않는다.
+
+```
+WSDL 계층 구조:                    DB 테이블:
+
+<MATERIAL>                         mdg_material
+  <MATNR>...</MATNR>
+  <DESC>                           mdg_material_desc  (자식 테이블)
+    <SPRAS>...</SPRAS>
+    <MAKTX>...</MAKTX>
+  </DESC>
+  <PLNT>                           mdg_material_plnt  (자식 테이블)
+    <WERKS>...</WERKS>
+  </PLNT>
+</MATERIAL>
+```
+
+**근거**: WSDL 구조가 곧 SAP의 메시지 구조이고, 이 구조로 받아야 **Delete & Insert를 단위 테이블마다 깨끗하게** 처리할 수 있다. 정규화를 추가하면 부모·자식 관계가 복잡해져서 전체 동기화 시 재구성이 어렵다.
+
+<Callout type="info" title="자식 테이블의 연결 키">
+자식 테이블은 부모의 PK가 없으므로 별도 연결 키가 필요하다. 부모 테이블의 주 식별자(`matnr`)를 자식 테이블에 복제해서 저장하는 것이 일반적이다.
+
+```sql
+CREATE TABLE mdg_material_desc (
+  matnr VARCHAR(18),    -- 부모의 주 식별자 (FK 제약은 없음)
+  spras VARCHAR(2),     -- 언어 코드
+  maktx VARCHAR(120),   -- 자재명
+  INDEX idx_matnr (matnr)
+);
+```
+</Callout>
+
+---
+
+## UPSERT vs Delete & Insert
+
+이제 핵심 의사결정. SAP에서 변경된 마스터가 들어올 때 어떻게 반영할 것인가.
+
+### UPSERT 방식 (비권장)
+
+PostgreSQL 기준:
+
+```sql
+INSERT INTO mdg_material_master (matnr, matkl, meins)
+VALUES ('000000000000012345', 'FERT', 'EA')
+ON CONFLICT (matnr) DO UPDATE SET
+  matkl = EXCLUDED.matkl,
+  meins = EXCLUDED.meins;
+```
+
+장점:
+- 한 문장으로 처리 가능
+- 부분 업데이트 가능
+
+단점 (SAP 맥락에서 치명적):
+- **Unique 제약이 필요**: 원칙 1에 위배
+- **한 건의 데이터 이상이 전체 메시지 실패로**: SAP에서 중복이나 의외의 값이 섞여 오면 전체 배치가 거부됨
+- **자식 테이블과의 정합성 문제**: 부모만 UPSERT하고 자식은 어떻게 처리?
+- **삭제된 마스터 감지 불가**: "더 이상 존재하지 않는 자재"는 UPSERT로 감지되지 않음
+
+### Delete & Insert 방식 (권장)
+
+```
+수신된 메시지에서 관련 키(MATNR) 목록 추출
+    ↓
+그 키에 해당하는 기존 레코드 DELETE
+    ↓
+새로 받은 데이터 INSERT
+```
+
+```ts
+import { db } from '@/lib/db';
+
+async function syncMaterialMaster(records: MaterialRecord[]) {
+  const matnrs = records.map((r) => r.matnr);
+
+  await db.transaction(async (tx) => {
+    // 1) 수신된 키의 기존 데이터 전부 삭제 (인덱스 스캔으로 빠르게)
+    await tx
+      .deleteFrom('mdg_material_master')
+      .where('matnr', 'in', matnrs)
+      .execute();
+
+    // 1-1) 자식 테이블도 동일 키 기준으로 삭제
+    await tx
+      .deleteFrom('mdg_material_desc')
+      .where('matnr', 'in', matnrs)
+      .execute();
+    await tx
+      .deleteFrom('mdg_material_plnt')
+      .where('matnr', 'in', matnrs)
+      .execute();
+
+    // 2) 새 데이터 INSERT
+    await tx.insertInto('mdg_material_master').values(records).execute();
+
+    // 2-1) 자식 테이블 INSERT는 레코드의 중첩 배열에서 추출
+    const descRecords = records.flatMap((r) => r.desc ?? []);
+    if (descRecords.length > 0) {
+      await tx.insertInto('mdg_material_desc').values(descRecords).execute();
+    }
+    // ... PLNT, UNIT 등도 동일
+  });
+}
+```
+
+### 왜 Delete & Insert가 더 안전한가
+
+**중복 허용**: 원칙 1과 일관됨. 메시지에 중복이 있어도 그대로 INSERT되고 나중에 조회 시 DISTINCT로 처리.
+
+**자식 테이블 정합성**: 부모 삭제 시 자식도 같이 삭제하고, 새 자식을 새로 INSERT. 부모·자식이 항상 최신 상태를 함께 유지.
+
+**삭제된 마스터 감지**: SAP 측에서 자재를 삭제했을 때, 해당 키가 새 메시지에 포함되지 않으면 우리 DB에도 반영 안 됨. 단, SAP에서 **"삭제됨" 플래그 필드**(예: `LOEKZ='L'`)로 보내주는 경우에는 그 플래그 기준으로 비활성화 처리.
+
+**부분 실패 격리**: 한 번의 동기화가 여러 청크로 나뉘어 있다면 청크 단위 트랜잭션으로 분리. 한 청크 실패가 다른 청크에 영향 없음.
+
+<Callout type="warning" title="Delete & Insert의 한계 — 동기화 누락 감지">
+Delete & Insert는 **"수신된 키만 삭제"**하므로, SAP에서 마스터가 아예 삭제됐는데 메시지로도 오지 않으면 우리 DB에 유령 레코드가 남는다. 이를 감지하려면 **주기적 전체 동기화(Full Load)**나 **키 차집합 감지 로직**이 필요하다. 일상 동기화만으로는 충분하지 않다.
+</Callout>
+
+---
+
+## 전체 동기화 (Full Load) 전략
+
+초기 구축이나 연 1회 정합성 확인 목적으로 전체 마스터를 받을 때.
+
+```ts
+async function fullLoadMaterialMaster(records: MaterialRecord[]) {
+  await db.transaction(async (tx) => {
+    // 1) 전체 TRUNCATE (부모·자식 순서 주의)
+    await tx.schema.dropTable('mdg_material_desc').execute();
+    await tx.schema.dropTable('mdg_material_plnt').execute();
+    await tx.schema.dropTable('mdg_material_master').execute();
+    // 또는 TRUNCATE (복원이 필요하면 별도 백업 테이블에 복사 후 진행)
+
+    // 2) 빈 테이블에 청크 단위 INSERT
+    const CHUNK = 5000;
+    for (let i = 0; i < records.length; i += CHUNK) {
+      const chunk = records.slice(i, i + CHUNK);
+      await tx.insertInto('mdg_material_master').values(chunk).execute();
+    }
+  });
+}
+```
+
+실무 주의점:
+
+- **트랜잭션이 너무 크면 DB가 죽는다.** 청크 단위로 쪼개고, 트랜잭션은 청크별로 묶거나 전체를 한 트랜잭션에 묶되 WAL 크기 모니터링.
+- **백업**: 풀 로드 전에 기존 데이터를 임시 테이블에 복사해두면 실패 시 복구 가능.
+- **다운타임**: 풀 로드 중에는 해당 마스터 조회가 비어 있을 수 있음. 운영 시간대를 피해서 실행.
+
+---
+
+## 양방향 흐름 — Return 인터페이스
+
+마스터 데이터는 대부분 **SAP → 외부 시스템** 단방향이지만, 일부 인터페이스는 **양방향**이다. 외부 시스템에서 신규 벤더 등록을 요청하거나, 자재 변경을 SAP에 제안하는 인터페이스가 있다.
+
+```
+SAP MDG ──(일반 수신)──▶ 외부 시스템
+         ◀──(Return)──── 외부 시스템이 요청·변경 제안
+```
+
+Return 인터페이스의 응답은 **비동기 처리**가 많다. 외부 시스템이 요청을 보내면 즉시 OK가 돌아오고, 실제 처리 결과는 나중에 별도 인터페이스로 통보된다. 이 경우 **요청 식별자 매핑**이 필요하다.
+
+<Callout type="note" title="OUTBOUND 마스터 처리의 트레이드오프">
+"우리 시스템에서 벤더 등록하면 SAP에 자동 등록되게 해주세요"라는 요구가 자주 나온다. 기술적으로 가능하지만 주의할 점.
+
+- SAP MDG에는 **벤더 등록 워크플로**(승인·검토 단계)가 있다. 자동 등록을 건너뛰면 통제가 깨진다.
+- 외부 시스템에서 등록된 벤더의 ID 채번을 어느 쪽이 할 것인지 합의 필요 (SAP 측이 채번하는 것이 일반적).
+- 중복 등록, 오등록, 삭제 요청의 책임 주체 정의 필요.
+
+**"기술적으로 가능하다"와 "비즈니스적으로 타당하다"는 다르다.** 이 종류의 요구는 업무 담당자·SAP 담당자와의 3자 합의 없이 구현하지 말 것.
+</Callout>
+
+---
+
+## 수신 파이프라인의 완성형
+
+마스터 데이터 수신의 전체 파이프라인.
+
+```
+[SAP PI/PO]
+    │ HTTP POST (SOAP XML)
+    ▼
+[INBOUND API Route / 엔드포인트]
+    │
+    ├── 1. 인증 확인 (Basic Auth)
+    │
+    ├── 2. XML 파싱 (fast-xml-parser, isArray 처리)
+    │
+    ├── 3. 데이터 정규화 (SAP → 내부 타입, 3편 참고)
+    │
+    ├── 4. 핵심 키(MATNR 등) 추출
+    │
+    ├── 5. DB Transaction 시작
+    │     ├── Delete: 해당 키의 기존 데이터 (부모·자식 전부)
+    │     └── Insert: 새 데이터 (부모·자식 순서대로)
+    │
+    ├── 6. 트랜잭션 커밋
+    │
+    ├── 7. 로깅 (요청 XML, 응답 XML, 소요 시간, 처리 건수)
+    │
+    └── 8. SOAP 응답 반환 (성공/실패 + ZMM_RT 또는 유사 구조)
+```
+
+각 단계에서 실패할 수 있으므로 **단계별 에러 처리**를 명확히 분리한다.
+
+- 1~2단계 실패: `400 Bad Request` + SOAP Fault
+- 3~5단계 실패: `500 Internal Server Error` + 에러 상세
+- 6단계 실패 (DB 에러): 트랜잭션 롤백 후 재시도 가능 여부 판단
+- 7단계 실패 (로깅 실패): 전체 처리는 성공으로 간주, 로깅 실패는 모니터링 알림
+
+---
+
+## 스키마 설계 시 SAP 담당자와 확인할 것
+
+마스터 데이터 스키마를 설계할 때 **반드시 먼저 합의**해야 할 것들.
+
+1. **"마스터가 삭제됐을 때의 표현"**
+   - `LOEKZ='L'` 플래그로 오는가, 아예 메시지에서 빠지는가?
+   - 이후 정말 DB에서 제거할 것인지, 비활성화만 할 것인지?
+
+2. **"동기화 주기와 양"**
+   - 매일인가, 매 시간인가, 실시간인가?
+   - 한 번에 몇 건까지 올 수 있는가? (타임아웃·청크 크기 결정)
+   - 전체 동기화는 언제 하는가?
+
+3. **"기본 키의 실제 유일성"**
+   - `MATNR`만으로 유일한가, 아니면 언어 코드(`SPRAS`) 등과 조합해야 하는가?
+   - 중복 데이터가 발생하는 경우가 있는가?
+
+4. **"하위 테이블의 관계"**
+   - 한 자재에 여러 플랜트 정보가 올 수 있는가? (1:N 관계 확인)
+   - 하위 테이블이 비어 있을 수도 있는가?
+
+5. **"필수 필드의 실제 존재 여부"**
+   - WSDL Mandatory 표시와 실제 운영 데이터가 일치하는가?
+
+이 질문들을 **스키마 설계 전에** 담당자와 서면으로 확인하지 않으면 구축 후 스키마를 전면 재설계하는 일이 생긴다.
+
+---
+
+## 정리
+
+- 마스터 데이터는 **사전**, 거래 데이터는 **문장**이다. 외부 시스템은 마스터를 참조·검증용으로 받는다.
+- DB 스키마 설계 5원칙: **PK 없음 / FK 없음 / varchar 우선 / 인덱스만 / WSDL 구조 그대로**.
+- UPSERT가 아닌 **Delete & Insert**가 표준. 근거: 중복 허용, 자식 테이블 정합성, 부분 실패 격리.
+- Delete & Insert의 한계는 **"전송되지 않은 삭제의 누락"**. 주기적 전체 동기화로 보완.
+- 풀 로드는 **청크 단위 트랜잭션 + 다운타임 고려**로 안전하게.
+- 양방향 흐름은 **업무·기술 3자 합의** 없이 구현하지 말 것.
+- 스키마 설계 전 담당자와 **삭제 표현·주기·유일성·관계·필수 필드**를 서면으로 합의.
+
+---
+
+## 시리즈를 마치며
+
+이 시리즈는 SAP 연동의 배경지식과 실전 함정을 8편에 걸쳐 정리했다.
+
+1. **SAP 최소 지식** — 시스템 레이어 구분, 담당자 소통
+2. **필드명 어원** — 독일어 기반 암호 해독법
+3. **숫자·날짜 함정** — 타입 시스템을 믿지 않는 이유
+4. **구매 프로세스** — 문서 흐름과 조직 계층
+5. **WSDL 읽는 법** — 5섹션 구조 해부
+6. **SOAP 통신 실전** — Envelope·네임스페이스·배열 함정
+7. **에러와 디버깅** — 3중 감지, 담당자 에스컬레이션
+8. **마스터 데이터 수신 설계** — Delete & Insert 전략
+
+이 내용을 전부 안다고 SAP 연동이 쉬워지지는 않는다. 각 회사의 SAP 커스터마이징, 특정 업종의 Z-필드, 레거시 인터페이스의 개별 함정은 여전히 남는다. 하지만 **기본 지도가 있으면 새 함정을 만났을 때 방향이 있다**.
+
+SAP 개발자가 아니어도 SAP에 붙을 수 있다. 이 시리즈가 그 시작점에 서 있는 독자에게 조금이라도 시간을 아껴주는 자료가 됐으면 한다.

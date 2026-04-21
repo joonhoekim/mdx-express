@@ -1,0 +1,387 @@
+# WSDL 읽는 법
+
+*무섭게 생겼지만 구조는 고정돼 있다. 5개 섹션만 읽을 줄 알면 된다*
+
+---
+
+SAP 연동 프로젝트의 첫날, SAP 담당자로부터 이런 파일 하나를 받는다.
+
+```
+IF_ECC_EXT_PO_INFORMATION.wsdl
+```
+
+열어보면 200~500줄의 XML이 나온다. `xs:complexType`, `xmlns:wsdl`, `wsdl:portType`, `soap:binding` 같은 태그가 뒤섞여 있고, 그 사이사이 SAP 필드명 수십에서 수백 개가 박혀 있다. 처음 보면 **읽을 엄두가 안 나지만**, WSDL은 구조가 고정돼 있다. 섹션 5개로 딱 나뉘어 있고, 읽는 순서만 알면 30분 안에 전체 그림이 잡힌다.
+
+이 글에서는 실제 WSDL을 예제로 해부한다.
+
+---
+
+## WSDL이 뭔가 — 1분 요약
+
+WSDL(Web Services Description Language)은 **웹서비스의 계약서**다. "이 서비스는 어떤 데이터를 주고받고, 어떤 주소로 접근하고, 어떤 프로토콜을 쓰는지"를 기계가 읽을 수 있는 XML로 정의한 문서다.
+
+SAP PI/PO는 외부 시스템과 SOAP으로 통신하기 위해 **인터페이스마다 WSDL을 발행**한다. 외부 개발자는 이 WSDL을 받아서 다음을 파악한다.
+
+1. **보내야 할(또는 받는) 메시지의 구조** — 어떤 필드를 어떤 계층으로 묶어서 전송하는가
+2. **엔드포인트 URL** — 어디로 POST해야 하는가
+3. **바인딩 규칙** — SOAP 1.1인지 1.2인지, 문서 스타일은 무엇인지
+
+WSDL 없이 SAP과 통신을 시도하면 10분 안에 `soap:Fault`를 보게 된다.
+
+---
+
+## WSDL의 5개 섹션
+
+WSDL은 **고정된 5개 섹션**으로 구성된다. 순서는 파일마다 다를 수 있지만 구성은 항상 같다.
+
+| 섹션 | 역할 | 태그 |
+|------|------|------|
+| 1. Types | 데이터 구조 정의 (XSD 스키마) | `<wsdl:types>` |
+| 2. Message | 데이터를 감싸는 메시지 정의 | `<wsdl:message>` |
+| 3. PortType | 호출 가능한 오퍼레이션 정의 | `<wsdl:portType>` |
+| 4. Binding | 프로토콜·인코딩 방식 정의 | `<wsdl:binding>` |
+| 5. Service | 실제 엔드포인트 주소 | `<wsdl:service>` |
+
+이 5개가 순서대로 쌓인 **계층 구조**를 이룬다.
+
+```
+Types (데이터 형태)
+  ↓ 참조
+Message (메시지 래퍼)
+  ↓ 참조
+PortType (오퍼레이션 정의)
+  ↓ 바인딩
+Binding (프로토콜)
+  ↓ 배포
+Service (실제 URL)
+```
+
+---
+
+## 어느 순서로 읽어야 하나
+
+파일은 위에서 아래로 Types부터 나와 있지만, **실제 읽는 순서는 역방향**이 더 효율적이다.
+
+1. **Service를 먼저** — 엔드포인트 URL만 따서 Postman이나 curl에 박아두면 바로 테스트 준비 완료.
+2. **Binding 확인** — SOAPAction 헤더와 SOAP 버전 확인. 대부분 `http://schemas.xmlsoap.org/soap/http`(SOAP 1.1).
+3. **PortType 확인** — 오퍼레이션 이름과 입출력 메시지 이름.
+4. **Message 확인** — 오퍼레이션이 쓰는 실제 데이터 요소의 이름.
+5. **Types가 마지막** — 메시지의 필드 구조와 계층.
+
+이 순서로 읽으면 **위에서 아래로 구체화**되는 흐름이다. 첫날 엔드포인트 주소를 먼저 찾아서 연결성 테스트부터 해두는 것이 정석이다.
+
+---
+
+## 실전 예제 — 축약된 WSDL 해부
+
+실제 SAP PI/PO가 발행하는 WSDL을 **구조가 남을 정도만 축약**해서 보자. 원본은 190개 필드가 들어가지만, 여기서는 10개 내외로 줄였다. 계층 구조만 보면 충분하다.
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<wsdl:definitions name="IF_ECC_EXT_PO_INFORMATION"
+  targetNamespace="http://example.com/sap/integration/"
+  xmlns:soap="http://schemas.xmlsoap.org/wsdl/soap/"
+  xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/"
+  xmlns:tns="http://example.com/sap/integration/"
+  xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+
+  <!-- ==========  1) Types: 데이터 구조 정의  ========== -->
+  <wsdl:types>
+    <xsd:schema targetNamespace="http://example.com/sap/integration/"
+      xmlns:xs="http://www.w3.org/2001/XMLSchema"
+      xmlns:tns="http://example.com/sap/integration/">
+
+      <!-- 최상위 Request: 헤더 레코드 여러 건을 담는 컨테이너 -->
+      <xs:complexType name="IF_ECC_EXT_PO_INFORMATIONReq">
+        <xs:sequence>
+          <xs:element name="ZMM_HD" type="tns:ZMM_HD"
+                      maxOccurs="unbounded" minOccurs="0"/>
+        </xs:sequence>
+      </xs:complexType>
+
+      <!-- PO 헤더 테이블 -->
+      <xs:complexType name="ZMM_HD">
+        <xs:sequence>
+          <!-- Field:EBELN, Type:CHAR, Size:10, Description:구매오더번호 -->
+          <xs:element name="EBELN" type="xs:string"/>
+          <!-- Field:BUKRS, Type:CHAR, Size:4, Description:회사코드 -->
+          <xs:element name="BUKRS" type="xs:string"/>
+          <!-- Field:LIFNR, Type:CHAR, Size:10, Description:벤더코드 -->
+          <xs:element name="LIFNR" type="xs:string"/>
+          <!-- Field:BEDAT, Type:DATS, Size:8, Description:구매증빙일자 -->
+          <xs:element name="BEDAT" type="xs:string"/>
+          <!-- Field:WAERS, Type:CUKY, Size:5, Description:통화 -->
+          <xs:element name="WAERS" type="xs:string"/>
+          <!-- Field:NETWR, Type:CURR, Size:17,2, Description:순금액 -->
+          <xs:element name="NETWR" type="xs:string"/>
+
+          <!-- 하위 테이블: PO 상세 항목 (1:N) -->
+          <xs:element name="ZMM_DT" type="tns:ZMM_DT"
+                      maxOccurs="unbounded" minOccurs="0"/>
+        </xs:sequence>
+      </xs:complexType>
+
+      <!-- PO 상세 항목 테이블 -->
+      <xs:complexType name="ZMM_DT">
+        <xs:sequence>
+          <!-- Field:EBELP, Type:NUMC, Size:5, Description:발주항목번호 -->
+          <xs:element name="EBELP" type="xs:string"/>
+          <!-- Field:MATNR, Type:CHAR, Size:18, Description:자재번호 -->
+          <xs:element name="MATNR" type="xs:string"/>
+          <!-- Field:MENGE, Type:QUAN, Size:13,3, Description:수량 -->
+          <xs:element name="MENGE" type="xs:string"/>
+          <!-- Field:MEINS, Type:UNIT, Size:3, Description:단위 -->
+          <xs:element name="MEINS" type="xs:string"/>
+          <!-- Field:NETPR, Type:CURR, Size:17,2, Description:단가 -->
+          <xs:element name="NETPR" type="xs:string"/>
+
+          <!-- 하위의 하위 테이블: 계정 지정 (1:N) -->
+          <xs:element name="ZMM_KN" type="tns:ZMM_KN"
+                      maxOccurs="unbounded" minOccurs="0"/>
+        </xs:sequence>
+      </xs:complexType>
+
+      <!-- 계정 지정 테이블 -->
+      <xs:complexType name="ZMM_KN">
+        <xs:sequence>
+          <!-- Field:KNTTP, Type:CHAR, Size:1, Description:계정지정유형 -->
+          <xs:element name="KNTTP" type="xs:string"/>
+          <!-- Field:KOSTL, Type:CHAR, Size:10, Description:코스트센터 -->
+          <xs:element name="KOSTL" type="xs:string"/>
+          <!-- Field:POSID, Type:CHAR, Size:24, Description:WBS요소 -->
+          <xs:element name="POSID" type="xs:string"/>
+        </xs:sequence>
+      </xs:complexType>
+
+      <!-- 응답(Response) 구조 -->
+      <xs:complexType name="IF_ECC_EXT_PO_INFORMATIONRes">
+        <xs:sequence>
+          <xs:element name="ZMM_RT" type="tns:ZMM_RT"/>
+        </xs:sequence>
+      </xs:complexType>
+
+      <xs:complexType name="ZMM_RT">
+        <xs:sequence>
+          <!-- Field:EBELN, Description:처리된 PO 번호 -->
+          <xs:element name="EBELN" type="xs:string"/>
+          <!-- Field:RT_CODE, Description:S=성공, E=에러 -->
+          <xs:element name="RT_CODE" type="xs:string"/>
+          <!-- Field:RT_TEXT, Description:상태 메시지 -->
+          <xs:element name="RT_TEXT" type="xs:string"/>
+        </xs:sequence>
+      </xs:complexType>
+
+      <!-- Element 래퍼 -->
+      <xs:element name="IF_ECC_EXT_PO_INFORMATIONReq"
+                  type="tns:IF_ECC_EXT_PO_INFORMATIONReq"/>
+      <xs:element name="IF_ECC_EXT_PO_INFORMATIONRes"
+                  type="tns:IF_ECC_EXT_PO_INFORMATIONRes"/>
+    </xsd:schema>
+  </wsdl:types>
+
+  <!-- ==========  2) Message: 메시지 래퍼  ========== -->
+  <wsdl:message name="process">
+    <wsdl:part name="IF_ECC_EXT_PO_INFORMATIONReq"
+               element="tns:IF_ECC_EXT_PO_INFORMATIONReq"/>
+  </wsdl:message>
+
+  <wsdl:message name="processResponse">
+    <wsdl:part name="IF_ECC_EXT_PO_INFORMATIONRes"
+               element="tns:IF_ECC_EXT_PO_INFORMATIONRes"/>
+  </wsdl:message>
+
+  <!-- ==========  3) PortType: 오퍼레이션 집합  ========== -->
+  <wsdl:portType name="IF_ECC_EXT_PO_INFORMATION">
+    <wsdl:operation name="process">
+      <wsdl:input  message="tns:process"/>
+      <wsdl:output message="tns:processResponse"/>
+    </wsdl:operation>
+  </wsdl:portType>
+
+  <!-- ==========  4) Binding: 프로토콜 바인딩  ========== -->
+  <wsdl:binding name="IF_ECC_EXT_PO_INFORMATIONServiceSoapBinding"
+                type="tns:IF_ECC_EXT_PO_INFORMATION">
+    <soap:binding style="document"
+                  transport="http://schemas.xmlsoap.org/soap/http"/>
+    <wsdl:operation name="process">
+      <soap:operation soapAction="" style="document"/>
+      <wsdl:input><soap:body use="literal"/></wsdl:input>
+      <wsdl:output><soap:body use="literal"/></wsdl:output>
+    </wsdl:operation>
+  </wsdl:binding>
+
+  <!-- ==========  5) Service: 엔드포인트  ========== -->
+  <wsdl:service name="IF_ECC_EXT_PO_INFORMATIONService">
+    <wsdl:port name="IF_ECC_EXT_PO_INFORMATIONPort"
+               binding="tns:IF_ECC_EXT_PO_INFORMATIONServiceSoapBinding">
+      <soap:address location="https://sap-gateway.example.com/api/IF_ECC_EXT_PO_INFORMATION"/>
+    </wsdl:port>
+  </wsdl:service>
+
+</wsdl:definitions>
+```
+
+---
+
+## 섹션별 해부
+
+### 5) Service — 가장 먼저 찾을 값
+
+```xml
+<wsdl:service name="IF_ECC_EXT_PO_INFORMATIONService">
+  <wsdl:port ...>
+    <soap:address location="https://sap-gateway.example.com/api/IF_ECC_EXT_PO_INFORMATION"/>
+  </wsdl:port>
+</wsdl:service>
+```
+
+`<soap:address location="...">`이 **엔드포인트 URL**이다. 외부 시스템이 POST할 주소다. 이 URL만 있으면 일단 연결 테스트를 시작할 수 있다.
+
+<Callout type="warning" title="운영/개발 URL은 별도로 받는다">
+WSDL에 박혀 있는 URL은 보통 **개발 환경 기준**이다. 운영 환경 URL은 따로 받는다. 환경변수로 분리해서 하드코딩하지 말 것. PI/PO의 포트·호스트가 환경별로 다르다.
+</Callout>
+
+### 4) Binding — 프로토콜 확인
+
+```xml
+<soap:binding style="document"
+              transport="http://schemas.xmlsoap.org/soap/http"/>
+<wsdl:operation name="process">
+  <soap:operation soapAction="" style="document"/>
+  <wsdl:input><soap:body use="literal"/></wsdl:input>
+```
+
+읽어야 할 것은 세 가지.
+
+- `transport` = `http://schemas.xmlsoap.org/soap/http` → **SOAP 1.1** (1.2는 `http://www.w3.org/2003/05/soap/bindings/HTTP/`)
+- `style="document"` → Document 스타일. RPC 스타일은 이미 레거시.
+- `soapAction=""` → **SOAPAction 헤더 값**. 비어 있으면 빈 문자열을 보내야 한다. SAP은 대부분 `""`지만 드물게 `http://sap.com/xi/WebService/soap1.1` 같은 값을 쓰는 경우도 있다.
+
+### 3) PortType — 오퍼레이션 이름
+
+```xml
+<wsdl:portType name="IF_ECC_EXT_PO_INFORMATION">
+  <wsdl:operation name="process">
+    <wsdl:input  message="tns:process"/>
+    <wsdl:output message="tns:processResponse"/>
+  </wsdl:operation>
+</wsdl:portType>
+```
+
+SAP WSDL의 오퍼레이션 이름은 관례상 거의 항상 **`process`** 하나다. 입력 메시지는 `process`, 출력 메시지는 `processResponse`. 이 이름들이 다음 섹션인 Message에서 참조된다.
+
+### 2) Message — 메시지 ↔ Element 연결
+
+```xml
+<wsdl:message name="process">
+  <wsdl:part name="..." element="tns:IF_ECC_EXT_PO_INFORMATIONReq"/>
+</wsdl:message>
+```
+
+메시지(`process`)가 실제 데이터 엘리먼트(`IF_ECC_EXT_PO_INFORMATIONReq`)를 참조한다. 이 엘리먼트의 정의는 Types 섹션에 있다.
+
+### 1) Types — 데이터 구조(실제 필드)
+
+여기가 진짜다. 실제 보내고 받는 모든 필드가 여기 정의돼 있다.
+
+```xml
+<xs:complexType name="IF_ECC_EXT_PO_INFORMATIONReq">
+  <xs:sequence>
+    <xs:element name="ZMM_HD" type="tns:ZMM_HD"
+                maxOccurs="unbounded" minOccurs="0"/>
+  </xs:sequence>
+</xs:complexType>
+```
+
+읽는 포인트 세 가지.
+
+- **`maxOccurs="unbounded"`**: 이 요소는 **배열**이다. 여러 건이 반복될 수 있다.
+- **`minOccurs="0"`**: 선택 필드. 없어도 된다.
+- **`type="tns:ZMM_HD"`**: 이 요소의 구조는 별도 `complexType`으로 정의됨. 그 정의를 찾아가야 함.
+
+이걸 따라가면 자연스럽게 **계층 트리**가 나온다.
+
+```
+IF_ECC_EXT_PO_INFORMATIONReq (요청 루트)
+ └── ZMM_HD[] (PO 헤더, 1:N)
+      ├── EBELN, BUKRS, LIFNR, BEDAT, WAERS, NETWR (헤더 필드)
+      └── ZMM_DT[] (상세 항목, 1:N)
+           ├── EBELP, MATNR, MENGE, MEINS, NETPR (항목 필드)
+           └── ZMM_KN[] (계정 지정, 1:N)
+                └── KNTTP, KOSTL, POSID
+```
+
+**이 계층이 그대로 DB 테이블 구조가 된다**(8편에서 이유를 다룸). 부모·자식 관계가 곧 FK 관계다.
+
+---
+
+## 자주 마주치는 필드 타입 해석
+
+WSDL 주석으로 붙는 `Type:` 정보의 의미는 다음과 같다. 모두 결국 `xs:string`으로 전달되지만, 원래 ABAP 타입을 추측할 수 있다.
+
+| Type | 의미 | 실제 문자열 형태 |
+|------|------|------------------|
+| `CHAR` | 고정 길이 문자열 | 공백으로 패딩된 문자열 |
+| `NUMC` | 고정 길이 숫자 문자열 | `00000` 처럼 0 패딩된 문자열 |
+| `DATS` | 날짜 | `YYYYMMDD` (8자리) |
+| `TIMS` | 시간 | `HHMMSS` (6자리) |
+| `DEC` | 십진수 | `123.456` (소수점 있음) |
+| `QUAN` | 수량 (단위와 쌍) | 단위 필드가 따로 있음 |
+| `CURR` | 통화 금액 (통화와 쌍) | 통화 필드가 따로 있음 |
+| `CUKY` | 통화 키 | 3~5자리 통화 코드 (`KRW`, `USD`) |
+| `UNIT` | 단위 키 | 3자리 단위 코드 (`EA`, `KG`) |
+
+이 타입 정보는 **WSDL의 XSD 타입에는 반영되지 않고 주석으로만** 온다. `xs:string`이라는 XSD 선언만 보면 구분할 수 없다. 주석의 `Type:` 메타데이터를 보고 **파싱 규칙**을 결정해야 한다.
+
+---
+
+## M/O(Mandatory/Optional) 필드의 함정
+
+WSDL 주석이나 인터페이스 정의서에 이런 표식이 붙어 있다.
+
+```xml
+<!-- Field:EBELN, M/O:M, Type:CHAR, Size:10 -->
+<xs:element name="EBELN" type="xs:string"/>
+
+<!-- Field:ZPO_VER, M/O:M, Type:NUMC, Size:2 -->
+<xs:element name="ZPO_VER" type="xs:string"/>
+
+<!-- Field:ZWEBELN, M/O:O, Type:CHAR, Size:10 -->
+<xs:element name="ZWEBELN" type="xs:string" minOccurs="0"/>
+```
+
+- `M/O:M` = **Mandatory** (필수)
+- `M/O:O` = **Optional** (선택)
+
+이론상으로는 M 필드는 반드시 값이 있어야 하고, O 필드는 없어도 된다. **실전에서는 이 구분이 지켜지지 않는다**.
+
+<Callout type="error" title="M 필드가 빈 문자열로 올 수 있다">
+정의서에 Mandatory로 표시된 필드가 SAP 쪽 설정 변경이나 예외 케이스로 **빈 문자열("")로 전달되는 일이 자주 있다**. 파서가 M 필드의 non-null만 검증하면 실제 데이터의 빈 문자열을 놓친다.
+
+**권장 방어**: 모든 필드를 선택으로 취급하고, 비즈니스 로직 단계에서 "이 필드는 비어 있으면 안 된다"를 검증한다. WSDL의 M/O 표시는 문서일 뿐 런타임 보장이 아니다.
+</Callout>
+
+---
+
+## 배열 해석: `maxOccurs`의 의미
+
+XSD의 `maxOccurs`는 요소가 몇 번 반복될 수 있는지를 정의한다.
+
+- `maxOccurs="1"` (기본값) — 최대 1회, 단일 객체
+- `maxOccurs="unbounded"` — 무제한, **배열**
+- `maxOccurs="10"` — 최대 10회
+
+`maxOccurs="unbounded"`가 붙은 요소는 항상 배열로 취급해야 한다. 하지만 **실제 데이터에 1건만 있을 때 XML 파서가 배열이 아닌 단일 객체로 디코딩하는 함정**이 있다. 이건 6편에서 본격적으로 다룬다.
+
+---
+
+## 정리
+
+- WSDL은 **Types / Message / PortType / Binding / Service** 5개 섹션으로 구성된다.
+- 읽는 순서는 **역방향**이 효율적이다: Service → Binding → PortType → Message → Types.
+- Types의 `complexType` 계층이 **데이터의 실제 구조**이자 **DB 테이블 설계의 원형**이다.
+- **모든 필드는 `xs:string`**으로 선언된다. 실제 ABAP 타입은 주석의 `Type:` 메타데이터로 추론한다.
+- `maxOccurs="unbounded"`는 배열, `minOccurs="0"`는 선택. 이 둘의 조합이 계층 구조와 선택성을 만든다.
+- **M/O 표시는 신뢰하지 말고**, 모든 필드를 선택으로 취급한 뒤 비즈니스 로직에서 검증한다.
+
+다음 편은 이 WSDL을 가지고 **실제 SOAP 통신**을 하는 이야기다. Envelope를 조립하고, 네임스페이스를 붙이고, Basic Auth를 걸고, 돌아온 응답을 파싱할 때 마주치는 함정들.

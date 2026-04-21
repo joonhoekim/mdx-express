@@ -1,0 +1,336 @@
+# 에러 패턴과 디버깅
+
+*HTTP 상태 코드만 보면 절반은 놓친다*
+
+---
+
+SAP 연동에서 가장 혼란스러운 순간은 `200 OK` 응답을 받았는데 SAP 측에서는 메시지가 처리되지 않았을 때다. HTTP 레벨에서는 성공, 그런데 비즈니스 레벨에서는 실패. 이 어긋남을 이해하려면 **SAP이 에러를 알려주는 방식이 3가지**라는 사실부터 받아들여야 한다.
+
+이 글은 그 3가지 패턴을 잡는 법과, 잡은 뒤 SAP 담당자에게 에스컬레이션할 때 쓰는 실전 템플릿이다.
+
+---
+
+## 에러의 3가지 레이어
+
+SAP 응답에서 에러는 서로 다른 레이어에서 발생하고, 각 레이어마다 다른 필드로 신호를 보낸다.
+
+```
+┌──────────────────────────────────────────────────────┐
+│ 1. 네트워크·HTTP 레이어                              │
+│    HTTP 401 / 500 / Timeout / Connection refused     │
+├──────────────────────────────────────────────────────┤
+│ 2. SOAP 프로토콜 레이어                              │
+│    <soap:Fault> in response body                     │
+├──────────────────────────────────────────────────────┤
+│ 3. SAP 비즈니스 레이어                               │
+│    <MSGTY>E</MSGTY> / <EV_TYPE>E</EV_TYPE>           │
+└──────────────────────────────────────────────────────┘
+```
+
+각 레이어를 **별도로 체크**해야 한다. HTTP 200을 받았다고 성공이 아니고, SOAP Fault가 없다고 처리가 완료된 것도 아니다.
+
+---
+
+## 레이어 1: HTTP 레이어
+
+가장 바깥층. `fetch` 응답의 `response.status`를 보면 된다.
+
+| HTTP 상태 | 의미 | 원인 | 대처 |
+|-----------|------|------|------|
+| 200 | 성공 (주의: 비즈니스 성공은 아님) | 정상 응답 | 다음 레이어 체크 필요 |
+| 401 | Unauthorized | Basic Auth 자격 증명 오류 | 환경변수 확인, 계정 만료 여부 확인 |
+| 403 | Forbidden | 계정은 맞지만 해당 인터페이스 권한 없음 | SAP 담당자에게 권한 부여 요청 |
+| 404 | Not Found | 엔드포인트 URL 오타 | WSDL의 service.address 재확인 |
+| 500 | Internal Server Error | PI/PO 내부 오류 | Body에 SOAP Fault가 있을 수 있음 |
+| 503 | Service Unavailable | PI/PO 점검 중이거나 과부하 | 재시도 또는 담당자 확인 |
+| Timeout | 응답 지연 | 대용량 요청, PI/PO 처리 지연 | 타임아웃 증가 또는 배치 크기 축소 |
+
+<Callout type="warning" title="401이 나오는 의외의 원인">
+환경변수가 맞는데도 401이 나는 경우가 있다. 가장 흔한 원인:
+
+1. **비밀번호에 특수문자**가 포함되어 환경변수에서 이스케이프가 깨진 경우 (`!`, `$`, `` ` ``)
+2. **Base64 인코딩 시 개행 문자**가 섞인 경우 — `Buffer.from(str).toString('base64')`의 결과는 개행이 안 섞이지만 수동으로 잘못 조립하면 발생
+3. **계정 만료** — SAP 계정은 주기적으로 비밀번호 변경이 강제되는 경우가 있음
+4. **대소문자** — PI/PO 계정 사용자명이 대소문자 구분되는 경우
+</Callout>
+
+---
+
+## 레이어 2: SOAP Fault
+
+HTTP 200이거나 500이어도 응답 body에 `<soap:Fault>`가 섞여 올 수 있다. 이건 **SOAP 프로토콜 레벨의 에러**로, 보통 PI/PO 내부에서 메시지 라우팅·변환·매핑 단계에서 실패했음을 뜻한다.
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+    <soap:Fault>
+      <faultcode>soap:Server</faultcode>
+      <faultstring>Mapping failed: Field 'MATNR' missing</faultstring>
+      <detail>...</detail>
+    </soap:Fault>
+  </soap:Body>
+</soap:Envelope>
+```
+
+응답에 `soap:Fault` 또는 대소문자 변형(`SOAP:Fault`)이 섞여 있으면 에러로 처리한다. `<faultstring>`의 내용을 에러 메시지로 추출해서 로그에 남긴다.
+
+```ts
+function extractFaultMessage(responseText: string): string | null {
+  if (!responseText.includes('soap:Fault') && !responseText.includes('SOAP:Fault')) {
+    return null;
+  }
+  const match = responseText.match(/<faultstring>(.*?)<\/faultstring>/);
+  return match?.[1] ?? 'SOAP Fault (no faultstring)';
+}
+```
+
+### 자주 나오는 SOAP Fault 메시지
+
+| 메시지 | 원인 |
+|--------|------|
+| `Mapping failed: Field '...' missing` | WSDL에 정의된 Mandatory 필드를 빠뜨림 |
+| `Invalid character in XML` | 본문에 이스케이프되지 않은 `&`, `<`, `>` 존재 |
+| `Target system unavailable` | ECC가 응답하지 않음 (PI/PO는 살아 있음) |
+| `Authentication failed at target` | PI/PO 인증은 OK였으나 ECC에서 거절 |
+
+---
+
+## 레이어 3: SAP 비즈니스 에러
+
+이게 가장 까다로운 레이어다. HTTP 200, SOAP Fault 없음, 겉으로는 멀쩡한 응답. 그런데 Body 안에 **SAP 비즈니스 레벨의 에러 플래그**가 들어 있다.
+
+### 패턴 A: MSGTY 기반
+
+```xml
+<soap:Body>
+  <p1:IF_..._Response>
+    <ZMM_RT>
+      <EBELN>4500012345</EBELN>
+      <MSGTY>E</MSGTY>
+      <MSGTXT>자재번호 000000000000012345 이(가) 존재하지 않습니다</MSGTXT>
+    </ZMM_RT>
+  </p1:IF_..._Response>
+</soap:Body>
+```
+
+`MSGTY` 값의 의미:
+
+| 값 | 의미 |
+|----|------|
+| `S` | Success (성공) |
+| `E` | Error (처리 실패) |
+| `W` | Warning (경고 — 처리는 됐지만 주의 필요) |
+| `I` | Information (정보) |
+| `A` | Abort (중단) |
+
+`MSGTY=E`를 발견하면 해당 메시지는 SAP에서 처리되지 않았다고 봐야 한다.
+
+### 패턴 B: EV_TYPE 기반
+
+일부 BAPI 응답은 다른 이름의 필드를 쓴다.
+
+```xml
+<EV_TYPE>E</EV_TYPE>
+<EV_MESSAGE>Purchase order could not be created</EV_MESSAGE>
+```
+
+`EV_TYPE`도 `MSGTY`와 동일한 값 체계(S/E/W/I/A)를 따른다.
+
+### 패턴 C: RT_CODE 기반
+
+커스텀 인터페이스는 또 다른 필드를 쓰기도 한다.
+
+```xml
+<RT_CODE>E</RT_CODE>
+<RT_TEXT>처리 중 오류 발생</RT_TEXT>
+```
+
+### 3중 감지 로직
+
+세 패턴을 모두 커버하려면 응답 텍스트를 다음 패턴으로 검사한다.
+
+```ts
+function detectSapError(responseText: string): {
+  hasError: boolean;
+  messages: string[];
+} {
+  const messages: string[] = [];
+
+  // 패턴 A: MSGTY=E 다중 매칭 (한 응답에 여러 개 들어오기도 함)
+  if (responseText.includes('<MSGTY>E</MSGTY>')) {
+    const msgTxtMatches = [...responseText.matchAll(/<MSGTXT>(.*?)<\/MSGTXT>/g)]
+      .map((m) => m[1])
+      .filter(Boolean);
+    messages.push(...msgTxtMatches);
+  }
+
+  // 패턴 B: EV_TYPE=E
+  if (responseText.includes('<EV_TYPE>E</EV_TYPE>')) {
+    const evMatch = responseText.match(/<EV_MESSAGE>(.*?)<\/EV_MESSAGE>/);
+    if (evMatch?.[1]) messages.push(evMatch[1]);
+  }
+
+  // 패턴 C: RT_CODE=E
+  if (responseText.includes('<RT_CODE>E</RT_CODE>')) {
+    const rtMatch = responseText.match(/<RT_TEXT>(.*?)<\/RT_TEXT>/);
+    if (rtMatch?.[1]) messages.push(rtMatch[1]);
+  }
+
+  return {
+    hasError: messages.length > 0,
+    messages,
+  };
+}
+```
+
+<Callout type="info" title="네임스페이스 접두사 변형에 주의">
+`<MSGTY>`, `<n0:MSGTY>`, `<ns1:MSGTY>` 등 네임스페이스 접두사가 붙어 오는 경우가 있다. 문자열 매칭으로 감지하는 경우 `includes('MSGTY>E<')` 같은 더 느슨한 패턴을 쓰거나, 일단 XML 파싱 후 트리 전체를 순회하며 찾는 편이 안전하다. 운영 환경에서는 한 번 고정되면 거의 안 바뀌므로, 처음 배포할 때 실제 응답 형태를 확인하고 패턴을 맞춘다.
+</Callout>
+
+---
+
+## 자주 발생하는 에러 시나리오
+
+실전에서 마주치는 상황별 원인과 대처.
+
+| 증상 | 가장 흔한 원인 | 확인 순서 |
+|------|----------------|-----------|
+| `200 OK`지만 SAP에 데이터 없음 | 네임스페이스 누락 (6편 참고) | 요청 XML에 루트 요소의 `xmlns` 속성 확인 |
+| `MSGTY=E` + "자재번호 존재하지 않음" | 자재 마스터 동기화 누락 | MDG → 외부 시스템 자재 마스터 수신 인터페이스 상태 확인 |
+| `MSGTY=E` + "구매조직/그룹 불일치" | 조직 필드(EKORG/EKGRP) 잘못 전달 | PR/PO 생성 시 조직 값을 Hardcode하지 않고 원본 그대로 사용 |
+| `MSGTY=W` 다수 | 정상 처리됐지만 일부 항목에 경고 | 로그에는 남기되 실패로 취급하지 않음 |
+| SOAP Fault: "Field missing" | Mandatory 필드 누락 | WSDL의 M/O 재확인, 빈 문자열로라도 필드 포함 |
+| HTTP 500 + 빈 Body | PI/PO 장애 가능성 | 재시도 후에도 반복되면 담당자 확인 |
+| 요청은 성공하지만 응답이 비어 있음 | 비동기 처리 인터페이스 | QualityOfService=ExactlyOnce 확인, 완료는 별도 수신으로 |
+| 대량 전송 시 타임아웃 | PI/PO 처리 한계 | 배치 크기 분할(예: 1000건 → 100건×10), 타임아웃 증가 |
+| 응답 파싱 에러 (map is not a function) | 배열 함정 (6편 참고) | `isArray` 또는 `toArray` 헬퍼 적용 |
+
+---
+
+## 디버깅 표준 순서
+
+에러가 발생했을 때 **순서 없이 여기저기 뒤지는 것**이 가장 시간을 잡아먹는다. 다음 순서를 고정으로 밟는다.
+
+### 1단계: 로그에서 요청·응답 XML 확인
+
+가장 먼저 할 일. 추측 없이 실제 XML을 본다.
+
+- 요청 body: 우리가 보낸 Envelope 전체
+- 응답 body: 받은 XML 전체
+- HTTP 상태 코드
+- 소요 시간
+
+6편에서 "로깅 필수"라고 한 이유가 여기 있다. 로깅이 없으면 이 단계에서 멈춘다.
+
+### 2단계: 요청 XML이 WSDL 정의와 일치하는지
+
+WSDL을 열어서 다음을 대조한다.
+
+- 루트 요소 이름이 맞는가 (`IF_ECC_EXT_PO_INFORMATIONReq`)
+- 네임스페이스가 맞는가 (`xmlns="..."`, 기본 네임스페이스 주입 됐는가)
+- Mandatory 필드가 모두 있는가
+- 계층 구조가 WSDL과 일치하는가 (부모·자식 테이블 관계)
+- 단위·통화 필드가 쌍으로 들어가 있는가 (`MENGE`+`MEINS`, `NETWR`+`WAERS`)
+
+### 3단계: 응답 XML의 에러 메시지 해석
+
+응답 XML에서 `MSGTY`, `EV_TYPE`, `RT_CODE`, `faultstring`을 검색한다. 메시지 내용을 그대로 읽어서 원인을 추측한다. **추측만 하지 말고 담당자에게 메시지 원문을 전달**한다.
+
+### 4단계: SAP 담당자에게 에스컬레이션
+
+여기까지 해도 원인이 불분명하면 담당자 몫이다. 담당자에게 요청할 때는 **구체적으로 물어야 답이 빨리 온다**.
+
+---
+
+## SAP 담당자 소통 템플릿
+
+에스컬레이션 메시지를 이렇게 구성한다.
+
+```
+[인터페이스] IF_ECC_EXT_PO_INFORMATION
+[환경]       개발 / 운영
+[시각]       2026-04-21 14:23:15 KST (요청 식별자: REQ-8a4f...)
+[증상]       요청은 HTTP 200 성공, 응답의 MSGTY=E 감지
+[에러 메시지] "자재번호 000000000000012345 이(가) 존재하지 않습니다"
+[확인 요청]
+  1. SAP 측(SXI_MONITOR)에서 동일 시각 메시지 처리 이력 확인 부탁드립니다.
+  2. 자재번호 12345가 ECC의 MARA 테이블에 존재하는지 확인 부탁드립니다.
+  3. 존재하지 않는다면, MDG에서 외부 시스템으로 자재 마스터 동기화 주기가 어떻게 되는지 확인 부탁드립니다.
+[첨부] 요청 XML, 응답 XML
+```
+
+핵심 포인트:
+
+- **인터페이스 이름** 정확히 명시 (SAP 측에서 매칭)
+- **시각**을 분·초 단위로 (SAP 로그 검색 기준)
+- **T-Code나 테이블 이름**을 함께 언급 (담당자가 바로 화면을 열 수 있게)
+- **확인 요청을 구체 질문으로 번호 매겨서** (단답으로 답할 수 있게)
+- **요청·응답 XML을 첨부** (담당자가 재현할 수 있게)
+
+<Callout type="success" title="요청할 로그의 이름">
+SAP 담당자에게 요청할 수 있는 진단 화면들.
+
+- **SXI_MONITOR**: PI/PO 메시지 송수신 이력. 인터페이스 이름·시각으로 조회 가능. 외부에서 온 요청과 ECC로 보낸 결과 둘 다 볼 수 있음.
+- **SXMB_MONI**: XI 메시지 모니터 (SXI_MONITOR의 구버전, 같은 내용)
+- **SM50 / SM51**: 워크프로세스 상태. "서버가 느린 것 같다"는 의심이 들 때.
+- **ST22**: ABAP 덤프. ECC 내부에서 예외가 터지면 여기에 스택트레이스가 남음.
+- **SLG1**: 애플리케이션 로그. 비즈니스 로직에서 찍은 로그.
+
+"SM50이나 SXI_MONITOR에서 확인 부탁드립니다"라고 말하면 담당자가 즉시 해당 화면을 연다.
+</Callout>
+
+---
+
+## "어느 쪽 문제인가"를 판별하는 질문
+
+에스컬레이션에서 가장 시간이 낭비되는 순간은 **"우리 잘못인지 SAP 잘못인지 서로 모르는 상태"**다. 이걸 빨리 가르는 질문 몇 가지.
+
+### 담당자에게 물어야 할 것
+
+- "해당 시각에 **PI/PO까지 메시지가 도달했는지** SXI_MONITOR로 확인 가능한가?"
+  - 도달하지 않았다면 우리 쪽 문제 (네트워크, 인증, URL)
+  - 도달했다면 PI/PO 또는 ECC 쪽 문제
+
+- "도달한 메시지의 **payload가 정상인지** 확인 가능한가?"
+  - payload가 비어 있거나 이상하다면 우리 쪽 직렬화 문제 (네임스페이스, 구조)
+  - payload는 정상인데 ECC에서 실패했다면 SAP 쪽 비즈니스 로직
+
+- "**동일 메시지를 SAP 담당자가 수동으로 재처리**했을 때 어떻게 되는지?"
+  - 수동 재처리로 성공한다면 일시적 문제 (재시도 가능)
+  - 수동 재처리도 실패한다면 데이터 또는 설정 문제
+
+### 우리 쪽에서 먼저 확인할 것
+
+- 요청 XML을 **PI/PO 테스트 도구 또는 Postman**으로 재전송했을 때 같은 결과가 나오는가? (애플리케이션 외 변수 제거)
+- **어제 성공한 요청 XML과 비교**했을 때 차이점이 있는가? (회귀)
+- **환경변수·URL**이 올바른 환경을 가리키는가? (개발 설정으로 운영 호출 같은 실수)
+
+---
+
+## 긴급도 구분
+
+모든 에러가 긴급하지 않다. 이 구분이 담당자 요청 타이밍을 결정한다.
+
+| 긴급도 | 상황 | 대응 |
+|--------|------|------|
+| **긴급 (Critical)** | 운영 중단, 장애 전파 가능 | 즉시 담당자 호출 (전화·슬랙 멘션) |
+| **높음 (High)** | 특정 데이터 건이 지속 실패, 업무 지연 | 1시간 내 에스컬레이션 |
+| **중간 (Medium)** | 간헐적 실패, 일부 건수만 영향 | 업무 시간 내 티켓 |
+| **낮음 (Low)** | 로그에만 경고, 실 영향 없음 | 주간 리뷰에 포함 |
+
+긴급도를 스스로 판단하기 어려우면 **먼저 현재 영향 범위를 기술**하고 담당자와 함께 판단한다. 과잉 에스컬레이션도 과소 에스컬레이션도 실무자 간 신뢰를 깎는다.
+
+---
+
+## 정리
+
+- SAP 에러는 **3가지 레이어**(HTTP / SOAP Fault / 비즈니스)에서 독립적으로 발생한다. 3중 감지가 기본.
+- 비즈니스 에러는 **`MSGTY=E` / `EV_TYPE=E` / `RT_CODE=E`** 세 패턴이 흔하다. 모두 같은 의미.
+- 에러 메시지는 **모두 추출**해서 로그에 남긴다. 여러 개가 한 응답에 들어오기도 한다.
+- 디버깅은 **고정 순서**로: 로그 확인 → 요청/WSDL 대조 → 응답 메시지 해석 → 담당자 에스컬레이션.
+- 담당자 소통은 **인터페이스명·시각·T-Code·구체 질문·첨부**를 포함한 템플릿으로.
+- "어느 쪽 문제인가"를 빠르게 가르는 질문: **SXI_MONITOR에서 메시지가 도달했는지, payload가 정상인지, 수동 재처리 시 결과**.
+- 긴급도를 구분해서 에스컬레이션 타이밍을 조절한다.
+
+다음 편은 시리즈의 마지막. 마스터 데이터를 수신해서 DB에 저장할 때의 설계 원칙과 **Delete & Insert 전략**이 왜 표준이 됐는지를 다룬다.

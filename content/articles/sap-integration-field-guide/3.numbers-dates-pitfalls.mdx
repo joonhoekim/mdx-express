@@ -1,0 +1,363 @@
+# SAP이 보내주는 숫자·날짜의 함정
+
+*자료형을 믿지 마라. SAP은 모든 걸 문자열로 보낸다*
+
+---
+
+인터페이스 정의서에 이렇게 쓰여 있다.
+
+| 필드 | Type | Size |
+|------|------|------|
+| `MATNR` | CHAR | 18 |
+| `MENGE` | QUAN | 13,3 |
+| `NETWR` | CURR | 17,2 |
+| `LFDAT` | DATS | 8 |
+| `WEBAZ` | DEC | 3 |
+
+`QUAN`이면 숫자고, `DATS`면 날짜고, `CURR`이면 통화일 것 같다. 그래서 파싱할 때 `parseInt`, `new Date`로 처리하려고 한다. 그러면 망한다.
+
+SAP은 WSDL을 SOAP으로 내보낼 때 **거의 모든 필드를 `xs:string`으로** 선언한다. 정의서상 타입과 실제로 오는 값의 형태가 다르고, SAP 특유의 표현 방식이 섞여 있다. 이 글은 그 함정 목록이다.
+
+---
+
+## 왜 전부 문자열로 오나
+
+WSDL의 XSD 정의를 열어 보면 이렇게 돼 있다.
+
+```xml
+<!-- 정의서상 Type:CHAR, Size:18 -->
+<xs:element name="MATNR" type="xs:string"/>
+
+<!-- 정의서상 Type:QUAN, Size:13,3 -->
+<xs:element name="MENGE" type="xs:string"/>
+
+<!-- 정의서상 Type:DATS, Size:8 -->
+<xs:element name="LFDAT" type="xs:string"/>
+
+<!-- 정의서상 Type:CURR, Size:17,2 -->
+<xs:element name="NETWR" type="xs:string"/>
+```
+
+`xs:decimal`이나 `xs:date`를 쓰지 않는다. 이유는 두 가지다.
+
+1. **ABAP 내부 타입과 XSD 타입이 정확히 호환되지 않는다.** ABAP의 `QUAN`·`CURR`는 단위/통화와 묶여서 의미가 결정되는 타입이라 독립적으로 `xs:decimal`로 매핑하면 의미가 깨진다.
+2. **형식 변환을 PI/PO 단계에서 하지 않는 게 안전하다.** 빈 값, 잘못된 값, 선행 제로 등을 XSD 레벨에서 거르면 메시지 전체가 실패한다. 일단 문자열로 넘기고 수신 측에서 처리하게 둔다.
+
+결론: **모든 SAP 필드는 `string`으로 받고, 필요한 시점에 우리가 변환한다.** 타입 시스템에 의존하지 말고 파싱 계층에서 방어하는 것이 원칙이다.
+
+<Callout type="info" title="DB 스키마에 함의">
+SAP 데이터를 저장하는 DB 테이블에서 대부분의 컬럼을 `varchar`로 선언하는 관례가 여기서 나온다. `numeric`·`date`로 받으려다가 예외적인 값 하나에 INSERT가 전체 실패하는 것보다, 일단 `varchar`로 받고 비즈니스 로직에서 파싱·검증하는 것이 안전하다. 8편(마스터 데이터 수신)에서 이 원칙을 더 자세히 다룬다.
+</Callout>
+
+---
+
+## 함정 1 — 선행 제로(Leading Zeros)
+
+SAP 숫자 필드는 자리수를 **왼쪽에 0을 채워서 맞춘다**. `MATNR`는 18자리 고정이니 자재 번호 12345는 이렇게 온다.
+
+```
+000000000000012345
+```
+
+이걸 `parseInt`로 변환하면 12345가 되지만, **SAP은 문자열 상태 그대로 비교한다**. 데이터베이스에 정수로 저장해놨다가 SAP에 조회 요청을 보낼 때 문제가 된다.
+
+```
+우리 DB에 저장된 값:   12345  (bigint로 저장)
+SAP이 기대하는 값:     000000000000012345  (18자리 0-padded)
+```
+
+SAP에 "자재번호 12345로 조회해주세요"라고 보내면 못 찾는다. SAP이 보내준 형식 그대로 돌려보내야 한다.
+
+### 대처
+
+**원칙**: SAP에서 받은 값은 문자열 상태로 저장하고, 바로 돌려보낼 때도 원본 그대로 사용한다. 사용자에게 보여줄 때만 선행 제로를 제거한다.
+
+```ts
+function stripLeadingZeros(value: string): string {
+  return value.replace(/^0+/, '') || '0';
+}
+
+function padMaterialNumber(value: string, length: number = 18): string {
+  return value.padStart(length, '0');
+}
+
+// 저장은 원본 그대로
+const storedMatnr = '000000000000012345';
+
+// 화면 표시는 제거
+const displayMatnr = stripLeadingZeros(storedMatnr); // '12345'
+
+// SAP으로 재전송은 18자리 복원
+const requestMatnr = padMaterialNumber(displayMatnr); // '000000000000012345'
+```
+
+<Callout type="warning" title="UI 표시가 바뀌었다고 데이터가 바뀐 건 아니다">
+사용자가 화면에서 "12345"로 자재를 조회할 때 서버 내부는 18자리 패딩된 값으로 SAP에 질의해야 한다. UI 레이어와 SAP 호출 레이어 사이에 명시적인 변환 함수를 두고, 혼선이 생기지 않게 하는 것이 좋다.
+</Callout>
+
+---
+
+## 함정 2 — 후행 마이너스(Trailing Minus)
+
+SAP은 음수를 표현할 때 **마이너스 기호를 뒤에 붙이는 전통**이 있다. ABAP의 전통적인 숫자 출력 방식이다.
+
+```
+양수 1,000.00    →  "1000.00"
+음수 1,000.00    →  "1000.00-"   ← 뒤에 마이너스
+```
+
+일반 `parseFloat`로 변환하면 그냥 양수가 된다.
+
+```ts
+parseFloat('1000.00-');  // 1000 (마이너스 무시됨)
+Number('1000.00-');      // NaN
+```
+
+SAP 측 설정에 따라 앞에 붙어서 오는 경우도 있지만, 레거시 ECC나 일부 BAPI에서는 여전히 후행 마이너스가 섞여서 온다. 안전한 파서가 필요하다.
+
+### 대처
+
+```ts
+function parseSapNumber(value: string): number {
+  if (!value) return 0;
+  
+  const trimmed = value.trim();
+  
+  // 후행 마이너스 처리: "1000.00-" → -1000.00
+  if (trimmed.endsWith('-')) {
+    return -parseFloat(trimmed.slice(0, -1));
+  }
+  
+  // 전행 마이너스도 동시에 커버
+  return parseFloat(trimmed);
+}
+
+parseSapNumber('1000.00');   //  1000
+parseSapNumber('1000.00-');  // -1000
+parseSapNumber('-1000.00');  // -1000
+parseSapNumber('');          //  0
+```
+
+---
+
+## 함정 3 — 날짜는 항상 `YYYYMMDD`
+
+SAP의 `DATS` 타입은 **8자리 고정 문자열** `YYYYMMDD`로 온다. ISO 8601(`YYYY-MM-DD`)이 아니다.
+
+```
+2026-02-25  ← ISO
+20260225    ← SAP DATS
+```
+
+그리고 **빈 값의 의미**가 여러 가지다.
+
+- 빈 문자열 `""` — 값이 없음
+- `"00000000"` — "의미 없는 날짜" 또는 "초기값" (SAP에서는 종종 빈 값과 동치로 취급)
+- `"99991231"` — "영원히 유효함" 플래그로 쓰이는 경우 있음 (예: 계약 종료일)
+
+### 대처
+
+```ts
+function parseSapDate(value: string): Date | null {
+  if (!value || value === '00000000') return null;
+  
+  // YYYYMMDD 형식 검증
+  if (!/^\d{8}$/.test(value)) {
+    throw new Error(`Invalid SAP date: ${value}`);
+  }
+  
+  const year = parseInt(value.slice(0, 4), 10);
+  const month = parseInt(value.slice(4, 6), 10);
+  const day = parseInt(value.slice(6, 8), 10);
+  
+  // 99991231 같은 센티널 값은 상위 로직에서 판단
+  return new Date(Date.UTC(year, month - 1, day));
+}
+
+function formatSapDate(date: Date): string {
+  const y = date.getUTCFullYear().toString().padStart(4, '0');
+  const m = (date.getUTCMonth() + 1).toString().padStart(2, '0');
+  const d = date.getUTCDate().toString().padStart(2, '0');
+  return `${y}${m}${d}`;
+}
+
+parseSapDate('20260225');  // Date 객체
+parseSapDate('00000000');  // null
+parseSapDate('');          // null
+formatSapDate(new Date('2026-02-25')); // '20260225'
+```
+
+<Callout type="warning" title="99991231은 센티널이다">
+계약 종료일, 유효 종료일 같은 필드에 `99991231`(서기 9999년 12월 31일)이 자주 박혀 있다. "영구 유효"라는 뜻이다. 이걸 그냥 Date로 파싱하면 8000년 뒤 날짜로 처리돼서 UI에 깨진 값이 뜬다. 상위 로직에서 센티널 값을 감지하고 "없음"으로 처리하는 게 안전하다.
+</Callout>
+
+---
+
+## 함정 4 — 시간은 `HHMMSS`
+
+날짜가 `YYYYMMDD`이면 시간은 `HHMMSS`다. 6자리 고정.
+
+```
+오후 3시 45분 12초  →  "154512"
+자정                →  "000000"
+```
+
+날짜+시간을 한 쌍으로 주는 필드가 많다. `XXX_DT` + `XXX_TM` 패턴.
+
+```
+ZPO_TRANS_DT = "20260225"
+ZPO_TRANS_TM = "154512"
+```
+
+### 대처
+
+```ts
+function parseSapDateTime(dateStr: string, timeStr: string): Date | null {
+  const date = parseSapDate(dateStr);
+  if (!date) return null;
+  
+  if (!/^\d{6}$/.test(timeStr)) {
+    return date; // 시간이 없으면 00:00:00 그대로
+  }
+  
+  const h = parseInt(timeStr.slice(0, 2), 10);
+  const m = parseInt(timeStr.slice(2, 4), 10);
+  const s = parseInt(timeStr.slice(4, 6), 10);
+  
+  date.setUTCHours(h, m, s);
+  return date;
+}
+
+parseSapDateTime('20260225', '154512');
+// 2026-02-25T15:45:12.000Z
+```
+
+---
+
+## 함정 5 — 소수점은 점(.)일까 쉼표(,)일까
+
+독일어권 로케일에서 소수점은 **쉼표**다. `1,000.00`이 아니라 `1.000,00`이 독일식 표기다. SAP 사용자 설정에 따라 숫자 출력이 이 로케일을 따를 수 있다.
+
+다행히 **PI/PO를 거친 SOAP 응답은 거의 항상 점(.) 형식**으로 정규화돼 온다. 하지만 다음 경우에는 예외가 발생한다.
+
+- PI/PO 변환 매핑이 누락된 필드
+- 일부 레거시 RFC 응답을 그대로 노출한 인터페이스
+- 특정 커스텀 Z-필드
+
+실전에서는 드물지만 0%는 아니다. 숫자 파서를 짤 때 한 번 정규화하는 것이 안전하다.
+
+### 대처
+
+```ts
+function parseSapNumber(value: string): number {
+  if (!value) return 0;
+  
+  let normalized = value.trim();
+  
+  // 후행 마이너스 처리
+  const isNegative = normalized.endsWith('-');
+  if (isNegative) normalized = normalized.slice(0, -1);
+  
+  // 독일식 숫자 감지: 쉼표가 점보다 뒤에 있거나, 점이 없고 쉼표만 있으면 독일식
+  // "1.234,56" 또는 "1234,56" → "1234.56"
+  const lastComma = normalized.lastIndexOf(',');
+  const lastDot = normalized.lastIndexOf('.');
+  if (lastComma > lastDot) {
+    // 독일식: 점은 천 단위, 쉼표는 소수점
+    normalized = normalized.replace(/\./g, '').replace(',', '.');
+  } else {
+    // 영문식 또는 단순 숫자: 쉼표는 천 단위로 제거
+    normalized = normalized.replace(/,/g, '');
+  }
+  
+  const num = parseFloat(normalized);
+  return isNegative ? -num : num;
+}
+
+parseSapNumber('1000.00');       //  1000
+parseSapNumber('1.000,00');      //  1000 (독일식)
+parseSapNumber('1,000.00');      //  1000 (영문식 천 단위)
+parseSapNumber('1000.00-');      // -1000
+```
+
+---
+
+## 함정 6 — 통화는 항상 금액+통화코드의 쌍
+
+SAP 금액 필드는 **숫자 단독으로 의미가 없다**. 통화 코드(`WAERS`)와 쌍으로 와야 한다.
+
+```xml
+<NETWR>1000000.00</NETWR>
+<WAERS>KRW</WAERS>
+
+<NETWR>1000.00</NETWR>
+<WAERS>USD</WAERS>
+```
+
+숫자만 보면 둘 다 "1000"이지만 하나는 100만 원이고 하나는 100만 달러다. DB에 저장할 때도 통화 코드를 반드시 같이 저장해야 한다.
+
+### 대처
+
+DB 스키마 설계 시점에서 금액 필드는 통화 필드와 한 쌍으로 묶어서 설계한다.
+
+```sql
+CREATE TABLE purchase_order_header (
+  ebeln     VARCHAR(10) PRIMARY KEY,
+  netwr     VARCHAR(30),  -- 순 금액 (문자열 보존)
+  waers     VARCHAR(5),   -- 통화 코드 (쌍으로 저장)
+  -- ...
+);
+```
+
+금액을 비교하거나 합계 낼 때는 반드시 통화 단위로 그룹핑한다.
+
+---
+
+## 함정 7 — 단위(UoM)도 변환 전제
+
+수량 필드(`MENGE`)도 단위(`MEINS`) 없이는 의미가 없다. 단위 코드는 SAP 내부 코드(`EA`, `KG`, `M`, `TO`)와 ISO 단위(ISO `KGM`, `MTR`, `TNE`) 두 가지 체계가 섞여 온다.
+
+```xml
+<MENGE>10</MENGE>
+<MEINS>TO</MEINS>      <!-- SAP 내부 코드: 톤 -->
+
+<MENGE>10</MENGE>
+<MEINS>KGM</MEINS>     <!-- ISO 코드: 킬로그램 -->
+```
+
+"10톤"과 "10킬로그램"의 차이다. 단위 변환 로직은 SAP이 제공하는 단위 마스터 데이터(`IF_*_UNIT_*` 계열 인터페이스)로 별도 수신해서 처리한다.
+
+<Callout type="note" title="가격 단위(PEINH)의 함정">
+단가 필드 `NETPR`(Netto Preis)는 "단가"지만, 단가의 기준이 되는 수량이 별도로 온다(`PEINH`, Preiseinheit = 가격 단위). 예를 들어 `NETPR=100, PEINH=1, MEINS=EA`면 "1개당 100"이지만, `NETPR=100, PEINH=100, MEINS=EA`면 "100개당 100"(즉 1개당 1)이다. 단가 계산할 때 `NETPR / PEINH`로 나눠야 정확한 개당 단가가 나온다.
+</Callout>
+
+---
+
+## 정리: SAP 데이터 처리 3원칙
+
+이 모든 함정을 아래 3가지 원칙으로 정리할 수 있다.
+
+### 1. 타입 시스템을 믿지 마라
+
+WSDL이 `xs:string`이라고 한 건 거짓말이 아니다. **정말로 문자열이다**. 숫자 같아 보여도 문자열이고, 날짜 같아 보여도 문자열이다. DB 스키마에서 `varchar`로 받는 게 원칙이다.
+
+### 2. 변환은 한 곳에서만
+
+파싱 계층에 **SAP → 내부 타입** 변환 함수를 정의하고, 다른 곳에서는 쓰지 않는다. 변환 로직이 여러 곳에 흩어지면 함정 하나가 나타날 때 수정 지점을 찾을 수 없다.
+
+```ts
+// 권장 구조
+// parsers/sap-types.ts
+export function parseSapNumber(value: string): number { /* ... */ }
+export function parseSapDate(value: string): Date | null { /* ... */ }
+export function parseSapDateTime(d: string, t: string): Date | null { /* ... */ }
+export function stripLeadingZeros(value: string): string { /* ... */ }
+```
+
+### 3. 원본을 보존하라
+
+변환한 값만 저장하면 나중에 SAP에 되돌려 보낼 때 문제가 생긴다. **원본 문자열을 DB에 보존**하고, 화면 표시나 계산용으로만 변환한다. 저장소의 진실은 SAP이 보낸 문자열 그대로여야 한다.
+
+---
+
+다음 편은 필드 개별의 처리가 아니라, 필드들이 모여서 만드는 **구매 업무의 문서 흐름**을 다룬다. PR → RFQ → PO → GR → IV의 전체 지도가 없으면 필드 하나하나가 왜 존재하는지 이해할 수 없다.

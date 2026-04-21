@@ -1,0 +1,488 @@
+# SAP과 SOAP으로 붙기
+
+*Envelope, 네임스페이스, Basic Auth, 그리고 XML 배열의 배신*
+
+---
+
+WSDL 해석이 끝났다면 이제 실제 통신이다. SAP PI/PO 경유 SOAP 통신은 **특정한 관습**을 따른다. 이 관습을 모르면 `200 OK`가 와도 메시지가 PI/PO에서 조용히 버려진다. Envelope를 어떻게 조립해야 하는지, 네임스페이스는 어떻게 붙여야 하는지, 응답의 배열을 어떻게 방어적으로 파싱하는지.
+
+이 글은 그 관습의 체크리스트다.
+
+---
+
+## 통신의 기본 골격
+
+SAP PI/PO 경유 SOAP 통신은 다음 4가지가 전부다.
+
+1. **HTTP POST**로 WSDL의 엔드포인트에 XML body를 보낸다.
+2. **Content-Type**: `text/xml; charset=utf-8`
+3. **Authorization**: Basic (username:password → Base64)
+4. **Body**: SOAP 1.1 Envelope 구조의 XML
+
+REST API처럼 JSON을 보내지 않고, OAuth2 토큰도 쓰지 않는다. 2000년대 초반 스타일의 통신이다. 낯설게 느껴지지만 패턴이 한 번만 잡히면 단순하다.
+
+```
+┌─────────────────────┐
+│ HTTP POST           │
+│ Content-Type: xml   │
+│ Authorization: Basic│
+│ Body: SOAP Envelope │
+└──────────┬──────────┘
+           │
+           ▼
+   ┌──────────────────┐
+   │ PI/PO 미들웨어     │
+   └─────────┬────────┘
+             │ RFC/IDoc
+             ▼
+      ┌───────────┐
+      │  ECC/MDG  │
+      └───────────┘
+```
+
+---
+
+## SOAP Envelope 구조
+
+SOAP 1.1의 Envelope는 다음과 같이 생겼다.
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<soap:Envelope
+  xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
+  xmlns:p1="http://example.com/sap/integration/">
+  <soap:Body>
+    <p1:IF_ECC_EXT_PO_INFORMATIONReq xmlns="http://example.com/sap/integration/">
+      <ZMM_HD>
+        <EBELN>4500012345</EBELN>
+        <BUKRS>1000</BUKRS>
+        <LIFNR>0000000123</LIFNR>
+        <ZMM_DT>
+          <EBELP>00010</EBELP>
+          <MATNR>000000000000012345</MATNR>
+          <MENGE>10.000</MENGE>
+        </ZMM_DT>
+      </ZMM_HD>
+    </p1:IF_ECC_EXT_PO_INFORMATIONReq>
+  </soap:Body>
+</soap:Envelope>
+```
+
+핵심 네 가지만 지키면 된다.
+
+1. **XML 선언**: `<?xml version="1.0" encoding="UTF-8"?>`
+2. **SOAP 네임스페이스**: `xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"`
+3. **비즈니스 네임스페이스**: `xmlns:p1="..."` — PI/PO에서 정의한 SAP 비즈니스 네임스페이스
+4. **Body 루트 요소**: `<p1:MessageName>` — WSDL의 Request Element 이름
+
+SOAP Header는 대부분의 SAP PI/PO 인터페이스에서 **사용하지 않는다**. Body만 있으면 된다. `<soap:Header>` 섹션을 추가하지 말 것.
+
+---
+
+## 네임스페이스의 함정
+
+위 예제에서 이 부분이 핵심이다.
+
+```xml
+<p1:IF_ECC_EXT_PO_INFORMATIONReq xmlns="http://example.com/sap/integration/">
+    <ZMM_HD>
+      <EBELN>...</EBELN>
+```
+
+`<p1:...>`로 루트 요소를 열었는데, 그 안에서 `<ZMM_HD>`·`<EBELN>`은 **접두사가 없다**. 이걸 "Unqualified child elements"라고 한다.
+
+**PI/PO는 무접두사 하위 요소를 `p1:` 네임스페이스에 속한 것으로 인식해야 한다.** 이를 위해 루트 요소에 **기본 네임스페이스(default namespace)를 명시적으로 재선언**해야 한다.
+
+```xml
+<!-- OK -->
+<p1:IF_ECC_EXT_PO_INFORMATIONReq xmlns="http://example.com/sap/integration/">
+  <ZMM_HD>...</ZMM_HD>
+</p1:IF_ECC_EXT_PO_INFORMATIONReq>
+
+<!-- NG — 기본 네임스페이스 누락 -->
+<p1:IF_ECC_EXT_PO_INFORMATIONReq>
+  <ZMM_HD>...</ZMM_HD>   <!-- PI/PO가 네임스페이스 없는 요소로 인식 → 매핑 실패 -->
+</p1:IF_ECC_EXT_PO_INFORMATIONReq>
+```
+
+<Callout type="error" title="NG 케이스의 증상은 '조용한 실패'">
+네임스페이스가 잘못되면 `200 OK`가 돌아오지만 PI/PO 내부에서 메시지가 빈 객체로 디코딩되고 ECC에 도달하지 않는다. 응답 XML에는 에러도 없다. 몇 시간을 디버깅한 뒤에야 PI 모니터(`SXI_MONITOR`)에서 payload가 비어 있는 걸 발견하게 된다.
+
+**방어**: SOAP Envelope를 조립할 때 **루트 비즈니스 요소(p1:MessageName)에 기본 네임스페이스 속성을 강제로 부여**하는 빌더 로직을 쓴다.
+</Callout>
+
+---
+
+## 실전 — SOAP 전송 모듈
+
+다음은 `fast-xml-parser`로 Envelope를 조립하고, `fetch`로 전송하고, 기본 네임스페이스 트릭까지 적용한 SOAP 전송 모듈의 최소 예제다. 실제 운영 코드는 여기에 로깅·재시도·타입 정의가 얹혀 있지만, **핵심 로직은 이것이 전부**다.
+
+```ts
+import { XMLBuilder } from 'fast-xml-parser';
+
+interface SoapSendConfig {
+  endpoint: string;
+  namespace: string;        // 예: 'http://example.com/sap/integration/'
+  prefix: string;           // 예: 'p1'
+  envelope: Record<string, unknown>;  // Body 루트 요소를 키로 갖는 객체
+  soapAction?: string;
+  timeout?: number;
+}
+
+interface SoapAuthConfig {
+  username: string;
+  password: string;
+}
+
+interface SoapSendResult {
+  success: boolean;
+  message: string;
+  responseText?: string;
+  statusCode?: number;
+}
+
+/**
+ * SOAP 1.1 Envelope를 조립하고 HTTP POST로 전송한다.
+ */
+export async function sendSoapXml(
+  config: SoapSendConfig,
+  auth: SoapAuthConfig,
+): Promise<SoapSendResult> {
+  // 1) Envelope 객체 조립
+  const envelope = {
+    'soap:Envelope': {
+      '@_xmlns:soap': 'http://schemas.xmlsoap.org/soap/envelope/',
+      [`@_xmlns:${config.prefix}`]: config.namespace,
+      'soap:Body': config.envelope,
+    },
+  };
+
+  // 2) Body 루트 요소에 기본 네임스페이스 속성 주입
+  //    (PI/PO가 무접두사 하위 요소의 네임스페이스를 인식하도록)
+  const body = (envelope['soap:Envelope'] as Record<string, unknown>)['soap:Body'] as Record<string, unknown>;
+  const rootKey = Object.keys(body)[0];
+  const rootValue = body[rootKey];
+  if (rootValue && typeof rootValue === 'object') {
+    (rootValue as Record<string, unknown>)['@_xmlns'] = config.namespace;
+  }
+
+  // 3) XML 직렬화
+  const builder = new XMLBuilder({
+    ignoreAttributes: false,
+    attributeNamePrefix: '@_',
+    format: true,
+    suppressEmptyNode: true,
+  });
+  const xmlBody = builder.build(envelope);
+  const xmlData = `<?xml version="1.0" encoding="UTF-8"?>\n${xmlBody}`;
+
+  // 4) Basic Auth 헤더 구성
+  const credentials = Buffer.from(
+    `${auth.username}:${auth.password}`,
+  ).toString('base64');
+
+  // 5) 타임아웃이 있으면 AbortController로 취소
+  const controller = new AbortController();
+  const timeoutId = config.timeout
+    ? setTimeout(() => controller.abort(), config.timeout)
+    : undefined;
+
+  try {
+    const response = await fetch(config.endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'text/xml; charset=utf-8',
+        'SOAPAction': config.soapAction ?? '',
+        'Authorization': `Basic ${credentials}`,
+      },
+      body: xmlData,
+      signal: controller.signal,
+    });
+
+    const responseText = await response.text();
+
+    // 6) 에러 감지 (상세는 7편에서)
+    const hasSoapFault = responseText.includes('soap:Fault');
+    const hasSapError =
+      responseText.includes('<MSGTY>E</MSGTY>') ||
+      responseText.includes('<EV_TYPE>E</EV_TYPE>');
+
+    if (!response.ok || hasSoapFault || hasSapError) {
+      return {
+        success: false,
+        message: `통신 실패 (HTTP ${response.status})`,
+        responseText,
+        statusCode: response.status,
+      };
+    }
+
+    return {
+      success: true,
+      message: '전송 성공',
+      responseText,
+      statusCode: response.status,
+    };
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+```
+
+호출 측은 WSDL의 Request Element 구조에 맞게 중첩된 객체를 전달한다.
+
+```ts
+const result = await sendSoapXml(
+  {
+    endpoint: 'https://sap-gateway.example.com/api/IF_ECC_EXT_PO_INFORMATION',
+    namespace: 'http://example.com/sap/integration/',
+    prefix: 'p1',
+    envelope: {
+      'p1:IF_ECC_EXT_PO_INFORMATIONReq': {
+        ZMM_HD: {
+          EBELN: '4500012345',
+          BUKRS: '1000',
+          LIFNR: '0000000123',
+          ZMM_DT: {
+            EBELP: '00010',
+            MATNR: '000000000000012345',
+            MENGE: '10.000',
+          },
+        },
+      },
+    },
+  },
+  {
+    username: process.env.SAP_SOAP_USERNAME!,
+    password: process.env.SAP_SOAP_PASSWORD!,
+  },
+);
+```
+
+<Callout type="info" title="인증 정보는 환경변수로">
+Basic Auth 자격 증명은 개발·운영 환경별로 다르고, 공개 저장소에 노출되면 안 된다. 환경변수로 분리해서 로컬·개발·운영에 각각 다른 값을 주입한다. 코드에 하드코딩하거나 WSDL에 적힌 URL을 그대로 사용하지 말 것.
+</Callout>
+
+---
+
+## XML 배열의 배신 — `isArray` 함정
+
+여기서부터가 SOAP 통신에서 가장 많이 당하는 함정이다. **응답 XML을 파싱할 때 발생한다.**
+
+WSDL에서 `maxOccurs="unbounded"`로 정의된 요소는 배열이다. 하지만 실제 데이터에 **1건만 있을 때 `fast-xml-parser`는 배열이 아닌 단일 객체로 디코딩**한다.
+
+### 문제 상황
+
+```xml
+<!-- 케이스 A: 2건 — 배열로 옴 -->
+<ZMM_HD>
+  <EBELN>4500012345</EBELN>
+  <ZMM_DT>
+    <EBELP>00010</EBELP>
+  </ZMM_DT>
+  <ZMM_DT>
+    <EBELP>00020</EBELP>
+  </ZMM_DT>
+</ZMM_HD>
+
+<!-- 케이스 B: 1건 — 단일 객체로 옴 (배열 아님!) -->
+<ZMM_HD>
+  <EBELN>4500012345</EBELN>
+  <ZMM_DT>
+    <EBELP>00010</EBELP>
+  </ZMM_DT>
+</ZMM_HD>
+```
+
+이걸 `XMLParser`로 파싱하면:
+
+```ts
+// 케이스 A
+{ ZMM_HD: { EBELN: '...', ZMM_DT: [ {EBELP: '00010'}, {EBELP: '00020'} ] } }
+
+// 케이스 B
+{ ZMM_HD: { EBELN: '...', ZMM_DT: { EBELP: '00010' } } }
+// ^^^ 배열이 아님. map/forEach가 폭발함.
+```
+
+하위 테이블을 순회하는 코드가 이렇게 생겼다면 케이스 B에서 터진다.
+
+```ts
+// NG
+for (const item of response.ZMM_HD.ZMM_DT) { // 객체는 iterable 아님
+  processItem(item);
+}
+
+// NG 다른 형태
+response.ZMM_HD.ZMM_DT.map(item => ...);  // map is not a function
+```
+
+### 대처 1 — 파서 옵션으로 강제 배열화
+
+`fast-xml-parser`의 `isArray` 옵션을 써서 특정 요소를 **항상 배열로** 취급하게 한다.
+
+```ts
+import { XMLParser } from 'fast-xml-parser';
+
+const parser = new XMLParser({
+  ignoreAttributes: false,
+  attributeNamePrefix: '@_',
+  // WSDL에서 maxOccurs="unbounded"인 요소 이름을 나열
+  isArray: (tagName, jpath, isLeafNode, isAttribute) => {
+    const arrayTags = ['ZMM_HD', 'ZMM_DT', 'ZMM_KN', 'ZMM_PAY', 'ZMM_NOTE'];
+    return arrayTags.includes(tagName);
+  },
+});
+
+const parsed = parser.parse(responseText);
+// 1건만 와도 항상 [...] 배열
+for (const item of parsed.ZMM_HD[0].ZMM_DT) {
+  processItem(item);
+}
+```
+
+단점: WSDL의 모든 반복 가능 태그를 일일이 나열해야 한다. 태그가 많으면 실수 위험이 있다.
+
+### 대처 2 — 방어적 파싱 헬퍼
+
+파싱 결과를 순회하기 직전에 "객체면 배열로 감싼다"는 헬퍼를 쓴다.
+
+```ts
+function toArray<T>(value: T | T[] | undefined | null): T[] {
+  if (value === undefined || value === null) return [];
+  return Array.isArray(value) ? value : [value];
+}
+
+// 사용
+for (const header of toArray(parsed.ZMM_HD)) {
+  for (const detail of toArray(header.ZMM_DT)) {
+    for (const account of toArray(detail.ZMM_KN)) {
+      processAccount(account);
+    }
+  }
+}
+```
+
+장점: WSDL 구조를 미리 알 필요가 없다. 순회 시점에 정규화된다. **실무에서는 이 방식이 더 자주 쓰인다.**
+
+<Callout type="warning" title="두 방법을 섞어 쓰지 말 것">
+파서 옵션으로 배열화를 강제하는 동시에 순회 시점에 `toArray`를 쓰면 중복 처리된다. 한 가지 방식만 일관되게 쓴다. 팀 컨벤션으로 정해서 공유.
+</Callout>
+
+---
+
+## 빈 값의 함정
+
+SAP은 값이 없을 때 **빈 문자열**로 보낸다. `null`이나 요소 누락이 아니다.
+
+```xml
+<ZMM_HD>
+  <EBELN>4500012345</EBELN>
+  <ZNOTE></ZNOTE>   <!-- 빈 문자열 -->
+  <ZREMARK/>        <!-- self-closing, 빈 문자열 -->
+</ZMM_HD>
+```
+
+`fast-xml-parser`는 이 두 형태를 처리할 때 옵션에 따라 결과가 다르다.
+
+- `parseTagValue: true` (기본값): 빈 문자열은 `""`로 파싱
+- `allowBooleanAttributes`, `trimValues`: 공백만 있는 값의 처리 영향
+
+**권장**: 빈 문자열과 null을 구분하지 말고 "값 없음"으로 동일하게 취급하는 정규화 레이어를 둔다.
+
+```ts
+function normalizeSapField(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  const str = String(value).trim();
+  return str === '' ? null : str;
+}
+```
+
+---
+
+## 요청 시 조심할 것 — 빈 노드
+
+반대 방향(**우리 → SAP**)으로 보낼 때는 **빈 값을 어떻게 직렬화할지**도 고민해야 한다.
+
+```ts
+// 객체
+{ ZREMARK: '' }
+
+// suppressEmptyNode: false → <ZREMARK></ZREMARK>
+// suppressEmptyNode: true  → <ZREMARK/>  또는 아예 생략
+```
+
+PI/PO 설정에 따라 빈 노드 유무로 메시지가 거부되거나 기본값이 적용되는 차이가 생긴다. **WSDL Mandatory로 표시된 필드는 빈 문자열로라도 넣어서 보내는 것이 안전**하다.
+
+---
+
+## 재시도와 타임아웃
+
+SAP PI/PO는 응답이 느린 경우가 있다. 특히 마스터 데이터처럼 건수가 많은 메시지는 5분 이상 걸리기도 한다. 타임아웃과 재시도는 반드시 넣는다.
+
+```ts
+interface RetryConfig {
+  maxRetries: number;
+  retryDelayMs: number;
+}
+
+export async function sendSoapWithRetry(
+  config: SoapSendConfig,
+  auth: SoapAuthConfig,
+  retryConfig: RetryConfig = { maxRetries: 3, retryDelayMs: 1000 },
+): Promise<SoapSendResult> {
+  let lastResult: SoapSendResult | undefined;
+
+  for (let attempt = 1; attempt <= retryConfig.maxRetries; attempt++) {
+    lastResult = await sendSoapXml(config, auth);
+    if (lastResult.success) return lastResult;
+
+    // 재시도 가치 없는 에러는 즉시 실패 처리
+    // (비즈니스 에러 MSGTY=E는 재시도해도 결과가 같음)
+    if (lastResult.responseText?.includes('<MSGTY>E</MSGTY>')) {
+      return lastResult;
+    }
+
+    if (attempt < retryConfig.maxRetries) {
+      await new Promise((r) => setTimeout(r, retryConfig.retryDelayMs));
+    }
+  }
+
+  return lastResult!;
+}
+```
+
+<Callout type="note" title="재시도는 HTTP·네트워크 에러에만">
+비즈니스 에러(MSGTY=E, EV_TYPE=E)는 입력 데이터 자체의 문제이므로 재시도해도 결과가 같다. 오히려 중복 처리 위험이 있다. 재시도는 **HTTP 5xx, 네트워크 타임아웃, 연결 실패** 등 통신 자체의 일시적 실패에만 적용한다.
+</Callout>
+
+---
+
+## 요청·응답 XML을 반드시 로깅하라
+
+운영에서 **요청·응답 XML을 DB나 로그 파일에 남기는 것**은 선택이 아니다. 에러 발생 시 단서는 오직 그 XML에만 있다.
+
+기록할 것:
+
+- 방향 (INBOUND / OUTBOUND)
+- 인터페이스 이름
+- 요청 XML (body 전체)
+- 응답 XML (body 전체)
+- HTTP 상태 코드
+- 성공 여부
+- 소요 시간
+- 호출한 사용자·요청 식별자 (추적용)
+
+이렇게 남겨야 문제가 터졌을 때 "어제 오후 3시에 보낸 것"을 검색해서 SAP 담당자에게 전달할 수 있다. 로깅 없이 운영은 불가능하다.
+
+---
+
+## 정리
+
+- SAP SOAP 통신의 4원칙: **HTTP POST + Content-Type xml + Basic Auth + SOAP 1.1 Envelope**.
+- **기본 네임스페이스**를 Body 루트 요소에 명시하는 것이 핵심. 없으면 PI/PO가 조용히 버린다.
+- XML 파싱 시 **1건일 때 배열 아닌 객체로 오는 함정**. `isArray` 옵션 또는 `toArray` 헬퍼로 방어.
+- 빈 값은 null이 아닌 **빈 문자열**이다. 정규화 레이어에서 통일.
+- 재시도는 **HTTP·네트워크 에러에만** 적용. 비즈니스 에러는 재시도해도 같다.
+- 요청·응답 XML을 **반드시 로깅**. 에러 디버깅의 유일한 단서.
+
+다음 편은 이 통신에서 나올 수 있는 **에러의 3가지 패턴**과 디버깅 전략이다.
