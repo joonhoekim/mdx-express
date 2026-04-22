@@ -22,6 +22,10 @@ import {
 
 # 리버스 프록시 솔루션 비교 가이드
 
+<Callout type="note" title="후속 글 안내">
+이 글은 스펙·기능 위주의 비교 자료입니다. 실제 써본 경험을 바탕으로 후속 작성한 [**리버스 프록시, 뭘 골라야 할까 — NPM·Traefik·Caddy 실전 선택 가이드**](/docs/dev/infra/reverse-proxy-selection-guide)를 먼저 읽는 편이 의사결정에 더 도움이 될 수 있습니다.
+</Callout>
+
 리버스 프록시는 현대 웹 인프라의 핵심 구성 요소입니다. Proxmox 환경에서 여러 서비스를 운영할 때, 어떤 솔루션을 선택할지는 프로젝트의 규모, 복잡성, 그리고 운영진의 기술 수준에 따라 달라집니다.
 
 <Callout type="info" title="이 가이드에서 다룰 솔루션들">
@@ -694,22 +698,22 @@ server {
 
 <Card title="선택 기준별 추천" description="상황별 최적 솔루션">
 
-**🎯 사용 편의성 우선:**
+**사용 편의성 우선:**
 1. Nginx Proxy Manager
 2. Caddy
 3. Cloudflare Tunnel
 
-**⚡ 성능 우선:**
+**성능 우선:**
 1. HAProxy
 2. 직접 Nginx
 3. Traefik
 
-**🔒 보안 우선:**
+**보안 우선:**
 1. Cloudflare Tunnel
 2. HAProxy
 3. 직접 Nginx
 
-**🚀 확장성 우선:**
+**확장성 우선:**
 1. Traefik
 2. HAProxy
 3. 직접 Nginx
