@@ -16,12 +16,18 @@ interface PageProps {
 }
 
 export default async function DocsPage({ params }: PageProps) {
-  const { slug } = await params;
+  const { slug: rawSlug } = await params;
 
   // slug가 비어있으면 404
-  if (!slug || slug.length === 0) {
+  if (!rawSlug || rawSlug.length === 0) {
     notFound();
   }
+
+  // Next.js는 URL의 segment를 percent-encoded 상태로 전달한다.
+  // 파일시스템 조회를 위해 각 segment를 디코드하고 NFC로 정규화한다.
+  const slug = rawSlug.map((segment) =>
+    decodeURIComponent(segment).normalize('NFC')
+  );
 
   // 경로 타입 확인
   const pathType = await getPathType(slug);

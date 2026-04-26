@@ -28,7 +28,15 @@ function generateBreadcrumbs(pathname: string): BreadcrumbItem[] {
   let currentPath = "";
   segments.forEach((segment, index) => {
     currentPath += `/${segment}`;
-    const title = formatTitle(segment);
+
+    // 표시용 segment는 percent-encoded 상태일 수 있으므로 디코드 후 NFC로 정규화
+    let decoded = segment;
+    try {
+      decoded = decodeURIComponent(segment).normalize("NFC");
+    } catch {
+      // 잘못된 escape sequence면 원본 사용
+    }
+    const title = formatTitle(decoded);
 
     if (index === segments.length - 1) {
       // 마지막 항목은 링크 없이
