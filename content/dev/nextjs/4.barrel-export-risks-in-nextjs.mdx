@@ -1,0 +1,169 @@
+---
+title: 'Next.js 배럴 익스포트(Barrel Export)의 위험성'
+description: 'App Router에서 배럴 파일이 서버/클라이언트 경계를 흐리게 만드는 메커니즘과 실무 가이드'
+date: '2026-04-28'
+tags: ['Next.js', 'App Router', 'Server Actions', 'Barrel Export', 'Architecture']
+---
+
+import { Callout, Steps, Step } from '@/components/writing-ui';
+
+# Next.js 배럴 익스포트(Barrel Export)의 위험성
+
+배럴 익스포트(`index.ts`로 하위 모듈을 한꺼번에 re-export 하는 패턴)는 모노레포나 라이브러리에서 import 경로를 단축하는 관용구로 자리잡았다. 하지만 Next.js App Router 환경에서는 같은 패턴이 **서버/클라이언트 경계를 흐리는 footgun**으로 동작한다. 특히 서버 액션 파일을 묶는 배럴은 빌드 그래프에 미묘한 균열을 만들고, 그 균열은 종종 재현이 어려운 런타임 에러로 이어진다.
+
+이 글은 배럴이 Next.js에서 왜 위험한지를 메커니즘 단위로 분해하고, 어떤 조건일 때 즉시 제거해야 하는지에 대한 판단 기준을 정리한다.
+
+<Callout type="warning" title="한 줄 요약">
+Next.js App Router에서 배럴은 서버/클라이언트 경계를 흐리는 footgun이고, 특히 `'use server'` 파일들을 배럴로 묶으면 번들러가 경계를 잘못 추론할 수 있다.
+</Callout>
+
+## 핵심 문제: Next.js에서 배럴이 왜 위험한가
+
+### 1. Server/Client 경계 모호화
+
+전형적인 문제 구조는 이렇다.
+
+```
+services/index.ts  (배럴, 'use server' 없음)
+  ├── import-contract.service.ts          ('use server') → 타입 + 서버액션 혼재
+  ├── vendor-contract-review.service.ts   ('use server') → 타입 + 서버액션 혼재
+  └── template.service.ts                 ('use server')
+```
+
+Next.js 번들러(Webpack/Turbopack)가 서버/클라이언트 경계를 판단하는 기준은 **파일 단위의 `'use server'` / `'use client'` 디렉티브**다. 그런데 배럴(`index.ts`)에는 디렉티브가 없다. 번들러 입장에서 이 모듈이 어느 쪽에 속하는지 불명확해지고, 그 결과 **클라이언트 번들로 서버 전용 코드가 유입될 수 있다.**
+
+```ts
+// 클라이언트 컴포넌트에서 타입만 쓰려고...
+import type { ImportGeneralContractRow } from '../services'
+
+// 실제로는 이 모듈 그래프가 통째로 평가됨
+// → import-contract.service.ts의 서버액션 함수들까지 번들에 포함 시도
+// → "This module cannot be used in a Client Component" 에러 or 조용한 유출
+```
+
+`import type`은 분명 타입만 가져오는 구문이지만, 모듈 그래프가 평가되는 단계에서는 트랜스파일러/번들러가 어떤 export가 type-only인지 항상 정확히 추론하지 못한다. 배럴이 중간에 끼면 이 추론이 더 불안정해진다.
+
+### 2. Server Action ID 충돌 (Next.js 15)
+
+Next.js 15에서 서버 액션은 **빌드 시 각 함수에 고유 action ID**를 부여한다. 클라이언트는 그 ID를 통해 서버 함수를 호출한다. 문제는 같은 함수를 다른 경로로 import하면 다른 ID로 등록될 수 있다는 점이다.
+
+```ts
+// 경로 A (배럴 경유)
+import { createContract } from '../services'
+
+// 경로 B (직접)
+import { createContract } from '../services/import-contract.service'
+```
+
+이 두 경로가 동시에 빌드 그래프에 존재하면 다음과 같이 분기될 수 있다.
+
+```
+createContract → action_id: "abc123"  (배럴 경로)
+createContract → action_id: "def456"  (직접 경로)
+```
+
+결과적으로 발생하는 증상은 다음과 같다.
+
+- HMR 시 stale reference 발생
+- 클라이언트 캐시가 구버전 action ID를 유지
+- `"Invalid action"` 류의 런타임 에러 (빌드마다 달라지므로 재현이 어려움)
+
+<Callout type="error" title="가장 까다로운 종류의 버그">
+이 문제의 본질적인 어려움은 **빌드 결정성**이 깨진다는 점이다. 같은 코드라도 빌드 그래프가 어떻게 형성되었는지에 따라 다른 결과가 나오므로, 로컬에서는 재현되지 않다가 배포 환경에서만 터지는 경우가 흔하다.
+</Callout>
+
+### 3. 타입과 서버 액션이 같은 모듈에 혼재
+
+이 문제는 배럴 자체보다 한 단계 더 근본적인 구조 문제다. 그리고 배럴 위험을 증폭시키는 결정적인 원인이기도 하다.
+
+```ts
+// import-contract.service.ts
+'use server'
+
+// ← 타입 (클라이언트도 필요)
+export type ImportGeneralContractSearchType = { ... }
+export type ImportGeneralContractRow = { ... }
+
+// ← 서버 액션 (서버 전용)
+export async function importContract() { ... }
+export async function getContractList() { ... }
+```
+
+이 파일은 `'use server'`이기 때문에 **클라이언트에서 `import type`으로 타입만 가져와도 전체 모듈이 서버 전용으로 처리**된다. 이상적으로는 타입은 디렉티브가 없는 별도 파일에 분리되어야 한다. 그래야 `import type`이 안전하게 동작한다.
+
+## 왜 "콜러 1곳뿐"이 결정적인가
+
+배럴의 존재 이유는 본래 경로 단축이다.
+
+```ts
+// 배럴 있을 때 (경로 단축)
+import { A, B, C, D } from '../services'
+
+// 배럴 없을 때 (직접)
+import { A } from '../services/a.service'
+import { B } from '../services/b.service'
+import { C } from '../services/c.service'
+import { D } from '../services/d.service'
+```
+
+콜러가 여러 곳이고, 한 호출 지점에서 여러 서비스를 묶어서 쓸 때만 배럴이 DX 가치를 제공한다. 그런데 **콜러가 1곳이고 함수 1개만 쓰는 상황**이라면 경로 단축의 이점은 0이고, 위에서 정리한 위험성은 그대로 남는다. 배럴을 유지할 근거가 사라진다.
+
+이 판단 기준은 단순하지만 실무에서 의외로 잘 적용되지 않는다. "배럴은 좋은 패턴"이라는 일반론이 도메인 컨텍스트(서버/클라이언트 분리)를 덮어버리기 때문이다.
+
+## 권장 해결 방향
+
+```
+현재 (위험)                          개선 후 (안전)
+──────────────────────────────────   ──────────────────────────────────
+services/                            services/
+  index.ts          ← 배럴             (삭제)
+  import-contract.service.ts          import-contract.service.ts
+    'use server'                         'use server' (액션만)
+    타입 + 서버액션 혼재               types.ts  ← 타입 분리
+  template.service.ts                 template.service.ts
+
+클라이언트 import:                   클라이언트 import:
+  from '../services'  ← 모호           from '../services/template.service'  ← 명확
+                                       from '../types'  ← 타입은 여기서
+```
+
+핵심은 두 가지다. (1) 배럴을 제거해 import 경로를 모듈 파일에 직접 묶는다. (2) 타입과 서버 액션을 다른 파일로 분리해 클라이언트가 안전하게 타입만 가져갈 수 있게 한다.
+
+### 단계별 마이그레이션
+
+<Steps>
+<Step title="콜러의 import 경로를 직접 경로로 수정">
+배럴을 통하던 import를 모두 구체적인 파일 경로로 바꾼다. 콜러가 1곳뿐이라면 분 단위로 끝나는 작업이다.
+</Step>
+
+<Step title="services/index.ts 삭제">
+배럴 파일을 제거한다. 1단계가 완료되었다면 빌드는 통과한다. 통과하지 않는다면 놓친 콜러가 남아 있다는 신호다.
+</Step>
+
+<Step title="클라이언트 참조 타입을 types.ts로 이전">
+클라이언트 컴포넌트가 참조하는 타입부터 우선적으로 디렉티브 없는 별도 파일로 분리한다. 한 번에 모두 옮길 필요는 없고, 클라이언트가 실제로 만지는 타입만 이전해도 즉각적인 효과가 있다.
+</Step>
+
+<Step title="신규 서비스 파일은 직접 import 원칙 적용">
+이후 추가되는 서비스 파일에는 배럴을 새로 만들지 않는다. 팀 컨벤션으로 못박아두면 같은 문제가 재발하지 않는다.
+</Step>
+</Steps>
+
+## 실무 체크리스트
+
+앞으로 이 패턴을 팀 차원에서 예방하려면 다음 두 가지를 가이드라인으로 명시해두는 것이 가장 비용이 낮다.
+
+```ts
+// ❌ 피해야 할 패턴
+// - 'use server' 파일에 타입 export 혼재
+// - 서버 모듈들을 묶는 배럴 index.ts
+
+// ✅ 권장 패턴
+// - types.ts → 순수 타입만 (디렉티브 없음)
+// - *.service.ts → 'use server' + 함수만
+// - 클라이언트는 types.ts에서 타입, *.service.ts에서 액션 직접 import
+```
+
+<Callout type="note" title="더 큰 그림">
+배럴 자체가 나쁜 패턴은 아니다. 순수 클라이언트 라이브러리, 디자인 시스템 컴포넌트, 유틸 함수 모음에서는 여전히 유효하다. 하지만 **번들러가 파일 단위로 경계를 판정하는 환경**(App Router의 `'use server'` / `'use client'`)에서는 배럴이 그 판정을 망가뜨릴 수 있다는 점을 항상 기억해야 한다.
+</Callout>
