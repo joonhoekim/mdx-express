@@ -9,86 +9,23 @@ import { Callout } from '@/components/writing-ui';
 
 TypeScript 기반 풀스택 개발을 하면서 겪은 실수들을 정리합니다. 당시에는 합리적인 선택이라 생각했지만, 결과적으로 유지보수를 어렵게 만든 결정들입니다.
 
-## 1. 데이터베이스 뷰를 사용하지 마라
+## 1. 데이터베이스 뷰는 기본 미사용으로 두자
 
-Drizzle 같은 ORM을 사용할 때 데이터베이스 뷰(View)를 활용하고 싶은 유혹이 있습니다. 복잡한 조인이나 집계를 뷰로 만들어두면 쿼리가 간단해지니까요.
+> 처음 이 글을 쓸 때는 "뷰를 사용하지 마라"고 단정했는데, 1년 뒤 다시 읽으니 그 단정의 비어있음이 보여서 별도 글로 풀어 썼습니다. 자세한 비용 분석과 정책 근거는 [View를 기본 미사용으로: Drizzle 스택에서 한 발 물러나 다시 쓴 정책](/docs/dev/database/pg-view-default-off-in-drizzle)에서 다루고, 여기서는 한 단락 요약만 남깁니다.
 
-하지만 이 접근 방식에는 심각한 문제가 있습니다.
+Drizzle + PostgreSQL 환경에서 일반 조회 추상화 목적으로 view를 만드는 것은 **기본 미사용**으로 두는 편이 합리적이었습니다. view가 나쁜 기술이라서가 아니라, 지금 스택에서 view가 채우던 자리를 쿼리 빌더가 더 잘 채우기 때문입니다.
 
-### 왜 문제인가
-
-<Callout type='warning' title='핵심 문제'>
-  뷰는 단일 책임 원칙(SRP)을 위반하게 만듭니다. 스키마를 수정하면 뷰와 애플리케이션을 둘 다 수정해야 합니다.
+<Callout type='warning' title='핵심만'>
+  - **실행 비용은 view 유무와 무관합니다.** PostgreSQL은 일반 view를 parent query에 inline해서 같은 plan으로 실행합니다. "view 빼면 느려진다"는 흔한 직관은 틀렸습니다.
+  - 진짜 비용은 두 곳에 숨어 있습니다 — 분리 쿼리 사이의 MVCC 스냅샷 일관성, 그리고 합성 컬럼의 ORDER BY 한계. 회계·합산처럼 *같은 시점*이 의미 있는 곳에서는 트랜잭션으로 메꾸거나 view를 그대로 두는 편이 맞습니다.
+  - drizzle-kit의 view 의존성 추적이 약하다는 점, Source of Truth가 세 곳(테이블 / view SQL / Drizzle 타입)으로 분산된다는 점, Drizzle이 표현력 공백이 작다는 점 — 이 세 가지가 우리 스택에 한정된 미사용 근거입니다.
 </Callout>
 
-**문제 1: 단일 책임 원칙 위반**
-
-뷰를 사용하는 순간, 데이터 조회 로직의 책임이 두 곳으로 분산됩니다:
-
-```
-스키마 변경 발생
-→ 뷰 정의 수정 필요
-→ 애플리케이션 코드도 수정 필요
-→ 변경 지점이 2배로 증가
-→ 하나라도 놓치면 런타임 에러
-```
-
-이것이 가장 치명적인 문제입니다. 테이블 컬럼 하나 바꾸는데 뷰도 확인하고, 애플리케이션도 확인해야 합니다. 뷰가 여러 개면 더 심각해집니다.
-
-**문제 2: 성능에 도움이 안 됨**
-
-흔한 오해가 "뷰를 쓰면 성능이 좋아진다"는 것입니다. 틀렸습니다.
-
-일반 뷰는 매번 쿼리를 실행합니다. 캐싱도 없고, 최적화도 없습니다. 그냥 SQL을 숨겨놓은 것일 뿐입니다.
-
-Materialized View는 결과를 저장하므로 성능에 도움이 됩니다. 하지만 Materialized View가 필요한 상황이라면, 대부분 설계 자체를 재검토해야 할 신호입니다. 정말 필요한 게 맞는지 먼저 고민해야 합니다.
-
-**문제 3: ORM과의 불협화음**
-
-Drizzle이나 Prisma 같은 ORM은 테이블 스키마를 기준으로 타입을 생성합니다. 뷰를 사용하면:
-
-- 타입 추론이 제대로 되지 않거나 수동 정의가 필요
-- 마이그레이션 관리가 복잡해짐
-- ORM의 relation 기능을 활용하기 어려움
-
-**문제 4: 로직의 은닉**
-
-```
-애플리케이션 코드에서 비즈니스 로직 일부 처리
-→ 나머지는 DB 뷰에서 처리
-→ 디버깅 시 양쪽을 모두 확인해야 함
-→ 전체 로직 파악이 어려움
-```
-
-### 대안: 애플리케이션에 책임을 위임하라
-
-```typescript
-// Bad: 뷰에 의존
-const orderSummary = await db.select().from(orderSummaryView);
-
-// Good: 애플리케이션에서 명시적으로 처리
-const orders = await db
-  .select({
-    orderId: ordersTable.id,
-    customerName: customersTable.name,
-    totalAmount: sql<number>`sum(${orderItemsTable.price})`,
-  })
-  .from(ordersTable)
-  .innerJoin(customersTable, eq(ordersTable.customerId, customersTable.id))
-  .innerJoin(orderItemsTable, eq(ordersTable.id, orderItemsTable.orderId))
-  .groupBy(ordersTable.id, customersTable.name);
-```
-
-쿼리가 길어지더라도 모든 로직이 한 곳에 있으면:
-
-- 코드 리뷰가 쉬워짐
-- 타입 안전성 확보
-- 테스트 작성이 용이
-- 성능 튜닝 포인트가 명확
-
-<Callout type='info' title='예외 상황'>
-  레거시 시스템 연동이나 리포팅 전용 뷰처럼, 읽기 전용이고 변경 가능성이 낮은 경우에는 뷰가 적절할 수 있습니다.
+<Callout type='info' title='예외는 의식적으로 좁게'>
+  Materialized View, RLS 보조 view, BI/리포팅, 레거시 호환 계층, 다중 서비스 공통 projection — 이 영역들은 view가 분명히 유효합니다. 이들까지 미사용 대상에 넣으면 정책이 무리가 됩니다.
 </Callout>
+
+논의의 정확한 형태는 [별도 글](/docs/dev/database/pg-view-default-off-in-drizzle)에서 — 마이그레이션 패턴이나 진단 체크리스트가 아니라, 왜 그 정책에 도달했는가에 대한 회고를 담았습니다.
 
 ## 2. 컴포넌트 폭발을 경계하라
 
