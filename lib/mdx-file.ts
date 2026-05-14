@@ -9,18 +9,20 @@ import { getErrorMessage } from './get-error-message';
 import { CONTENT_DIR } from './mdx-types';
 import type { MDXFile, MDXFrontmatter } from './mdx-types';
 
+// 잘못된 타입의 필드는 경고 후 undefined로 정규화 → 잘못된 값이 그대로 흘러가지 않도록 함
 const frontmatterSchema = z.object({
-  title: z.string().optional(),
-  description: z.string().optional(),
-  order: z.number().optional(),
-  tags: z.array(z.string()).optional(),
+  title: z.string().optional().catch(undefined),
+  description: z.string().optional().catch(undefined),
+  order: z.number().optional().catch(undefined),
+  tags: z.array(z.string()).optional().catch(undefined),
 }).passthrough();
 
 function parseFrontmatter(data: unknown, filePath: string): MDXFrontmatter {
-  const result = frontmatterSchema.safeParse(data);
+  const result = frontmatterSchema.safeParse(data ?? {});
   if (!result.success) {
+    // data 자체가 객체가 아닌 경우 (string/array 등) → 빈 frontmatter로 처리
     console.warn(`[frontmatter] ${filePath}: ${result.error.message}`);
-    return (data ?? {}) as MDXFrontmatter;
+    return {};
   }
   return result.data as MDXFrontmatter;
 }

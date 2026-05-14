@@ -9,11 +9,7 @@ interface DocumentHeaderProps {
     git?: GitMetadata;
 }
 
-function formatDate(dateStr: string): string {
-    if (!dateStr) return '';
-    // YYYY-MM-DD 형식을 그대로 사용 (ISO 표준, 국제적으로 명확)
-    return dateStr;
-}
+// git의 --date=short 출력은 이미 YYYY-MM-DD (ISO 표준) → 별도 포맷팅 불필요
 
 export function DocumentHeader({ title, description, size = 'medium', tags, git }: DocumentHeaderProps) {
     const hasGitMeta = git && (git.author || git.created || git.updated);
@@ -40,13 +36,13 @@ export function DocumentHeader({ title, description, size = 'medium', tags, git 
                     {git.created && (
                         <span className="flex items-center gap-1">
                             <Calendar className="h-3.5 w-3.5" />
-                            {formatDate(git.created)}
+                            {git.created}
                         </span>
                     )}
                     {showUpdated && (
                         <span className="flex items-center gap-1">
                             <RefreshCw className="h-3.5 w-3.5" />
-                            {formatDate(git.updated)}
+                            {git.updated}
                         </span>
                     )}
                 </div>

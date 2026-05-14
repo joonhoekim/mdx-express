@@ -53,12 +53,15 @@ async function createMDXFile() {
       ? tagsInput.split(',').map(t => t.trim()).filter(Boolean)
       : [];
 
+    // YAML 큰따옴표 문자열이 깨지지 않도록 " 와 \ 를 이스케이프
+    const yamlString = s => `"${String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+
     const frontmatterLines = [
       '---',
-      `title: "${title}"`,
-      description ? `description: "${description}"` : null,
+      `title: ${yamlString(title)}`,
+      description ? `description: ${yamlString(description)}` : null,
       `order: ${order}`,
-      tags.length > 0 ? `tags: [${tags.map(t => `"${t}"`).join(', ')}]` : null,
+      tags.length > 0 ? `tags: [${tags.map(yamlString).join(', ')}]` : null,
       '---',
       '',
     ].filter(line => line !== null).join('\n');

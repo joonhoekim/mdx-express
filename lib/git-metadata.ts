@@ -8,6 +8,13 @@ export interface GitMetadata {
 
 const cache = new Map<string, GitMetadata>();
 
+/**
+ * git 히스토리에서 파일의 생성/수정 메타데이터를 추출한다.
+ *
+ * - 동기 spawnSync는 정적 생성(generateStaticParams) 빌드 타임 실행을 전제로 한다.
+ *   페이지가 동적으로 평가되는 경로에서는 페이지당 git 프로세스가 블로킹 호출된다.
+ * - 배포 런타임에 `.git`이 없으면 모든 필드가 빈 문자열 fallback으로 처리된다.
+ */
 export function getGitMetadata(absoluteFilePath: string): GitMetadata {
   if (cache.has(absoluteFilePath)) return cache.get(absoluteFilePath)!;
 
