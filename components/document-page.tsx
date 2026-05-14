@@ -19,7 +19,7 @@ export async function DocumentPage({ mdxContent, slug }: DocumentPageProps) {
         <div className="space-y-6">
             <DocumentHeader
                 title={mdxContent.title}
-                description={mdxContent.description}
+                subtitle={mdxContent.subtitle}
                 tags={mdxContent.tags}
                 git={git}
             />

@@ -1,8 +1,7 @@
 ---
 title: "대용량 텍스트 검색: PostgreSQL LIKE부터 역인덱스, 그리고 ripgrep까지"
-description: "PostgreSQL LIKE의 내부 동작, 인덱스 유무에 따른 차이, Elasticsearch 역인덱스 원리, ripgrep이 인덱스 없이도 빠른 이유를 정리"
-publishedAt: "2026-04-09"
-category: "database"
+subtitle: "6천만 건 앞에서 LIKE가 무릎 꿇을 때"
+description: "6천만 건 텍스트에서 LIKE 검색이 느려지는 이유를 내부 동작 수준에서 다룬다. 인덱스 없는 Sequential Scan과 TOAST 비용, B-tree의 한계, pg_trgm GIN과 Elasticsearch 역인덱스 원리, 토큰 경계의 한계, RUM Conjecture, ripgrep이 인덱스 없이 빠른 이유와 실무 선택 가이드를 설명한다."
 tags: ["postgresql", "elasticsearch", "ripgrep", "indexing", "text-search"]
 ---
 

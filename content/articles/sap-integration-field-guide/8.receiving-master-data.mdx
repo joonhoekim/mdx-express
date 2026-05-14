@@ -1,7 +1,7 @@
-# 마스터 데이터 수신 설계
-
-*CRUD로 보이지만 CRUD가 아니다 — Delete & Insert가 기본인 이유*
-
+---
+title: "마스터 데이터 수신 설계"
+subtitle: "CRUD로 보이지만 CRUD가 아니다 — Delete & Insert가 기본인 이유"
+description: "SAP 마스터 데이터를 수신해 DB에 저장할 때의 스키마 설계 5원칙(PK·FK 없음, varchar 우선, 인덱스만, WSDL 구조 그대로)과 UPSERT 대신 Delete & Insert를 쓰는 이유, 전체 동기화 전략, 수신 파이프라인을 다룬다."
 ---
 
 SAP에서 자재 마스터·벤더 마스터·조직 마스터를 수신해서 우리 DB에 저장하는 작업은 겉보기에 평범한 CRUD 같다. 그런데 실무에서는 다음 세 가지 원칙이 관례로 굳어져 있다.

@@ -1,9 +1,8 @@
 ---
-title: Repository Pattern (Frontend)
-description: API 호출을 추상화하여 컴포넌트와 HTTP 라이브러리 간의 의존성을 끊는 방법을 알아봅니다.
+title: "Repository Pattern (Frontend)"
+subtitle: "axios든 fetch든 GraphQL이든, 컴포넌트는 몰라도 된다"
+description: "API 호출을 추상화해 컴포넌트가 HTTP 라이브러리에 직접 의존하지 않게 하는 프론트엔드 Repository 패턴을 다룬다. 직접 의존의 파급 효과, Repository 인터페이스와 구현체 분리, 라이브러리·API 버전 교체 대응, 모킹 테스트, 적용 시점을 예제로 설명한다."
 ---
-
-# Repository 패턴 (Frontend): API 호출의 추상화
 
 <Callout type="info" title="핵심 요약">
   **Repository 패턴**은 데이터 접근 로직을 캡슐화하여 비즈니스 로직과 데이터 소스 사이에 추상화 계층을 두는 패턴입니다.

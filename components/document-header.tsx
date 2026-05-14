@@ -3,7 +3,7 @@ import type { GitMetadata } from '@/lib/git-metadata';
 
 interface DocumentHeaderProps {
     title: string;
-    description?: string;
+    subtitle?: string; // 제목 아래 한 줄 (부제). description(설명)은 SEO 메타/인덱스 카드 전용
     size?: 'large' | 'medium';
     tags?: string[];
     git?: GitMetadata;
@@ -11,7 +11,7 @@ interface DocumentHeaderProps {
 
 // git의 --date=short 출력은 이미 YYYY-MM-DD (ISO 표준) → 별도 포맷팅 불필요
 
-export function DocumentHeader({ title, description, size = 'medium', tags, git }: DocumentHeaderProps) {
+export function DocumentHeader({ title, subtitle, size = 'medium', tags, git }: DocumentHeaderProps) {
     const hasGitMeta = git && (git.author || git.created || git.updated);
     const showUpdated = git?.updated && git.updated !== git.created;
 
@@ -20,13 +20,13 @@ export function DocumentHeader({ title, description, size = 'medium', tags, git 
             <h1 className={size === 'large' ? 'text-4xl font-bold' : 'text-3xl font-bold'}>
                 {title}
             </h1>
-            {description && (
+            {subtitle && (
                 <p className={`text-muted-foreground ${size === 'large' ? 'text-xl' : 'text-lg'}`}>
-                    {description}
+                    {subtitle}
                 </p>
             )}
             {hasGitMeta && (
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
+                <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-1 text-sm text-muted-foreground">
                     {git.author && (
                         <span className="flex items-center gap-1">
                             <User className="h-3.5 w-3.5" />

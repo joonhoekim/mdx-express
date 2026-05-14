@@ -1,13 +1,11 @@
 ---
-title: 'Next.js 배럴 익스포트(Barrel Export)의 위험성'
-description: 'App Router에서 배럴 파일이 서버/클라이언트 경계를 흐리게 만드는 메커니즘과 실무 가이드'
-date: '2026-04-28'
-tags: ['Next.js', 'App Router', 'Server Actions', 'Barrel Export', 'Architecture']
+title: "Next.js 배럴 익스포트(Barrel Export)의 위험성"
+subtitle: "관용구가 footgun이 되는 순간"
+description: "Next.js App Router에서 배럴 파일이 서버/클라이언트 경계를 흐리는 메커니즘을 다룬다. 경계 모호화, Server Action ID 충돌, 타입과 액션의 혼재 문제를 분해하고, 배럴을 제거해야 하는 판단 기준과 단계별 마이그레이션, 실무 체크리스트를 정리한다."
+tags: ["Next.js", "App Router", "Server Actions", "Barrel Export", "Architecture"]
 ---
 
 import { Callout, Steps, Step } from '@/components/writing-ui';
-
-# Next.js 배럴 익스포트(Barrel Export)의 위험성
 
 배럴 익스포트(`index.ts`로 하위 모듈을 한꺼번에 re-export 하는 패턴)는 모노레포나 라이브러리에서 import 경로를 단축하는 관용구로 자리잡았다. 하지만 Next.js App Router 환경에서는 같은 패턴이 **서버/클라이언트 경계를 흐리는 footgun**으로 동작한다. 특히 서버 액션 파일을 묶는 배럴은 빌드 그래프에 미묘한 균열을 만들고, 그 균열은 종종 재현이 어려운 런타임 에러로 이어진다.
 

@@ -1,13 +1,9 @@
 ---
-title: 'Repository 패턴: ORM에 종속되지 않는 유연한 데이터 계층'
-description: 'TypeORM에서 Prisma로, MySQL에서 PostgreSQL로 자유롭게 전환할 수 있는 아키텍처'
-date: '2025-11-27'
-author: 'JH'
-tags: ['Design Patterns', 'Repository', 'ORM', 'NestJS', 'Backend', 'Database']
-series: 'SI 실전 디자인 패턴'
+title: "Repository 패턴: ORM에 종속되지 않는 유연한 데이터 계층"
+subtitle: "Service는 무엇을 가져올지만 알면 된다"
+description: "데이터 접근 로직을 별도 계층으로 분리하는 Repository 패턴을 다룬다. ORM 종속의 문제점, 인터페이스와 구현체 분리, TypeORM과 Prisma 교체, Decorator로 캐시 레이어 추가, Express 적용, Mock 테스트, 트레이드오프를 예제로 설명한다."
+tags: ["Design Patterns", "Repository", "ORM", "NestJS", "Backend", "Database"]
 ---
-
-# Repository 패턴: ORM에 종속되지 않는 유연한 데이터 계층
 
 ## 시작하며
 

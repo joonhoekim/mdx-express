@@ -34,7 +34,8 @@ async function createMDXFile() {
     const section = await question('섹션을 입력하세요: ');
     const slug = await question('파일명(slug)을 입력하세요 (예: getting-started): ');
     const title = await question('제목을 입력하세요: ');
-    const description = await question('설명을 입력하세요 (선택사항): ');
+    const subtitle = await question('부제를 입력하세요 (제목 아래 한 줄, 선택사항): ');
+    const description = await question('설명을 입력하세요 (이 문서가 무엇을 다루는지 — SEO/인덱스용, 선택사항): ');
     const order = await question('순서를 입력하세요 (숫자, 기본값: 1): ') || '1';
     const tagsInput = await question('태그를 입력하세요 (쉼표 구분, 선택사항): ');
 
@@ -59,6 +60,7 @@ async function createMDXFile() {
     const frontmatterLines = [
       '---',
       `title: ${yamlString(title)}`,
+      subtitle ? `subtitle: ${yamlString(subtitle)}` : null,
       description ? `description: ${yamlString(description)}` : null,
       `order: ${order}`,
       tags.length > 0 ? `tags: [${tags.map(yamlString).join(', ')}]` : null,
@@ -66,9 +68,8 @@ async function createMDXFile() {
       '',
     ].filter(line => line !== null).join('\n');
 
+    // 본문에 # H1을 쓰지 않는다 — frontmatter title이 페이지 제목(h1)으로 렌더링됨
     const content = `${frontmatterLines}
-# ${title}
-
 ${description || '여기에 내용을 작성하세요.'}
 
 ## 섹션 1
