@@ -1,6 +1,7 @@
 ---
 title: "파생 상태는 저장하지 말고 계산하라: is_latest 컬럼 제거 대장정"
-description: "DB에 'boolean 하나' 지우는 데 10 커밋이 필요했다. Single Source of Truth, Derived State, Evolutionary Database Design을 실무에서 다시 만난 기록"
+subtitle: "boolean 하나 지우는 데 10 커밋이 필요했다"
+description: "이미 다른 컬럼에서 계산 가능한 is_latest 플래그가 프로덕션에서 57건의 불일치를 만든 사례를 다룬다. SSoT, 파생 상태, 불변식 강제, 비정규화 비용, is_* 플래그 안티패턴, 진화적 데이터베이스 설계 등 6가지 설계 원칙을 10 커밋 리팩터링 과정과 엮어 설명한다."
 tags: ["postgresql", "database-design", "ssot", "refactoring", "evolutionary-db", "drizzle"]
 ---
 

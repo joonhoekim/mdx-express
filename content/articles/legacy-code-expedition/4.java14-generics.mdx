@@ -1,9 +1,7 @@
 ---
 title: "Java 1.4 제네릭 없던 시절 — Object 캐스팅의 공포"
----
-
-*"(String) list.get(0) 이 한 줄에 ClassCastException의 공포가 담겨있음"*
-
+subtitle: "(String) list.get(0) 이 한 줄에 ClassCastException의 공포가 담겨있음"
+description: "제네릭 이전 Java의 Object 캐스팅 지옥과 ClassCastException 위험을 살펴보고, Java 5 제네릭 도입부터 현재까지의 진화, Type Erasure, 와일드카드, TypeScript 타입 시스템과의 비교, 레거시 Java 리팩토링 방법을 다룬다."
 ---
 
 2004년 이전, Java에는 제네릭이 없었음. `ArrayList`에 뭘 넣든 전부 `Object`로 저장됐고, 꺼낼 때는 매번 캐스팅을 해야 했음. 컴파일은 잘 되는데 런타임에 `ClassCastException`이 터지는 공포. 타입 안전성? 그런 거 없었음. 모든 것은 `Object`였고, 모든 캐스팅은 기도였음.

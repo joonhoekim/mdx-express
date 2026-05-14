@@ -1,9 +1,7 @@
 ---
 title: "Cloudflare 정규식 장애 (2019) — 정규식 하나가 전 세계를 다운시킨 날"
----
-
-*WAF 규칙에 추가된 정규식 하나가 모든 Cloudflare 서버의 CPU를 100%로 올려버린 사건*
-
+subtitle: "WAF 규칙에 추가된 정규식 하나가 모든 Cloudflare 서버의 CPU를 100%로 올려버린 사건"
+description: "2019년 Cloudflare 장애의 원인인 catastrophic backtracking을 정규식 엔진 동작 원리와 함께 설명한다. 안전한 정규식 작성법, RE2 등 대안 엔진, ReDoS 공격, 카나리 배포의 중요성을 다룬다."
 ---
 
 2019년 7월 2일 13:42 UTC. Cloudflare의 모든 서비스가 동시에 죽었음. 전 세계 인터넷 트래픽의 약 10%를 처리하는 Cloudflare가 약 27분간 완전히 다운.

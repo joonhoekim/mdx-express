@@ -12,6 +12,7 @@ import type { MDXFile, MDXFrontmatter } from './mdx-types';
 // 잘못된 타입의 필드는 경고 후 undefined로 정규화 → 잘못된 값이 그대로 흘러가지 않도록 함
 const frontmatterSchema = z.object({
   title: z.string().optional().catch(undefined),
+  subtitle: z.string().optional().catch(undefined),
   description: z.string().optional().catch(undefined),
   order: z.number().optional().catch(undefined),
   tags: z.array(z.string()).optional().catch(undefined),
@@ -91,6 +92,7 @@ export async function getMDXFile(filePath: string): Promise<MDXFile | null> {
     return {
       slug: path.basename(filePath, '.mdx'),
       title,
+      subtitle: frontmatter.subtitle,
       description: frontmatter.description,
       order: frontmatter.order || 0,
       tags: frontmatter.tags,

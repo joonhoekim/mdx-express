@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import {
   getMDXContentByPath,
@@ -6,6 +7,7 @@ import {
   getAllMDXNestedSections,
   type MDXFileNode,
 } from '@/lib/mdx-utils';
+import { formatTitle } from '@/lib/utils';
 import { SectionIndexPage } from '@/components/section-index-page';
 import { DocumentPage } from '@/components/document-page';
 
@@ -13,6 +15,34 @@ interface PageProps {
   params: {
     slug: string[];
   };
+}
+
+// SEO 메타데이터 — description(설명)을 meta description으로 사용
+export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+  const { slug: rawSlug } = await params;
+  if (!rawSlug || rawSlug.length === 0) return {};
+
+  const slug = rawSlug.map((segment) =>
+    decodeURIComponent(segment).normalize('NFC')
+  );
+
+  const pathType = await getPathType(slug);
+
+  if (pathType === 'file') {
+    const mdxContent = await getMDXContentByPath(slug);
+    if (mdxContent) {
+      return {
+        title: mdxContent.title,
+        description: mdxContent.description,
+      };
+    }
+  }
+
+  if (pathType === 'directory') {
+    return { title: formatTitle(slug[slug.length - 1]) };
+  }
+
+  return {};
 }
 
 export default async function DocsPage({ params }: PageProps) {

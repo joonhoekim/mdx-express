@@ -6,7 +6,8 @@ export type { GitMetadata };
 export interface MDXFile {
   slug: string;
   title: string;
-  description?: string;
+  subtitle?: string;    // 부제 — 제목 아래 표시되는 편집적 한 줄
+  description?: string; // 설명 — 이 문서가 무엇을 다루는지. SEO 메타 / 섹션 인덱스 카드용
   order?: number;
   tags?: string[];
   path: string;
@@ -35,8 +36,10 @@ export interface MDXNestedSection {
 
 // MDX 파일의 frontmatter 타입
 // author/date는 git에서 자동 관리 → frontmatter에 작성해도 무시됨
+// subtitle = 부제(편집적 한 줄), description = 설명(이 문서가 무엇을 다루는지 — SEO/인덱스용)
 export interface MDXFrontmatter {
   title?: string;
+  subtitle?: string;
   description?: string;
   order?: number;
   tags?: string[];

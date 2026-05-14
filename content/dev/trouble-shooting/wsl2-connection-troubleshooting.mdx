@@ -1,6 +1,7 @@
 ---
 title: "WSL2 간헐적 연결 문제 해결 가이드"
-description: "VSCode Remote 연결 실패, WSL2 네트워크 불안정 등의 문제를 진단하고 mirrored 네트워킹으로 해결하는 방법"
+subtitle: "재현하기 어려운 그 연결 끊김, 원인은 시계와 NAT였다"
+description: "VSCode Remote 연결 실패와 WSL2 네트워크 불안정의 원인을 dmesg·journalctl 로그로 진단하고, mirrored 네트워킹과 DNS 터널링으로 해결하는 방법을 설명한다. 부록으로 Docker Desktop과 WSL2 내부 Docker Engine을 비교한다."
 tags: ["WSL2", "네트워크", "VSCode", "트러블슈팅", "Docker"]
 ---
 
