@@ -1,4 +1,7 @@
+import path from 'path';
 import { MDXFile, getAdjacentArticles } from '@/lib/mdx-utils';
+import { CONTENT_DIR } from '@/lib/mdx-types';
+import { getGitMetadata } from '@/lib/git-metadata';
 import { DocumentHeader } from '@/components/document-header';
 import { MDXRenderer } from '@/components/mdx-renderer';
 import { ArticleNavigation } from '@/components/article-navigation';
@@ -10,12 +13,15 @@ interface DocumentPageProps {
 
 export async function DocumentPage({ mdxContent, slug }: DocumentPageProps) {
     const adjacent = await getAdjacentArticles(slug);
+    const git = getGitMetadata(path.join(CONTENT_DIR, mdxContent.path));
 
     return (
         <div className="space-y-6">
             <DocumentHeader
                 title={mdxContent.title}
                 description={mdxContent.description}
+                tags={mdxContent.tags}
+                git={git}
             />
 
             <div className="prose prose-slate dark:prose-invert max-w-none">

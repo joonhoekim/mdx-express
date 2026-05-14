@@ -3,10 +3,29 @@
 import fs from 'fs/promises';
 import path from 'path';
 import matter from 'gray-matter';
+import { z } from 'zod';
 import { formatTitle } from './utils';
 import { getErrorMessage } from './get-error-message';
 import { CONTENT_DIR } from './mdx-types';
 import type { MDXFile, MDXFrontmatter } from './mdx-types';
+
+// 잘못된 타입의 필드는 경고 후 undefined로 정규화 → 잘못된 값이 그대로 흘러가지 않도록 함
+const frontmatterSchema = z.object({
+  title: z.string().optional().catch(undefined),
+  description: z.string().optional().catch(undefined),
+  order: z.number().optional().catch(undefined),
+  tags: z.array(z.string()).optional().catch(undefined),
+}).passthrough();
+
+function parseFrontmatter(data: unknown, filePath: string): MDXFrontmatter {
+  const result = frontmatterSchema.safeParse(data ?? {});
+  if (!result.success) {
+    // data 자체가 객체가 아닌 경우 (string/array 등) → 빈 frontmatter로 처리
+    console.warn(`[frontmatter] ${filePath}: ${result.error.message}`);
+    return {};
+  }
+  return result.data as MDXFrontmatter;
+}
 
 // MDX 파서 오류를 방지하기 위해 코드 블록 내부의 특수문자들을 이스케이프하는 함수
 export async function sanitizeMDXContent(content: string): Promise<string> {
@@ -60,7 +79,7 @@ export async function getMDXFile(filePath: string): Promise<MDXFile | null> {
     const fileContents = await fs.readFile(fullPath, 'utf8');
     const { data, content } = matter(fileContents);
 
-    const frontmatter = data as MDXFrontmatter;
+    const frontmatter = parseFrontmatter(data, filePath);
 
     // frontmatter title이 없으면 본문의 첫 번째 # 제목을 추출
     let title = frontmatter.title;
@@ -74,8 +93,9 @@ export async function getMDXFile(filePath: string): Promise<MDXFile | null> {
       title,
       description: frontmatter.description,
       order: frontmatter.order || 0,
+      tags: frontmatter.tags,
       path: filePath,
-      content: await sanitizeMDXContent(content), // MDX 파서 오류 방지를 위해 이스케이프 처리
+      content: await sanitizeMDXContent(content),
     };
   } catch (error) {
     console.error(`[getMDXFile] ${filePath}: ${getErrorMessage(error)}`);
