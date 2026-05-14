@@ -3,10 +3,27 @@
 import fs from 'fs/promises';
 import path from 'path';
 import matter from 'gray-matter';
+import { z } from 'zod';
 import { formatTitle } from './utils';
 import { getErrorMessage } from './get-error-message';
 import { CONTENT_DIR } from './mdx-types';
 import type { MDXFile, MDXFrontmatter } from './mdx-types';
+
+const frontmatterSchema = z.object({
+  title: z.string().optional(),
+  description: z.string().optional(),
+  order: z.number().optional(),
+  tags: z.array(z.string()).optional(),
+}).passthrough();
+
+function parseFrontmatter(data: unknown, filePath: string): MDXFrontmatter {
+  const result = frontmatterSchema.safeParse(data);
+  if (!result.success) {
+    console.warn(`[frontmatter] ${filePath}: ${result.error.message}`);
+    return (data ?? {}) as MDXFrontmatter;
+  }
+  return result.data as MDXFrontmatter;
+}
 
 // MDX 파서 오류를 방지하기 위해 코드 블록 내부의 특수문자들을 이스케이프하는 함수
 export async function sanitizeMDXContent(content: string): Promise<string> {
@@ -60,7 +77,7 @@ export async function getMDXFile(filePath: string): Promise<MDXFile | null> {
     const fileContents = await fs.readFile(fullPath, 'utf8');
     const { data, content } = matter(fileContents);
 
-    const frontmatter = data as MDXFrontmatter;
+    const frontmatter = parseFrontmatter(data, filePath);
 
     // frontmatter title이 없으면 본문의 첫 번째 # 제목을 추출
     let title = frontmatter.title;
@@ -74,8 +91,9 @@ export async function getMDXFile(filePath: string): Promise<MDXFile | null> {
       title,
       description: frontmatter.description,
       order: frontmatter.order || 0,
+      tags: frontmatter.tags,
       path: filePath,
-      content: await sanitizeMDXContent(content), // MDX 파서 오류 방지를 위해 이스케이프 처리
+      content: await sanitizeMDXContent(content),
     };
   } catch (error) {
     console.error(`[getMDXFile] ${filePath}: ${getErrorMessage(error)}`);

@@ -1,10 +1,14 @@
 import path from 'path';
+import type { GitMetadata } from './git-metadata';
+
+export type { GitMetadata };
 
 export interface MDXFile {
   slug: string;
   title: string;
   description?: string;
   order?: number;
+  tags?: string[];
   path: string;
   content: string;
 }
@@ -30,12 +34,11 @@ export interface MDXNestedSection {
 }
 
 // MDX 파일의 frontmatter 타입
+// author/date는 git에서 자동 관리 → frontmatter에 작성해도 무시됨
 export interface MDXFrontmatter {
-  title: string;
+  title?: string;
   description?: string;
   order?: number;
-  author?: string;
-  date?: string;
   tags?: string[];
   [key: string]: unknown;
 }
