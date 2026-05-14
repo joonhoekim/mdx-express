@@ -66,9 +66,8 @@ async function createMDXFile() {
       '',
     ].filter(line => line !== null).join('\n');
 
+    // 본문에 # H1을 쓰지 않는다 — frontmatter title이 페이지 제목(h1)으로 렌더링됨
     const content = `${frontmatterLines}
-# ${title}
-
 ${description || '여기에 내용을 작성하세요.'}
 
 ## 섹션 1
