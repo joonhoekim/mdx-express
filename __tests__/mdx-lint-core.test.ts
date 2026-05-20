@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { lintFile, fixFile, ALLOWED_KEYS } from '@/scripts/mdx-lint-core.mjs';
+import { lintFile, fixFile, ALLOWED_KEYS } from '@/scripts/mdx-lint-core';
 import matter from 'gray-matter';
 
 const ruleSet = (arr: { rule: string }[]) => arr.map(d => d.rule);

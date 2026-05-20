@@ -2,8 +2,25 @@ import matter from 'gray-matter';
 
 export const ALLOWED_KEYS = ['title', 'subtitle', 'description', 'order', 'tags'];
 
+export interface Diagnostic {
+  line: number;
+  rule: string;
+  msg: string;
+}
+
+export interface LintResult {
+  errors: Diagnostic[];
+  warnings: Diagnostic[];
+}
+
+export interface FixResult {
+  content: string;
+  changed: boolean;
+  applied: string[];
+}
+
 /** raw 첫 줄이 `---`이고 닫는 `---`이 있으면 그 닫는 줄 인덱스(0-based) 반환, 없으면 -1 */
-function frontmatterEndLine(lines) {
+function frontmatterEndLine(lines: string[]): number {
   if (lines[0]?.trim() !== '---') return -1;
   for (let i = 1; i < lines.length; i++) {
     if (lines[i].trim() === '---') return i;
@@ -16,8 +33,8 @@ function frontmatterEndLine(lines) {
  * 라인을 true로 표시한 boolean[]를 반환. 펜스/태그 라인 자체도 코드 영역으로 본다.
  * 본문 H1·subtitle 후보는 코드 영역 밖에서만 판정해야 오탐이 없다.
  */
-function computeCodeMask(lines, start) {
-  const mask = new Array(lines.length).fill(false);
+function computeCodeMask(lines: string[], start: number): boolean[] {
+  const mask: boolean[] = new Array(lines.length).fill(false);
   let inFence = false;
   let inCodeBlock = false;
   for (let i = start; i < lines.length; i++) {
@@ -33,18 +50,18 @@ function computeCodeMask(lines, start) {
   return mask;
 }
 
-export function lintFile(raw, relPath) {
-  const errors = [];
-  const warnings = [];
+export function lintFile(raw: string, _relPath: string): LintResult {
+  const errors: Diagnostic[] = [];
+  const warnings: Diagnostic[] = [];
   const lines = raw.split('\n');
   const fmEnd = frontmatterEndLine(lines);
   const hasFrontmatter = fmEnd !== -1;
 
-  let data = {};
+  let data: Record<string, unknown> = {};
   try {
-    data = matter(raw).data ?? {};
+    data = (matter(raw).data ?? {}) as Record<string, unknown>;
   } catch (e) {
-    errors.push({ line: 1, rule: 'frontmatter-parse', msg: `frontmatter 파싱 실패: ${e.message}` });
+    errors.push({ line: 1, rule: 'frontmatter-parse', msg: `frontmatter 파싱 실패: ${e instanceof Error ? e.message : String(e)}` });
   }
 
   // 규칙 4: frontmatter 부재
@@ -63,7 +80,7 @@ export function lintFile(raw, relPath) {
   if ('order' in data && typeof data.order !== 'number') {
     errors.push({ line: 1, rule: 'invalid-type', msg: `order는 number여야 함 (현재: ${typeof data.order})` });
   }
-  if ('tags' in data && !(Array.isArray(data.tags) && data.tags.every(t => typeof t === 'string'))) {
+  if ('tags' in data && !(Array.isArray(data.tags) && data.tags.every((t: unknown) => typeof t === 'string'))) {
     errors.push({ line: 1, rule: 'invalid-type', msg: 'tags는 string[]여야 함' });
   }
 
@@ -105,10 +122,10 @@ export function lintFile(raw, relPath) {
   return { errors, warnings };
 }
 
-export function fixFile(raw, relPath) {
-  const applied = [];
+export function fixFile(raw: string, _relPath: string): FixResult {
+  const applied: string[] = [];
   const parsed = matter(raw);
-  const data = { ...parsed.data };
+  const data: Record<string, unknown> = { ...parsed.data };
   const bodyLines = parsed.content.split('\n');
 
   // 본문 첫 H1 찾기 (코드 영역 밖)
@@ -155,7 +172,7 @@ export function fixFile(raw, relPath) {
   if (applied.length === 0) return { content: raw, changed: false, applied: [] };
 
   // 키 순서 정규화: 화이트리스트 순 → 나머지
-  const ordered = {};
+  const ordered: Record<string, unknown> = {};
   for (const k of ALLOWED_KEYS) if (k in data) ordered[k] = data[k];
   for (const k of Object.keys(data)) if (!(k in ordered)) ordered[k] = data[k];
 

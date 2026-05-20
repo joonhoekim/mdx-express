@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "next lint",
     "create-mdx": "node scripts/create-mdx.js",
-    "check-mdx": "node scripts/check-mdx.mjs",
+    "check-mdx": "bun scripts/check-mdx.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },

@@ -1,8 +1,8 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 import fs from 'fs';
 import path from 'path';
 import { execFileSync } from 'child_process';
-import { lintFile, fixFile } from './mdx-lint-core.mjs';
+import { lintFile, fixFile } from './mdx-lint-core';
 
 const CONTENT_DIR = path.join(process.cwd(), 'content');
 const args = process.argv.slice(2);
@@ -10,8 +10,8 @@ const doFix = args.includes('--fix');
 const stagedOnly = args.includes('--staged');
 
 /** content/ 하위 .mdx 상대경로 재귀 수집 */
-function collectMDX(dir) {
-  const out = [];
+function collectMDX(dir: string): string[] {
+  const out: string[] = [];
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) out.push(...collectMDX(full));
@@ -20,7 +20,7 @@ function collectMDX(dir) {
   return out.sort();
 }
 
-let files;
+let files: string[];
 if (stagedOnly) {
   // execFileSync: shell을 거치지 않아 injection 위험 없음 (인자 배열 고정)
   const staged = execFileSync('git', ['diff', '--cached', '--name-only', '--diff-filter=ACM'], { encoding: 'utf8' });

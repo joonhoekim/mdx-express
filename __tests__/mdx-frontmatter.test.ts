@@ -1,7 +1,7 @@
 import { describe, test, expect } from 'vitest';
 import fs from 'fs/promises';
 import path from 'path';
-import { lintFile } from '@/scripts/mdx-lint-core.mjs';
+import { lintFile } from '@/scripts/mdx-lint-core';
 
 const CONTENT_DIR = path.join(process.cwd(), 'content');
 
