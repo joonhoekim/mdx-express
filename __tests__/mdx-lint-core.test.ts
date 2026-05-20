@@ -24,6 +24,12 @@ describe('lintFile — error 규칙', () => {
     expect(ruleSet(errors)).not.toContain('no-body-h1');
   });
 
+  test('<CodeBlock> 안의 # 는 H1로 보지 않음', () => {
+    const raw = '---\ntitle: "T"\n---\n\n<CodeBlock language="bash">\n# 주석\nsed -n p\n</CodeBlock>\n';
+    const { errors } = lintFile(raw, 'a.mdx');
+    expect(ruleSet(errors)).not.toContain('no-body-h1');
+  });
+
   test('화이트리스트 외 키는 unknown-key error', () => {
     const raw = '---\ntitle: "T"\nauthor: "me"\n---\n\n본문';
     const { errors } = lintFile(raw, 'a.mdx');

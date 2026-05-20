@@ -11,6 +11,28 @@ function frontmatterEndLine(lines) {
   return -1;
 }
 
+/**
+ * lines[start..]에 대해 "코드 영역"(마크다운 펜스 ```/~~~ 또는 <CodeBlock> JSX 내부)
+ * 라인을 true로 표시한 boolean[]를 반환. 펜스/태그 라인 자체도 코드 영역으로 본다.
+ * 본문 H1·subtitle 후보는 코드 영역 밖에서만 판정해야 오탐이 없다.
+ */
+function computeCodeMask(lines, start) {
+  const mask = new Array(lines.length).fill(false);
+  let inFence = false;
+  let inCodeBlock = false;
+  for (let i = start; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    if (/^(```|~~~)/.test(trimmed)) { mask[i] = true; inFence = !inFence; continue; }
+    if (inFence) { mask[i] = true; continue; }
+    if (!inCodeBlock && /<CodeBlock[\s/>]/.test(lines[i])) inCodeBlock = true;
+    if (inCodeBlock) {
+      mask[i] = true;
+      if (/<\/CodeBlock>/.test(lines[i])) inCodeBlock = false;
+    }
+  }
+  return mask;
+}
+
 export function lintFile(raw, relPath) {
   const errors = [];
   const warnings = [];
@@ -45,26 +67,23 @@ export function lintFile(raw, relPath) {
     errors.push({ line: 1, rule: 'invalid-type', msg: 'tags는 string[]여야 함' });
   }
 
-  // 본문 순회 (코드펜스 추적) — 규칙 1: 본문 H1
+  // 본문 순회 — 코드 영역(펜스 + <CodeBlock>) 밖에서만 판정
   const bodyStart = hasFrontmatter ? fmEnd + 1 : 0;
-  let inFence = false;
+  const codeMask = computeCodeMask(lines, bodyStart);
+
+  // 규칙 1: 본문 H1
   for (let i = bodyStart; i < lines.length; i++) {
-    const trimmed = lines[i].trim();
-    if (/^(```|~~~)/.test(trimmed)) { inFence = !inFence; continue; }
-    if (inFence) continue;
+    if (codeMask[i]) continue;
     if (/^#\s+/.test(lines[i])) {
       errors.push({ line: i + 1, rule: 'no-body-h1', msg: '본문 H1 사용 (title로 이전 필요)' });
     }
   }
 
-  // 첫 본문 비어있지 않은 줄 (코드펜스 밖) 찾기 — subtitle 후보 판정용
+  // 첫 본문 비어있지 않은 줄 (코드 영역 밖) 찾기 — subtitle 후보 판정용
   let firstBodyLine = -1;
-  inFence = false;
   for (let i = bodyStart; i < lines.length; i++) {
-    const trimmed = lines[i].trim();
-    if (/^(```|~~~)/.test(trimmed)) { inFence = !inFence; continue; }
-    if (inFence) continue;
-    if (trimmed !== '') { firstBodyLine = i; break; }
+    if (codeMask[i]) continue;
+    if (lines[i].trim() !== '') { firstBodyLine = i; break; }
   }
 
   // 규칙 5: description 없음
@@ -92,12 +111,11 @@ export function fixFile(raw, relPath) {
   const data = { ...parsed.data };
   const bodyLines = parsed.content.split('\n');
 
-  // 본문 첫 H1 찾기 (코드펜스 밖)
-  let inFence = false, h1Index = -1;
+  // 본문 첫 H1 찾기 (코드 영역 밖)
+  const codeMask = computeCodeMask(bodyLines, 0);
+  let h1Index = -1;
   for (let i = 0; i < bodyLines.length; i++) {
-    const t = bodyLines[i].trim();
-    if (/^(```|~~~)/.test(t)) { inFence = !inFence; continue; }
-    if (inFence) continue;
+    if (codeMask[i]) continue;
     if (/^#\s+/.test(bodyLines[i])) { h1Index = i; break; }
   }
 
