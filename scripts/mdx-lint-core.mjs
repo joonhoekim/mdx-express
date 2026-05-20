@@ -57,5 +57,31 @@ export function lintFile(raw, relPath) {
     }
   }
 
+  // 첫 본문 비어있지 않은 줄 (코드펜스 밖) 찾기 — subtitle 후보 판정용
+  let firstBodyLine = -1;
+  inFence = false;
+  for (let i = bodyStart; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    if (/^(```|~~~)/.test(trimmed)) { inFence = !inFence; continue; }
+    if (inFence) continue;
+    if (trimmed !== '') { firstBodyLine = i; break; }
+  }
+
+  // 규칙 5: description 없음
+  if (!data.description) {
+    warnings.push({ line: 1, rule: 'no-description', msg: 'description 없음 (섹션 카드·meta 비게 됨)' });
+  }
+  // 규칙 7: order 없음
+  if (!('order' in data)) {
+    warnings.push({ line: 1, rule: 'no-order', msg: 'order 없음 (파일명 정렬에 의존)' });
+  }
+  // 규칙 6: subtitle 후보
+  if (!data.subtitle && firstBodyLine !== -1) {
+    const t = lines[firstBodyLine].trim();
+    if (/^\*".*"\*$/.test(t) || /^\*[^*]+\*$/.test(t)) {
+      warnings.push({ line: firstBodyLine + 1, rule: 'subtitle-candidate', msg: '본문 첫 줄이 이탤릭 인용 — subtitle로 이전 가능' });
+    }
+  }
+
   return { errors, warnings };
 }

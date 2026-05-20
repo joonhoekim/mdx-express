@@ -45,3 +45,31 @@ describe('lintFile — error 규칙', () => {
     expect(ALLOWED_KEYS).toEqual(['title', 'subtitle', 'description', 'order', 'tags']);
   });
 });
+
+describe('lintFile — warning 규칙', () => {
+  test('description 없으면 no-description warning', () => {
+    const raw = '---\ntitle: "T"\norder: 1\n---\n\n## 본문';
+    const { warnings } = lintFile(raw, 'a.mdx');
+    expect(warnings.map(w => w.rule)).toContain('no-description');
+  });
+
+  test('order 없으면 no-order warning', () => {
+    const raw = '---\ntitle: "T"\ndescription: "d"\n---\n\n## 본문';
+    const { warnings } = lintFile(raw, 'a.mdx');
+    expect(warnings.map(w => w.rule)).toContain('no-order');
+  });
+
+  test('subtitle 없고 첫 본문 줄이 이탤릭 인용이면 subtitle-candidate warning', () => {
+    const raw = '---\ntitle: "T"\ndescription: "d"\norder: 1\n---\n\n*"한 줄 인용"*\n\n## 본문';
+    const { warnings } = lintFile(raw, 'a.mdx');
+    const c = warnings.find(w => w.rule === 'subtitle-candidate');
+    expect(c).toBeDefined();
+    expect(c!.line).toBe(7);
+  });
+
+  test('subtitle 있으면 subtitle-candidate 안 뜸', () => {
+    const raw = '---\ntitle: "T"\nsubtitle: "s"\ndescription: "d"\norder: 1\n---\n\n*"인용"*\n';
+    const { warnings } = lintFile(raw, 'a.mdx');
+    expect(warnings.map(w => w.rule)).not.toContain('subtitle-candidate');
+  });
+});
