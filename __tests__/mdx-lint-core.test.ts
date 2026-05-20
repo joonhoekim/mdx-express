@@ -60,10 +60,10 @@ describe('lintFile — warning 규칙', () => {
     expect(warnings.map(w => w.rule)).toContain('no-description');
   });
 
-  test('order 없으면 no-order warning', () => {
+  test('order 없어도 warning 아님 (파일명 정렬 컨벤션)', () => {
     const raw = '---\ntitle: "T"\ndescription: "d"\n---\n\n## 본문';
     const { warnings } = lintFile(raw, 'a.mdx');
-    expect(warnings.map(w => w.rule)).toContain('no-order');
+    expect(warnings.map(w => w.rule)).not.toContain('no-order');
   });
 
   test('subtitle 없고 첫 본문 줄이 이탤릭 인용이면 subtitle-candidate warning', () => {

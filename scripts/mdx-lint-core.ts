@@ -107,10 +107,8 @@ export function lintFile(raw: string, _relPath: string): LintResult {
   if (!data.description) {
     warnings.push({ line: 1, rule: 'no-description', msg: 'description 없음 (섹션 카드·meta 비게 됨)' });
   }
-  // 규칙 7: order 없음
-  if (!('order' in data)) {
-    warnings.push({ line: 1, rule: 'no-order', msg: 'order 없음 (파일명 정렬에 의존)' });
-  }
+  // (order 없음은 규칙에서 제외 — 이 프로젝트는 파일명 정렬이 정식 컨벤션이라
+  //  order는 선택 필드. 부재가 비정상이 아니므로 warning 대상이 아니다.)
   // 규칙 6: subtitle 후보
   if (!data.subtitle && firstBodyLine !== -1) {
     const t = lines[firstBodyLine].trim();
