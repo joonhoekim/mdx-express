@@ -132,7 +132,13 @@ export function fixFile(raw, relPath) {
       while (j < bodyLines.length && bodyLines[j].trim() === '') j++;
       const t = bodyLines[j]?.trim() ?? '';
       if (/^\*".*"\*$/.test(t) || /^\*[^*]+\*$/.test(t)) {
-        data.subtitle = t.replace(/^\*\s*"?/, '').replace(/"?\s*\*$/, '').trim();
+        if (/^\*".*"\*$/.test(t)) {
+          // 완전 인용 *"..."* → 양끝 별표 + 따옴표 제거
+          data.subtitle = t.replace(/^\*"/, '').replace(/"\*$/, '').trim();
+        } else {
+          // 부분 인용/기타 *...* → 양끝 별표만 제거 (내부 따옴표 대칭 보존)
+          data.subtitle = t.replace(/^\*+\s*/, '').replace(/\s*\*+$/, '').trim();
+        }
         bodyLines.splice(j, 1);
         if (bodyLines[j]?.trim() === '') bodyLines.splice(j, 1);
         applied.push('subtitle');

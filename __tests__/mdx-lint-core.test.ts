@@ -130,4 +130,10 @@ describe('fixFile — 자동수정', () => {
     expect(Object.keys(data)).toEqual(['title', 'subtitle']); // '0','1'... char 키 없음
     expect(content).toContain('본문 단락');
   });
+
+  test('부분 인용 *"A" — B* 는 별표만 제거하고 따옴표 대칭 보존', () => {
+    const raw = '# 제목\n\n*"인용 ㅋㅋ" — 부연 설명*\n\n## 본문\n';
+    const { content } = fixFile(raw, 'a.mdx');
+    expect(matter(content).data.subtitle).toBe('"인용 ㅋㅋ" — 부연 설명');
+  });
 });
