@@ -1,0 +1,952 @@
+---
+title: 프론트엔드 면접 — CSS 센터링도 모르면서 리액트 고수라고?
+subtitle: React 프로젝트 3개 했습니다. CSS요? 그건... Tailwind가 해주는 거 아닌가요?
+---
+
+프론트엔드 면접의 무서운 점은 **범위가 미쳤다는 거**임.
+
+HTML, CSS, JavaScript, TypeScript, React(또는 Vue, Angular),
+상태관리, 번들러, 성능 최적화, 접근성, SEO, 테스팅...
+
+이걸 다 알아야 한다고? 다 알 수 있는 사람이 있긴 함?
+
+결론부터 말하면: 없음. 그래서 다들 약한 부분이 있고,
+면접관은 그 약한 부분을 정확히 찔러옴.
+
+---
+
+## CSS의 공포 — 센터링부터 시작
+
+프론트엔드 면접의 첫 번째 관문. CSS.
+
+"React 잘해요!" 하는 사람한테 "div 가운데 정렬 해보세요" 하면
+의외로 멈추는 사람이 많음. 왜냐면 평소에 Tailwind의 `flex items-center justify-center`
+복붙하니까 원리를 모르는 거임.
+
+### CSS 센터링 — 면접관이 좋아하는 질문
+
+```css
+/* 방법 1: Flexbox — 가장 현대적이고 권장되는 방법 */
+.container {
+  display: flex;
+  justify-content: center;  /* 수평 */
+  align-items: center;      /* 수직 */
+  height: 100vh;
+}
+
+/* 방법 2: Grid — 더 간단 */
+.container {
+  display: grid;
+  place-items: center;      /* 한 줄로 끝 */
+  height: 100vh;
+}
+
+/* 방법 3: position + transform — 레거시 프로젝트에서 */
+.child {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
+/* 방법 4: margin auto — 수평만 */
+.child {
+  width: 200px;
+  margin: 0 auto;           /* 수평 중앙 */
+}
+
+/* 방법 5: text-align — 인라인 요소만 */
+.container {
+  text-align: center;       /* 인라인/인라인-블록 요소 수평 중앙 */
+}
+
+/* 방법 6: line-height — 한 줄 텍스트만 */
+.container {
+  height: 100px;
+  line-height: 100px;       /* height와 같게 → 수직 중앙 */
+}
+```
+
+면접관: "6가지 방법이 있는데, 각각 언제 쓰는 게 좋을까요?"
+
+이 질문에 대답하려면 각 방법의 **제약사항**을 알아야 함.
+
+<Callout type="info" title="CSS 센터링 선택 가이드">
+- **Flexbox**: 거의 모든 상황에서 OK. 1차원 레이아웃에 적합
+- **Grid**: 2차원 레이아웃이면 Grid가 더 깔끔
+- **position + transform**: 부모-자식 관계 없이 정렬 가능. 오버레이, 모달 등
+- **margin auto**: 블록 요소의 수평 정렬. 가장 오래된 방법
+- **text-align**: 인라인 요소만. 블록 요소에는 안 먹힘
+- **line-height**: 한 줄 텍스트만. 여러 줄이면 깨짐
+
+2024년 기준으로 **Flexbox + Grid**만 알면 99%의 상황을 커버 가능.
+근데 면접에서는 나머지도 물어봄. 왜냐면 레거시 코드 유지보수할 줄 아는지 보려고.
+</Callout>
+
+> 함정은 이걸 *외우는 방식* 임. "가운데 정렬해보세요" 에 6개를 좌르륵 읊는 게 정답이 아님. 오히려 "이 경우엔 Flexbox가 자연스럽고, 만약 부모를 못 건드리는 상황이면 position+transform" 처럼 *상황에 맞는 1~2개를 고르고 이유를 대는* 게 실력으로 보임. 6개를 다 아는 건 *옵션을 안다* 는 거고, 면접관이 보고 싶은 건 *옵션 중에 고를 줄 아는가* 임. 암기형은 "6개 있습니다" 에서 멈추고, 실무형은 "지금은 이걸 쓰겠습니다, 왜냐면…" 으로 감.
+
+### 박스 모델 — 기본 중의 기본인데 자주 틀림
+
+```css
+/* 질문: 이 div의 실제 너비는? */
+.box {
+  width: 200px;
+  padding: 20px;
+  border: 5px solid black;
+  margin: 10px;
+}
+
+/*
+content-box (기본값):
+실제 너비 = 200 + 20*2 + 5*2 = 250px
++ margin 10*2 = 270px (차지하는 공간)
+
+"width가 200인데 왜 250이야?" → 패딩과 보더가 더해져서
+
+border-box:
+실제 너비 = 200px (패딩, 보더 포함)
+대부분의 프로젝트에서 이걸 씀
+*/
+.box {
+  box-sizing: border-box;  /* 이걸 전역으로 설정하는 게 표준 */
+}
+
+/* 면접관: "왜 border-box를 기본으로 쓰나요?" */
+/* 나: "content-box는 padding/border 추가할 때마다 width 계산을 */
+/*     다시 해야 해서 유지보수가 어렵습니다" */
+```
+
+### Flexbox vs Grid — 언제 뭘 쓰는가
+
+```css
+/* Flexbox: 1차원 레이아웃 (행 OR 열) */
+.navbar {
+  display: flex;
+  justify-content: space-between;  /* 양쪽 정렬 */
+  align-items: center;
+}
+
+/* Grid: 2차원 레이아웃 (행 AND 열) */
+.dashboard {
+  display: grid;
+  grid-template-columns: 250px 1fr 300px;  /* 사이드바 | 메인 | 패널 */
+  grid-template-rows: 60px 1fr 40px;       /* 헤더 | 콘텐츠 | 푸터 */
+  gap: 16px;
+}
+```
+
+면접관: "Flexbox로 Grid를 대체할 수 있나요?"
+
+```css
+/* "가능은 한데... 이렇게 됨" */
+.fake-grid {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.fake-grid > .item {
+  flex: 0 0 calc(33.333% - 16px);  /* 3열 그리드 흉내 */
+  margin: 8px;
+}
+
+/* 문제점:
+   1. 마지막 행의 아이템이 2개면 양쪽으로 벌어짐
+   2. gap 계산이 복잡함 (calc로 margin 빼야 함)
+   3. 코드가 지저분함
+
+   → Grid 쓰면 한방에 해결됨 */
+```
+
+<Callout type="warning" title="CSS 면접에서 자주 당하는 질문들">
+1. **"position: sticky 동작 원리를 설명해주세요"**
+   → 스크롤 임계점까지는 relative, 넘으면 fixed처럼 동작.
+   → 부모에 overflow: hidden이 있으면 안 됨 (이거 모르면 당함)
+
+2. **"z-index가 안 먹히는 경우는?"**
+   → position이 static이면 z-index 무시됨
+   → stacking context 개념 (이거 설명하면 가산점 큼)
+
+3. **"CSS 특이도(specificity)를 설명해주세요"**
+   → inline(1000) > id(100) > class(10) > tag(1)
+   → !important > 인라인 > 나머지 (근데 !important 쓰면 감점 ㅋㅋ)
+
+4. **"반응형 디자인 breakpoint는 어떻게 잡나요?"**
+   → 모바일 퍼스트: min-width 사용
+   → 디바이스 기준이 아니라 **콘텐츠 기준**으로 잡는 게 좋음
+</Callout>
+
+---
+
+## JavaScript 핵심 — 면접의 본 게임
+
+CSS가 전초전이라면, JavaScript는 본 게임임.
+여기서 떨어지는 사람이 제일 많음.
+
+### 클로저 — 설명 못 하면 프론트엔드 지원하지 마라
+
+```typescript
+// "클로저가 뭔가요?"
+
+// 정의: 함수가 자신이 생성된 렉시컬 스코프를 기억하는 것
+
+function createCounter() {
+  let count = 0;  // ← 이 변수가 아래 함수들에 의해 "기억"됨
+
+  return {
+    increment: () => ++count,
+    decrement: () => --count,
+    getCount: () => count,
+  };
+}
+
+const counter = createCounter();
+console.log(counter.increment()); // 1
+console.log(counter.increment()); // 2
+console.log(counter.getCount());  // 2
+// createCounter() 실행은 끝났는데 count가 살아있음!
+// 이게 클로저임.
+```
+
+> 근데 이 createCounter 예시를 *술술 말하는 것* 만으론 변별이 안 됨. 다들 외워 옴. 면접관이 진짜 보는 건 *클로저가 사고를 칠 때* 를 아는지임 — "이벤트 핸들러를 루프로 등록했는데 전부 마지막 값을 참조하더라" (뒤에 나오는 `var` 루프 함정), "useEffect 안에서 옛날 state를 붙들고 있는 stale closure" 같은 것. 클로저의 *정의* 는 누구나 말하지만, 클로저가 *버그가 되는 순간* 을 경험으로 말할 수 있으면 깊이가 다르게 보임.
+
+```typescript
+// 클로저의 실용적 사용
+// 1. 데이터 은닉 (private 변수 흉내)
+function createUser(name: string) {
+  let loginCount = 0;  // 외부에서 직접 접근 불가
+
+  return {
+    getName: () => name,
+    login: () => {
+      loginCount++;
+      console.log(`${name} 로그인 (${loginCount}번째)`);
+    },
+    getLoginCount: () => loginCount,
+  };
+}
+
+// 2. 함수 팩토리
+function multiply(factor: number) {
+  return (n: number) => n * factor;
+}
+const double = multiply(2);
+const triple = multiply(3);
+console.log(double(5));  // 10
+console.log(triple(5));  // 15
+
+// 3. 메모이제이션
+function memoize<T>(fn: (...args: any[]) => T): (...args: any[]) => T {
+  const cache = new Map<string, T>();
+
+  return (...args: any[]) => {
+    const key = JSON.stringify(args);
+    if (cache.has(key)) return cache.get(key)!;
+
+    const result = fn(...args);
+    cache.set(key, result);
+    return result;
+  };
+}
+```
+
+### 이벤트 루프 — 이거 설명하면 합격 확률 급상승
+
+```typescript
+// "이 코드의 출력 순서는?"
+console.log('1');
+
+setTimeout(() => console.log('2'), 0);
+
+Promise.resolve().then(() => console.log('3'));
+
+console.log('4');
+
+// 정답: 1, 4, 3, 2
+// 가장 흔한 오답은 1, 4, 2, 3 — "setTimeout 0이니까 Promise보다 먼저겠지" 라는 직관 때문.
+// 함정의 핵심: '0ms' 라는 숫자가 거짓말임. 0은 '지연 없음' 이 아니라 '제일 뒤 큐로' 라는 뜻.
+```
+
+왜 이 순서인지 설명하려면 이벤트 루프를 이해해야 함:
+
+```
+이벤트 루프의 처리 순서:
+
+1. Call Stack (동기 코드 실행)
+   → console.log('1')  ✓
+   → console.log('4')  ✓
+
+2. Microtask Queue (Promise, queueMicrotask)
+   → Promise.then(() => console.log('3'))  ✓
+
+3. Macrotask Queue (setTimeout, setInterval, I/O)
+   → setTimeout(() => console.log('2'))  ✓
+
+핵심: Microtask가 항상 Macrotask보다 먼저 실행됨!
+```
+
+```typescript
+// 더 복잡한 버전
+console.log('start');
+
+setTimeout(() => {
+  console.log('timeout 1');
+  Promise.resolve().then(() => console.log('promise inside timeout'));
+}, 0);
+
+Promise.resolve().then(() => {
+  console.log('promise 1');
+  setTimeout(() => console.log('timeout inside promise'), 0);
+});
+
+Promise.resolve().then(() => console.log('promise 2'));
+
+console.log('end');
+
+// 정답: start, end, promise 1, promise 2, timeout 1,
+//       promise inside timeout, timeout inside promise
+```
+
+<Callout type="error" title="이벤트 루프에서 자주 틀리는 부분">
+**setTimeout(fn, 0)은 "즉시 실행"이 아님!**
+
+0ms라도 Macrotask Queue에 들어감.
+Call Stack이 비고, Microtask Queue도 비어야 실행됨.
+
+실제로 setTimeout(fn, 0)은 최소 4ms 지연이 있음 (HTML 스펙).
+그래서 "즉시 실행하고 싶으면 Promise.resolve().then(fn)" 이 더 빠름.
+
+이 설명을 면접에서 하면 면접관이 살짝 감동함 ㅋㅋ
+</Callout>
+
+### this — JavaScript의 가장 혼란스러운 키워드
+
+```typescript
+// "this가 뭘 가리키는지 설명해주세요"
+
+// 1. 전역 컨텍스트
+console.log(this); // 브라우저: window, Node.js: {}
+
+// 2. 객체 메서드
+const obj = {
+  name: 'Kim',
+  greet() {
+    console.log(this.name); // 'Kim' — obj가 호출했으니까
+  }
+};
+
+// 3. 함정: 메서드를 변수에 할당
+const greet = obj.greet;
+greet(); // undefined — 전역이 호출했으니까 this는 window(또는 undefined)
+
+// 4. 화살표 함수는 자체 this가 없음
+const obj2 = {
+  name: 'Lee',
+  greet: () => {
+    console.log(this.name); // undefined! 화살표 함수는 상위 스코프의 this
+  },
+  greetProper() {
+    const inner = () => {
+      console.log(this.name); // 'Lee' — 상위(greetProper)의 this = obj2
+    };
+    inner();
+  }
+};
+
+// 5. bind, call, apply
+function introduce(greeting: string) {
+  console.log(`${greeting}, I'm ${this.name}`);
+}
+
+introduce.call({ name: 'Park' }, 'Hello');    // Hello, I'm Park
+introduce.apply({ name: 'Choi' }, ['Hi']);     // Hi, I'm Choi
+const boundFn = introduce.bind({ name: 'Jung' });
+boundFn('Hey');                                 // Hey, I'm Jung
+```
+
+```typescript
+// 면접 킬러 문제: 이 코드의 출력은?
+const user = {
+  name: 'Kim',
+  friends: ['Lee', 'Park', 'Choi'],
+  printFriends() {
+    this.friends.forEach(function(friend) {
+      console.log(`${this.name} knows ${friend}`);
+      //           ↑ this가 뭘까?
+    });
+  }
+};
+user.printFriends();
+// 출력: "undefined knows Lee", "undefined knows Park", "undefined knows Choi"
+// 이유: forEach의 콜백은 일반 함수라서 this가 바뀜!
+
+// 해결: 화살표 함수 사용
+const userFixed = {
+  name: 'Kim',
+  friends: ['Lee', 'Park', 'Choi'],
+  printFriends() {
+    this.friends.forEach((friend) => {
+      console.log(`${this.name} knows ${friend}`);
+      // 화살표 함수라 상위 스코프(printFriends)의 this = userFixed
+    });
+  }
+};
+userFixed.printFriends();
+// 출력: "Kim knows Lee", "Kim knows Park", "Kim knows Choi"
+```
+
+### 프로토타입 — 물어보는 곳이 아직 있음
+
+```typescript
+// "프로토타입 체인을 설명해주세요"
+
+const animal = {
+  eat() { console.log('먹는 중'); }
+};
+
+const dog = Object.create(animal);
+dog.bark = function() { console.log('멍멍'); };
+
+dog.bark(); // '멍멍' — dog 자체에 있음
+dog.eat();  // '먹는 중' — dog에 없으니 프로토타입(animal)에서 찾음
+dog.fly?.(); // undefined — 프로토타입 체인 어디에도 없음
+
+// 프로토타입 체인:
+// dog → animal → Object.prototype → null
+
+// class 문법은 프로토타입의 문법적 설탕(syntactic sugar)
+class Animal {
+  eat() { console.log('먹는 중'); }
+}
+
+class Dog extends Animal {
+  bark() { console.log('멍멍'); }
+}
+
+// 내부적으로는 프로토타입 체인으로 동작함
+```
+
+<Callout type="note" title="JavaScript 면접 핵심 주제 정리">
+**반드시 알아야 하는 것:**
+- 클로저, 스코프, 호이스팅
+- this 바인딩 (call, apply, bind)
+- 이벤트 루프 (microtask vs macrotask)
+- Promise, async/await
+- 프로토타입 체인
+- == vs === (타입 강제변환)
+- var vs let vs const
+
+**알면 가산점:**
+- WeakMap, WeakSet (가비지 컬렉션 관련)
+- Proxy, Reflect
+- Generator, Iterator
+- Symbol
+- 모듈 시스템 (CommonJS vs ESM)
+
+**물어보는 곳이 줄고 있지만 나올 수도 있는 것:**
+- 프로토타입 상속 (class 이전 방식)
+- arguments 객체
+- eval의 위험성
+</Callout>
+
+---
+
+## React 면접 — 여기서 진짜 갈림
+
+### useState vs useReducer
+
+```typescript
+// "언제 useReducer를 써야 하나요?"
+
+// useState: 단순한 상태
+const [count, setCount] = useState(0);
+
+// useReducer: 복잡한 상태 로직
+interface State {
+  count: number;
+  step: number;
+  history: number[];
+}
+
+type Action =
+  | { type: 'increment' }
+  | { type: 'decrement' }
+  | { type: 'setStep'; payload: number }
+  | { type: 'reset' };
+
+function reducer(state: State, action: Action): State {
+  switch (action.type) {
+    case 'increment':
+      return {
+        ...state,
+        count: state.count + state.step,
+        history: [...state.history, state.count + state.step]
+      };
+    case 'decrement':
+      return {
+        ...state,
+        count: state.count - state.step,
+        history: [...state.history, state.count - state.step]
+      };
+    case 'setStep':
+      return { ...state, step: action.payload };
+    case 'reset':
+      return { count: 0, step: 1, history: [] };
+    default:
+      return state;
+  }
+}
+
+// 면접 답변 포인트:
+// 1. 상태 업데이트 로직이 복잡할 때 useReducer
+// 2. 여러 상태가 서로 의존적일 때
+// 3. 다음 상태가 이전 상태에 의존할 때
+// 4. 테스트하기 쉬움 (순수 함수니까)
+```
+
+### useEffect의 함정들
+
+```typescript
+// "이 코드의 문제점을 찾아주세요"
+
+// 문제 1: 무한 루프
+function BadComponent() {
+  const [data, setData] = useState([]);
+
+  useEffect(() => {
+    fetch('/api/data')
+      .then(res => res.json())
+      .then(data => setData(data));
+  }); // ← 의존성 배열 없음! 매 렌더마다 실행 → 무한 루프
+
+  return <div>{data.length}</div>;
+}
+
+// 문제 2: 클린업 안 함
+function LeakyComponent({ userId }: { userId: string }) {
+  const [user, setUser] = useState(null);
+
+  useEffect(() => {
+    fetch(`/api/users/${userId}`)
+      .then(res => res.json())
+      .then(data => setUser(data));
+    // userId가 바뀌면? 이전 fetch가 나중에 resolve되면?
+    // → 이전 유저 데이터로 덮어써질 수 있음! (Race condition)
+  }, [userId]);
+
+  return <div>{user?.name}</div>;
+}
+
+// 해결: AbortController 사용
+function FixedComponent({ userId }: { userId: string }) {
+  const [user, setUser] = useState(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    fetch(`/api/users/${userId}`, { signal: controller.signal })
+      .then(res => res.json())
+      .then(data => setUser(data))
+      .catch(err => {
+        if (err.name !== 'AbortError') throw err;
+      });
+
+    return () => controller.abort(); // 클린업!
+  }, [userId]);
+
+  return <div>{user?.name}</div>;
+}
+```
+
+<Callout type="error" title="useEffect 면접에서 자주 당하는 포인트">
+1. **의존성 배열 누락** → 무한 루프 또는 stale closure
+2. **클린업 함수 미작성** → 메모리 누수, race condition
+3. **객체/배열을 의존성에 넣기** → 매 렌더마다 새 참조 → 무한 루프
+4. **useEffect에서 setState → 또 렌더 → 또 useEffect** → 성능 문제
+
+면접관: "useEffect를 안 쓰고 데이터를 가져오는 방법은?"
+나: "React Query(TanStack Query) 같은 라이브러리를 쓰면..."
+면접관: "왜 그게 더 나은가요?"
+나: "캐싱, 재시도, 중복 요청 방지, 로딩/에러 상태 관리를 다 해주니까요"
+</Callout>
+
+### 리렌더링 최적화 — 시니어 면접 단골
+
+```typescript
+// "불필요한 리렌더링을 방지하는 방법은?"
+
+// 문제: 부모가 리렌더되면 자식도 리렌더됨
+function Parent() {
+  const [count, setCount] = useState(0);
+  const [text, setText] = useState('');
+
+  return (
+    <div>
+      <button onClick={() => setCount(c => c + 1)}>Count: {count}</button>
+      <input value={text} onChange={e => setText(e.target.value)} />
+      <ExpensiveChild text={text} />
+      {/* ↑ count가 바뀌어도 ExpensiveChild가 리렌더됨! text는 안 변했는데! */}
+    </div>
+  );
+}
+
+// 해결 1: React.memo
+const ExpensiveChild = React.memo(({ text }: { text: string }) => {
+  console.log('렌더링!'); // text가 바뀔 때만 출력됨
+  return <div>{text}</div>;
+});
+
+// 해결 2: useMemo로 값 캐싱
+function SearchResults({ query, items }: Props) {
+  const filtered = useMemo(
+    () => items.filter(item =>
+      item.name.toLowerCase().includes(query.toLowerCase())
+    ),
+    [query, items]  // query나 items가 바뀔 때만 재계산
+  );
+
+  return <ul>{filtered.map(item => <li key={item.id}>{item.name}</li>)}</ul>;
+}
+
+// 해결 3: useCallback으로 함수 참조 유지
+function Parent() {
+  const [items, setItems] = useState<Item[]>([]);
+
+  // 이 함수가 매 렌더마다 새로 생성됨 → 자식에게 넘기면 자식도 리렌더
+  // const handleDelete = (id: string) => { ... };
+
+  // useCallback으로 감싸면 의존성이 바뀔 때만 새로 생성
+  const handleDelete = useCallback((id: string) => {
+    setItems(prev => prev.filter(item => item.id !== id));
+  }, []); // setItems는 안정적이므로 빈 의존성 OK
+
+  return <ItemList items={items} onDelete={handleDelete} />;
+}
+```
+
+### React 상태관리 — "전역 상태는 어떻게 관리하나요?"
+
+```typescript
+// 면접에서 이 질문이 나오면 여러 옵션을 비교할 줄 알아야 함
+
+// 1. Context API — 단순한 전역 상태
+// 장점: 내장, 추가 라이브러리 불필요
+// 단점: 값이 바뀌면 모든 Consumer가 리렌더됨
+
+// 2. Zustand — 요즘 가장 핫함
+import { create } from 'zustand';
+
+interface AuthStore {
+  user: User | null;
+  login: (user: User) => void;
+  logout: () => void;
+}
+
+const useAuthStore = create<AuthStore>((set) => ({
+  user: null,
+  login: (user) => set({ user }),
+  logout: () => set({ user: null }),
+}));
+
+// 사용
+function Profile() {
+  const user = useAuthStore((state) => state.user); // 선택적 구독!
+  if (!user) return <LoginButton />;
+  return <div>{user.name}</div>;
+}
+
+// 3. Redux (Toolkit) — 대규모 프로젝트
+// 장점: 예측 가능한 상태, DevTools, 미들웨어
+// 단점: 보일러플레이트 (Toolkit으로 많이 줄었지만)
+
+// 4. Jotai / Recoil — 원자적 상태
+// 장점: 세밀한 리렌더링 제어
+// 단점: 러닝 커브, 디버깅 어려움
+```
+
+<Callout type="success" title="React 면접 치트시트">
+**이것만 알면 대부분의 React 면접은 커버:**
+
+1. **Virtual DOM** — 실제 DOM과의 차이, 재조정(Reconciliation) 과정
+2. **Hooks 규칙** — 최상위에서만, 조건문 안에서 X, 왜?
+3. **Key의 중요성** — 리스트 렌더링에서 index를 key로 쓰면 안 되는 이유
+4. **useEffect vs useLayoutEffect** — 렌더 후 vs 페인트 전
+5. **React.memo vs useMemo vs useCallback** — 각각 언제 쓰는지
+6. **서버 컴포넌트(RSC)** — Next.js 14+에서는 필수 (2024 기준)
+7. **Suspense + Error Boundary** — 비동기 처리의 미래
+
+면접관이 "최근에 React에서 바뀐 것 중 인상적인 건?" 물어보면
+**React 19의 Server Actions, useFormState, useOptimistic** 등을 말하면
+최신 트렌드 따라가는 인상을 줄 수 있음.
+</Callout>
+
+---
+
+## 실전 프론트엔드 코딩 문제
+
+### 문제 1: 디바운스된 검색 구현
+
+```typescript
+// "검색 입력에 디바운스를 적용한 React 컴포넌트를 만들어주세요"
+
+function useDebounce<T>(value: T, delay: number): T {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedValue(value), delay);
+    return () => clearTimeout(timer);
+  }, [value, delay]);
+
+  return debouncedValue;
+}
+
+function SearchComponent() {
+  const [query, setQuery] = useState('');
+  const debouncedQuery = useDebounce(query, 300);
+  const [results, setResults] = useState<SearchResult[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    if (!debouncedQuery.trim()) {
+      setResults([]);
+      return;
+    }
+
+    const controller = new AbortController();
+    setIsLoading(true);
+
+    fetch(`/api/search?q=${encodeURIComponent(debouncedQuery)}`, {
+      signal: controller.signal
+    })
+      .then(res => res.json())
+      .then(data => {
+        setResults(data.results);
+        setIsLoading(false);
+      })
+      .catch(err => {
+        if (err.name !== 'AbortError') {
+          setIsLoading(false);
+        }
+      });
+
+    return () => controller.abort();
+  }, [debouncedQuery]);
+
+  return (
+    <div>
+      <input
+        value={query}
+        onChange={e => setQuery(e.target.value)}
+        placeholder="검색..."
+      />
+      {isLoading && <div>로딩 중...</div>}
+      <ul>
+        {results.map(result => (
+          <li key={result.id}>{result.title}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+```
+
+### 문제 2: 무한 스크롤
+
+```typescript
+// "무한 스크롤을 구현해주세요"
+
+function useInfiniteScroll(callback: () => void) {
+  const observer = useRef<IntersectionObserver | null>(null);
+  const triggerRef = useCallback(
+    (node: HTMLElement | null) => {
+      if (observer.current) observer.current.disconnect();
+
+      observer.current = new IntersectionObserver(entries => {
+        if (entries[0].isIntersecting) {
+          callback();
+        }
+      });
+
+      if (node) observer.current.observe(node);
+    },
+    [callback]
+  );
+
+  return triggerRef;
+}
+
+function InfiniteList() {
+  const [items, setItems] = useState<Item[]>([]);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
+
+  const loadMore = useCallback(async () => {
+    if (isLoading || !hasMore) return;
+    setIsLoading(true);
+
+    const res = await fetch(`/api/items?page=${page}`);
+    const data = await res.json();
+
+    setItems(prev => [...prev, ...data.items]);
+    setHasMore(data.hasMore);
+    setPage(prev => prev + 1);
+    setIsLoading(false);
+  }, [page, isLoading, hasMore]);
+
+  const triggerRef = useInfiniteScroll(loadMore);
+
+  return (
+    <ul>
+      {items.map(item => (
+        <li key={item.id}>{item.title}</li>
+      ))}
+      {hasMore && <li ref={triggerRef}>로딩 중...</li>}
+    </ul>
+  );
+}
+```
+
+<Callout type="info" title="IntersectionObserver vs scroll 이벤트">
+면접에서 무한 스크롤 구현하라고 하면 두 가지 방법이 있음:
+
+1. **scroll 이벤트 리스너** — 오래된 방법. 스크롤마다 호출됨 (성능 이슈)
+2. **IntersectionObserver** — 현대적 방법. 요소가 화면에 보일 때만 호출
+
+IntersectionObserver를 쓰면 가산점. 왜?
+- 성능이 좋음 (브라우저가 최적화)
+- throttle 직접 안 해도 됨
+- 코드가 깔끔함
+
+단, IE11은 지원 안 함. 근데 2024년에 IE11 신경 쓸 필요 있나? 없음 ㅋㅋ
+</Callout>
+
+> 무한 스크롤의 진짜 함정은 *IntersectionObserver냐 scroll이냐* 가 아니라 그 다음에 옴:
+> - **중복 로드** — observer가 한 프레임에 두 번 트리거되거나, 로딩 중에 또 트리거됨. 위 코드의 `if (isLoading || !hasMore) return;` 가드가 이걸 막는 핵심인데, 이게 *왜 필요한지* 설명 못 하면 코드를 외운 것.
+> - **stale closure** — `loadMore` 가 `page` 를 의존성으로 갖는데, observer 콜백이 옛날 `loadMore` 를 붙들고 있으면 같은 페이지를 또 부름. (그래서 `useCallback` 의존성 배열이 중요)
+> - **언마운트 후 setState** — 빠르게 페이지를 떠나면 unmounted 컴포넌트에 setState하는 상황. cleanup 플래그나 AbortController 필요.
+>
+> 면접에서 무한 스크롤은 *동작하는 코드* 보다 이 세 함정 중 하나라도 *먼저 언급하는지* 가 변별점임.
+
+---
+
+## 프론트엔드 면접의 숨겨진 킬러: 성능 & 웹 표준
+
+### 웹 성능 최적화
+
+```
+면접관: "프론트엔드 성능을 어떻게 최적화하나요?"
+
+렌더링 최적화:
+- Code Splitting (React.lazy + Suspense)
+- 이미지 최적화 (next/image, WebP, lazy loading)
+- CSS Critical Path (above-the-fold CSS 인라인)
+- 폰트 최적화 (font-display: swap)
+
+네트워크 최적화:
+- CDN 사용
+- HTTP/2 (멀티플렉싱)
+- gzip/brotli 압축
+- 캐싱 전략 (Cache-Control, ETag)
+
+JavaScript 최적화:
+- Tree Shaking (사용 안 하는 코드 제거)
+- Bundle 분석 (webpack-bundle-analyzer)
+- Web Worker (무거운 계산을 별도 스레드로)
+- requestAnimationFrame (애니메이션)
+
+측정 도구:
+- Lighthouse
+- Chrome DevTools Performance 탭
+- Core Web Vitals (LCP, INP, CLS)  // 2024년부터 FID가 INP로 대체됨
+```
+
+이 목록을 *전부 읊는 것* 도 함정임. 면접관이 진짜 듣고 싶은 건 **우선순위** — "뭐부터 하느냐". 현실의 순서는 거의 항상:
+
+1. **먼저 측정** — 추측으로 최적화하면 안 보이는 데 시간을 씀. Lighthouse / Performance 탭으로 *병목부터 찾기*.
+2. **가장 큰 덩어리부터** — 보통 *이미지* 와 *번들 크기* 가 80%를 차지함. WebP 변환 + code splitting 두 개로 LCP가 극적으로 바뀌는 경우가 흔함.
+3. **그 다음이 미세 최적화** — `useMemo`, `requestAnimationFrame` 같은 건 *측정으로 병목이 확인된 후* 에. 아니면 시간 대비 효과가 거의 없음.
+
+키워드 20개 나열 < "일단 측정하고, 보통 이미지·번들이 제일 크니까 거기부터 봅니다" 한 문장. 후자가 *실제로 해본 사람* 의 답으로 들림.
+
+### 접근성 (a11y)
+
+```typescript
+// "접근성을 어떻게 고려하나요?"
+
+// 나쁜 예: div로 버튼 만들기
+<div onClick={handleClick} className="button">클릭</div>
+
+// 좋은 예: 시맨틱 HTML 사용
+<button onClick={handleClick}>클릭</button>
+
+// 나쁜 예: 이미지에 alt 없음
+<img src="chart.png" />
+
+// 좋은 예: 의미있는 alt
+<img src="chart.png" alt="2024년 매출 추이 그래프: 1분기 대비 3분기 40% 증가" />
+
+// aria 속성 활용
+<div
+  role="alert"
+  aria-live="polite"
+  aria-label="에러 메시지"
+>
+  {errorMessage}
+</div>
+
+// 키보드 네비게이션
+<div
+  role="button"
+  tabIndex={0}
+  onClick={handleClick}
+  onKeyDown={(e) => {
+    if (e.key === 'Enter' || e.key === ' ') handleClick();
+  }}
+>
+  커스텀 버튼
+</div>
+// ↑ 근데 이렇게 할 바에 그냥 <button> 쓰는 게 100배 나음
+```
+
+> *접근성은 면접에서 어느 깊이까지 알아야 하나*: WCAG 2.1 AA 조항을 외우라는 게 아님. 대부분의 면접이 기대하는 건 **"시맨틱 HTML을 기본값으로 쓰는 태도"** 한 가지임. `div` 에 `onClick` 달기 전에 `button` 을 떠올리는가, 이미지에 `alt` 를 습관적으로 쓰는가, 폼에 `label` 을 붙이는가. 이 세 가지만 *몸에 배어 있어도* 접근성 질문의 80%는 통과함. 거꾸로 "aria-* 를 화려하게 쓰는데 정작 `div` 버튼을 만드는" 사람은 접근성을 *기능* 으로만 알고 *기본기* 로는 모르는 것. 면접관은 화려한 aria보다 *애초에 aria가 필요 없게 만드는* 시맨틱 마크업을 더 신뢰함.
+
+<Callout type="warning" title="프론트엔드 면접의 불편한 진실">
+프론트엔드 면접은 **"T자형 인재"**를 원함.
+
+- 넓게: HTML, CSS, JS, 프레임워크, 빌드도구, 성능, 접근성, SEO 등 전반적 이해
+- 깊게: 최소 1-2개 분야에서 전문적 깊이
+
+문제는 이 모든 걸 다 준비하려면 시간이 부족하다는 거.
+
+**현실적인 전략:**
+1. JavaScript 핵심 개념 → 무조건 준비 (이거 모르면 탈락)
+2. React(또는 주력 프레임워크) 심화 → 반드시 준비
+3. CSS 기본 → flexbox, grid, 센터링, 반응형 정도
+4. 성능/접근성 → 키워드 수준이라도 알아두기
+5. TypeScript → 요즘은 거의 필수
+
+전부 깊게 알 필요 없음. **면접관이 물어보는 것의 80%는 위 5가지 안에서 나옴.**
+
+그리고 *세로축(깊이)을 어디에 둘지* 는 취향이 아니라 **지원하는 회사/포지션** 이 정함. 커머스 회사면 성능·SEO, 협업툴이면 실시간·상태관리, 디자인 시스템 팀이면 CSS·접근성 깊이가 빛남. 채용 공고와 그 회사 기술 블로그를 읽고 *그들이 매일 싸우는 문제* 가 뭔지 보면 어느 축을 깊게 준비할지 답이 나옴. "나는 뭘 깊게 알지?" 가 아니라 **"이 회사는 뭘 깊게 묻겠지?"** 로 뒤집어 생각하는 것.
+</Callout>
+
+---
+
+## 결론: 프론트엔드 면접은 넓이와 깊이의 전쟁
+
+프론트엔드 개발자가 알아야 하는 범위는 매년 넓어지고 있음.
+Server Components, Streaming SSR, Edge Computing, WebAssembly...
+
+근데 면접에서 물어보는 건 결국 **기본기**임.
+
+CSS 센터링 못 하는데 Server Components 아는 게 의미가 있나?
+클로저 설명 못 하는데 Suspense 쓸 줄 아는 게 의미가 있나?
+
+**기본기가 튼튼하면 나머지는 다 배울 수 있음.**
+면접관도 이걸 알고 있어서 기본기를 집요하게 파고드는 거임.
+
+Tailwind 치트시트 외울 시간에 CSS 원리를 공부하고,
+React 공식 문서를 한 번 더 읽어보자.
+
+그리고 "CSS 센터링도 모르면서 리액트 고수"라는 소리 안 들으려면,
+최소한 6가지 센터링 방법은 알고 면접장에 가자 ㅋㅋ

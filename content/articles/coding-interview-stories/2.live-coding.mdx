@@ -1,0 +1,801 @@
+---
+title: 라이브 코딩 — "제 로컬에선 됐는데요"
+subtitle: 면접관이 보고 있는데 console.log 하나 치는 데 손이 떨림. 타이핑 속도가 평소의 1/3이 됨.
+---
+
+알고리즘 면접이 "이론"의 공포라면, 라이브 코딩 면접은 **"실전"의 공포**임.
+
+진짜 에디터 열고, 진짜 코드 짜고, 진짜 실행해야 함.
+근데 문제는... 누가 옆에서 보고 있으면 갑자기 코딩을 못 하게 됨.
+이걸 **"관찰자 효과"** 라고 부르는데, 양자역학이 아니라 면접장에서 일어나는 현상임.
+
+---
+
+## 라이브 코딩이 알고리즘 면접과 다른 점
+
+알고리즘 면접은 "정답"이 있음. 이진탐색이든 DP든 풀면 끝.
+
+라이브 코딩은 **정답이 없음.** 대신 이런 걸 봄:
+
+- 코드 구조를 어떻게 잡는지
+- 변수명을 어떻게 짓는지
+- 에러 처리를 하는지
+- 리팩토링을 하는지
+- **실시간으로** 생각하면서 코딩하는지
+
+즉, 평소에 어떻게 코딩하는지를 면접관 앞에서 그대로 보여줘야 하는 건데...
+평소에 어떻게 코딩하는지 들키면 안 되는 것들이 많잖아? ㅋㅋ
+
+<Callout type="warning" title="평소 코딩 습관 중 면접에서 들키면 안 되는 것들">
+- StackOverflow 코드 복붙하고 동작하면 넘어가기
+- console.log 디버깅 100줄 찍기
+- "일단 돌아가게 하고 나중에 리팩토링하자" (안 함)
+- TypeScript에서 `any` 남발하기
+- 에러 처리? `try-catch`로 씹기
+- 커밋 메시지: "fix", "fix2", "fix3", "진짜_마지막_fix"
+</Callout>
+
+---
+
+## 라이브 코딩 면접의 압박감
+
+### 화면 공유의 공포
+
+요즘은 대부분 원격 면접이라 화면 공유를 함.
+
+화면 공유 시작하면 갑자기 의식하게 되는 것들:
+
+1. **바탕화면** — 아이콘 정리 안 한 거 보임 (게임 바로가기 3개...)
+2. **브라우저 탭** — "리트코드 답지" 탭이 열려있으면? 끝남
+3. **터미널 히스토리** — `git commit -m "ㅅㅂ 왜 안됨"` 같은 거 올라오면?
+4. **알림** — 카톡, 슬랙, 배민 알림이 면접 중에 뜨면 ㅋㅋ
+
+```
+[실화] 면접 중 화면 공유 사고 모음:
+
+1. 알림: "치킨 배달이 완료되었습니다" (배민)
+   → 면접관: "...아 네." 그 뒤로 5분간 공기가 묘하게 어색했음.
+     (현실은 면접관도 어떻게 반응해야 할지 모름. 농담은 사후 미화임.)
+
+2. 브라우저 자동완성: 검색창에 'how' 치니까
+   → 자동완성 첫 줄에 *다른 회사 면접 후기* 가 뜸.
+     면접관이 봤는지는 모름. 봤다면 모른 척, 못 봤다면 다행.
+     어느 쪽이든 그 순간부터 자기 검열 시작되고 코드 품질 급락.
+
+3. VS Code 사이드바: 폴더 트리에 "interview-prep" 디렉토리가 보임
+   → 그 자체로는 문제 아닌데, 옆에 다른 회사명 폴더가 같이 보이면 좀…
+     이쪽도 면접관도 보고 못 본 척 함. 침묵이 답.
+```
+
+### 타이핑 실수의 공포
+
+평소에 분당 80타 치는 사람도 면접에서는 분당 30타가 됨.
+그리고 오타가 기하급수적으로 늘어남.
+
+```typescript
+// 면접에서 실제로 타이핑한 코드 (압박 받는 손가락 포함)
+async funtcion fetchUser(id: string): Promise<User> {
+  //    ↑ 'function' 의 t와 c가 뒤바뀜.
+  //      VS Code면 즉시 빨간 줄. CoderPad면 실행해서야 알게 됨.
+  const res = await fetch(`/api/users/${id}`);
+  return res.json();
+}
+
+// 고치려고 backspace 한 번 누르려다 두 번 누름.
+// 옆 글자까지 지워짐. 다시 치다가 또 한 글자 어긋남.
+// 평소 한 글자 오타는 의식도 안 하고 고치는데, 누가 보고 있으면
+// 그 한 박자 멈춤이 *영원처럼* 느껴짐.
+```
+
+<Callout type="error" title="타이핑 실수가 미치는 심리적 영향">
+오타 하나 → 고치려고 함 → 긴장해서 또 오타 → 더 긴장 → 또 오타
+→ "아 죄송합니다 평소에 이러지 않는데..." → 면접관 표정 읽기 시작
+→ 코드보다 면접관 눈치 보기에 집중 → 코드 품질 급락 → 멘탈 붕괴
+
+**오타 나면 그냥 조용히 고치고 넘어가자. 사과하면 할수록 더 어색해짐.**
+</Callout>
+
+---
+
+## 실제 라이브 코딩 과제 예시
+
+### 과제 1: TODO 앱 만들기 (프론트엔드)
+
+"30분 안에 TODO 앱을 만들어주세요. 추가, 삭제, 완료 토글 기능이 있어야 합니다."
+
+가장 흔한 라이브 코딩 과제임. 근데 이게 30분이면 충분할 것 같지?
+**아님.** 긴장하면 `useState` 문법도 까먹음.
+
+```typescript
+// 면접장에서 짜는 TODO 앱 — "잘 풀린 케이스" 의 시간 흐름
+// (실제로는 한 단계에서 8분을 쓰거나, 중간에 useState 시그니처가
+//  안 떠올라 3분 멍해지는 일이 흔함. 아래는 *되돌아봤을 때 정리되는* 흐름.)
+
+// [0:00 - 3:00] 프로젝트 설정
+// "리액트로 할게요" → CRA? Vite? Next.js?
+// 면접관: "아무거나 편한 걸로 하세요"
+// (이 한마디에 누구는 30초에 결정, 누구는 3분 고민.
+//  결정 자체보다 *결정에 얼마나 머무는지* 를 면접관이 봄.)
+
+// [3:00 - 8:00] 기본 구조
+interface Todo {
+  id: number;
+  text: string;
+  completed: boolean;
+}
+
+function TodoApp() {
+  const [todos, setTodos] = useState<Todo[]>([]);
+  const [input, setInput] = useState('');
+
+  // [8:00 - 15:00] 추가 기능
+  const addTodo = () => {
+    if (!input.trim()) return; // ← 이거 빈 문자열 처리 안 하면 감점
+    setTodos(prev => [
+      ...prev,
+      { id: Date.now(), text: input, completed: false }
+    ]);
+    setInput('');
+  };
+
+  // [15:00 - 20:00] 삭제 & 토글
+  const deleteTodo = (id: number) => {
+    setTodos(prev => prev.filter(todo => todo.id !== id));
+  };
+
+  const toggleTodo = (id: number) => {
+    setTodos(prev => prev.map(todo =>
+      todo.id === id ? { ...todo, completed: !todo.completed } : todo
+    ));
+  };
+
+  // [20:00 - 28:00] JSX 렌더링
+  return (
+    <div>
+      <h1>TODO</h1>
+      <div>
+        <input
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && addTodo()}
+          // ↑ 이거 추가하면 가산점. Enter로 추가 가능하게
+        />
+        <button onClick={addTodo}>추가</button>
+      </div>
+      <ul>
+        {todos.map(todo => (
+          <li key={todo.id}>
+            <span
+              style={{
+                textDecoration: todo.completed ? 'line-through' : 'none'
+              }}
+              onClick={() => toggleTodo(todo.id)}
+            >
+              {todo.text}
+            </span>
+            <button onClick={() => deleteTodo(todo.id)}>삭제</button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+
+  // [28:00 - 30:00] "시간 다 됐습니다"
+  // 나: CSS는 시간이 없어서...
+  // 면접관: "괜찮습니다. 몇 가지 질문할게요"
+  // (여기서부터 진짜 면접 시작 — *깔끔하게 끝낸 코드* 보다
+  //  *못 끝낸 부분을 어떻게 설명하는지* 가 비중이 더 큰 경우가 많음.
+  //  "다 못 끝냈어요" 가 아니라 "여기까지 했고, 남은 건 ~ 이렇게 갈 거였어요"
+  //  한 문장이 평가의 절반을 차지함.)
+}
+```
+
+<Callout type="info" title="TODO 앱 과제 후 자주 나오는 질문들">
+1. "id를 Date.now()로 했는데, 이것의 문제점은?"
+   → 같은 밀리초에 두 개 추가하면 id 충돌. UUID 쓰는 게 나음.
+
+2. "상태가 많아지면 어떻게 관리하실 건가요?"
+   → useReducer, 또는 상태관리 라이브러리 (Zustand 등)
+
+3. "이 컴포넌트의 리렌더링 최적화는?"
+   → React.memo, useCallback으로 불필요한 리렌더링 방지
+
+4. "테스트를 작성한다면?"
+   → 추가/삭제/토글 각각에 대한 유닛 테스트 + 통합 테스트
+
+5. "접근성(a11y)은?"
+   → aria 속성, 키보드 네비게이션, 스크린 리더 지원
+   (이거 대답하면 가산점 큼)
+</Callout>
+
+---
+
+### 과제 2: REST API 구현 (백엔드)
+
+"유저 CRUD API를 만들어주세요. 메모리에 저장해도 됩니다."
+
+```typescript
+// Express.js로 구현하는 예시
+
+import express from 'express';
+
+const app = express();
+app.use(express.json());
+
+// 메모리 저장소
+interface User {
+  id: string;
+  name: string;
+  email: string;
+  createdAt: Date;
+}
+
+const users: Map<string, User> = new Map();
+let nextId = 1;
+
+// CREATE
+app.post('/api/users', (req, res) => {
+  const { name, email } = req.body;
+
+  // 입력 검증 — 이거 안 하면 무조건 감점
+  if (!name || !email) {
+    return res.status(400).json({ error: 'name과 email은 필수입니다' });
+  }
+
+  // 이메일 중복 체크 — 이것도 안 하면 감점
+  const existing = [...users.values()].find(u => u.email === email);
+  if (existing) {
+    return res.status(409).json({ error: '이미 존재하는 이메일입니다' });
+  }
+
+  const id = String(nextId++);
+  const user: User = { id, name, email, createdAt: new Date() };
+  users.set(id, user);
+
+  res.status(201).json(user);
+});
+
+// READ (단건)
+app.get('/api/users/:id', (req, res) => {
+  const user = users.get(req.params.id);
+
+  if (!user) {
+    return res.status(404).json({ error: '유저를 찾을 수 없습니다' });
+  }
+
+  res.json(user);
+});
+
+// READ (목록) — 페이지네이션 고려하면 가산점
+app.get('/api/users', (req, res) => {
+  const page = parseInt(req.query.page as string) || 1;
+  const limit = parseInt(req.query.limit as string) || 10;
+  const allUsers = [...users.values()];
+  const start = (page - 1) * limit;
+  const paginatedUsers = allUsers.slice(start, start + limit);
+
+  res.json({
+    data: paginatedUsers,
+    total: allUsers.length,
+    page,
+    limit,
+    totalPages: Math.ceil(allUsers.length / limit)
+  });
+});
+
+// UPDATE
+app.put('/api/users/:id', (req, res) => {
+  const user = users.get(req.params.id);
+  if (!user) {
+    return res.status(404).json({ error: '유저를 찾을 수 없습니다' });
+  }
+
+  const { name, email } = req.body;
+  if (name) user.name = name;
+  if (email) user.email = email;
+
+  res.json(user);
+});
+
+// DELETE
+app.delete('/api/users/:id', (req, res) => {
+  if (!users.has(req.params.id)) {
+    return res.status(404).json({ error: '유저를 찾을 수 없습니다' });
+  }
+
+  users.delete(req.params.id);
+  res.status(204).send();
+});
+
+app.listen(3000);
+```
+
+이 코드를 30분 안에 짜면서, 면접관 질문에도 대답해야 함.
+
+면접관이 자주 파고드는 포인트:
+
+```
+면접관: "PUT과 PATCH의 차이가 뭔가요?"
+나: "PUT은 전체 교체, PATCH는 부분 수정..."
+면접관: "그럼 지금 코드는 PUT인데 PATCH처럼 동작하고 있네요?"
+나: "..." (맞음... name만 보내면 email은 유지되니까...)
+면접관: "어떻게 고치실 건가요?"
+나: (여기서 5분 추가 소비)
+```
+
+<Callout type="warning" title="REST API 면접에서 자주 빠뜨리는 것들">
+체크리스트만 보면 다 아는 얘기지만, 빠뜨리는 이유는 *왜 그게 필요한지* 가 본인 안에서 사례화되지 않아서임.
+
+1. **입력 검증** — req.body를 그대로 믿으면 안 됨. 안 하면 *페이지네이션 limit 검증을 안 해서 누가 `limit=1000000` 한 번 부르면 DB가 죽는* 식으로 배우게 됨.
+2. **에러 처리** — try-catch 없으면 서버 크래시. Node에선 unhandled promise rejection 한 번으로 프로세스가 죽으니까, 적어도 라우트 경계에선 잡아둘 것.
+3. **HTTP 상태 코드** — 201(생성), 204(삭제), 400(잘못된 요청), 404(없음), 409(충돌). 다 200으로만 보내면 클라이언트가 *성공한 척 보이는 실패* 를 디버깅하느라 죽는다.
+4. **CORS** — 처음 보는 사람은 *왜 Postman은 되는데 브라우저는 안 되지* 에서 한 시간 잃음. 면접에선 "preflight" 한 단어만 나와도 인상이 달라짐.
+5. **보안** — SQL Injection / XSS / Rate Limiting. "지금은 메모리라 상관없지만 RDB로 옮기면 어떻게 할 거냐" 라는 후속 질문이 거의 항상 옴.
+
+"실제 프로덕션에 배포한다면 뭘 추가하실 건가요?" 라는 질문이 거의 항상 따라옴. 로깅·모니터링·인증/인가·Zod 같은 검증 라이브러리·idempotency key·재시도 정책 등을 말하면 됨. 다 말할 필요는 없고 *본인이 실제로 해본 한두 가지* 만 깊이 말해도 충분.
+</Callout>
+
+---
+
+### 과제 3: 디바운스 구현 (유틸리티)
+
+"debounce 함수를 구현해주세요."
+
+이건 짧지만 함정이 많은 문제임.
+
+```typescript
+// 1단계: 기본 구현 — 대부분 여기까지만 함
+function debounce(fn: Function, delay: number) {
+  let timer: ReturnType<typeof setTimeout>;
+
+  return function (...args: any[]) {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      fn(...args);
+    }, delay);
+  };
+}
+
+// 사용
+const debouncedSearch = debounce((query: string) => {
+  console.log(`검색: ${query}`);
+}, 300);
+```
+
+```typescript
+// 2단계: this 바인딩 고려 — 면접관이 물어볼 수 있음
+function debounce<T extends (...args: any[]) => any>(
+  fn: T,
+  delay: number
+): (...args: Parameters<T>) => void {
+  let timer: ReturnType<typeof setTimeout>;
+
+  return function (this: any, ...args: Parameters<T>) {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      fn.apply(this, args);  // ← this 바인딩!
+    }, delay);
+  };
+}
+```
+
+```typescript
+// 3단계: cancel + immediate 옵션 — 여기까지 하면 인상적
+interface DebounceOptions {
+  leading?: boolean;   // 첫 호출을 즉시 실행할지
+  trailing?: boolean;  // 마지막 호출을 실행할지
+}
+
+function debounce<T extends (...args: any[]) => any>(
+  fn: T,
+  delay: number,
+  options: DebounceOptions = { leading: false, trailing: true }
+): ((...args: Parameters<T>) => void) & { cancel: () => void } {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let lastArgs: Parameters<T> | null = null;
+
+  const debounced = function (this: any, ...args: Parameters<T>) {
+    lastArgs = args;
+
+    if (options.leading && !timer) {
+      fn.apply(this, args);
+    }
+
+    if (timer) clearTimeout(timer);
+
+    timer = setTimeout(() => {
+      if (options.trailing && lastArgs) {
+        fn.apply(this, lastArgs);
+      }
+      timer = null;
+      lastArgs = null;
+    }, delay);
+  };
+
+  debounced.cancel = () => {
+    if (timer) clearTimeout(timer);
+    timer = null;
+    lastArgs = null;
+  };
+
+  return debounced;
+}
+```
+
+면접관이 "throttle과의 차이점은?" 물어보면:
+
+```
+debounce: 마지막 호출 후 일정 시간 뒤에 실행 (검색 입력)
+throttle: 일정 시간 간격으로 최대 한 번 실행 (스크롤 이벤트)
+
+debounce: ---|---|---|---|----[300ms]---> 실행 (마지막 것만)
+throttle: ---|300ms|실행---|300ms|실행---> (주기적으로)
+```
+
+---
+
+## 디버깅 능력을 보는 면접
+
+일부 회사는 "버그 있는 코드를 주고 고치라"는 형태의 면접을 봄.
+이게 의외로 어려움. 남이 짠 코드를 읽는 것 자체가 스트레스인데,
+그 코드에 숨겨진 버그를 찾아야 하니까.
+
+```typescript
+// "이 코드의 버그를 찾아주세요"
+async function fetchUserPosts(userId: string) {
+  const user = await fetch(`/api/users/${userId}`);
+  const posts = await fetch(`/api/users/${userId}/posts`);
+
+  const userData = user.json();    // 버그 1: await 빠짐
+  const postsData = posts.json();  // 버그 2: await 빠짐
+
+  return {
+    user: userData,
+    posts: postsData.filter(post => post.published),  // 버그 3: Promise에 filter 호출
+    totalPosts: postsData.length                        // 버그 4: Promise에 length 호출
+  };
+}
+```
+
+<Callout type="success" title="위 코드의 버그 정리">
+1. `user.json()`에 `await`가 빠짐 → Promise 객체가 그대로 들어감
+2. `posts.json()`에도 `await`가 빠짐
+3. `postsData`가 Promise라서 `.filter()`가 안 됨 → 런타임 에러
+4. `.length`도 마찬가지
+5. **숨겨진 버그**: 두 fetch가 순차 실행됨 → `Promise.all`로 병렬화 가능
+6. **또 다른 숨겨진 버그**: fetch 에러 처리 없음 → 404면 그냥 넘어감
+</Callout>
+
+```typescript
+// 수정된 코드
+async function fetchUserPosts(userId: string) {
+  const [userResponse, postsResponse] = await Promise.all([
+    fetch(`/api/users/${userId}`),
+    fetch(`/api/users/${userId}/posts`)
+  ]);
+
+  if (!userResponse.ok || !postsResponse.ok) {
+    throw new Error('API 요청 실패');
+  }
+
+  const userData = await userResponse.json();
+  const postsData = await postsResponse.json();
+
+  return {
+    user: userData,
+    posts: postsData.filter((post: any) => post.published),
+    totalPosts: postsData.length
+  };
+}
+```
+
+---
+
+## 라이브 코딩에서 자주 나오는 함정들
+
+### 함정 1: "이거 쉬운 건데요" 속지 마라
+
+```typescript
+// "배열을 flat하게 만들어주세요"
+// 면접관: "내장 함수 안 쓰고요"
+
+// 쉬워 보이는데...
+function flatten(arr: any[]): any[] {
+  const result: any[] = [];
+
+  for (const item of arr) {
+    if (Array.isArray(item)) {
+      result.push(...flatten(item)); // 재귀
+    } else {
+      result.push(item);
+    }
+  }
+
+  return result;
+}
+
+// 면접관: "스택 오버플로우 가능성은?"
+// 나: "..." (중첩이 수만 단계면 터짐)
+
+// 면접관: "반복문으로 풀 수 있나요?"
+function flattenIterative(arr: any[]): any[] {
+  const stack = [...arr];
+  const result: any[] = [];
+
+  while (stack.length > 0) {
+    const item = stack.pop();
+    if (Array.isArray(item)) {
+      stack.push(...item);
+    } else {
+      result.push(item);
+    }
+  }
+
+  return result.reverse(); // ← pop은 뒤에서부터라 순서 반대
+}
+// 이게 나오는 데까지 가면 합격 가능성 높음
+```
+
+### 함정 2: 비동기 처리의 늪
+
+```typescript
+// "배열의 각 URL을 순차적으로 fetch하세요"
+
+// 틀린 답 1: 순차가 아니라 병렬임
+async function fetchAll(urls: string[]) {
+  const results = urls.map(url => fetch(url)); // await 없음!
+  return Promise.all(results);  // 이건 병렬 실행임
+}
+
+// 틀린 답 2: forEach는 async를 기다리지 않음
+async function fetchAll(urls: string[]) {
+  const results: Response[] = [];
+  urls.forEach(async (url) => {  // ← forEach는 콜백의 반환값(Promise 포함)을 *버림*
+    const res = await fetch(url);
+    results.push(res);
+  });
+  return results; // 빈 배열이 그대로 반환됨.
+                  // push는 콜백 안에서 *나중에* 일어나는데
+                  // 함수는 그 전에 이미 return 해버림.
+}
+
+// 맞는 답: for...of + await
+async function fetchAllSequential(urls: string[]) {
+  const results: Response[] = [];
+  for (const url of urls) {
+    const res = await fetch(url);
+    results.push(res);
+  }
+  return results;
+}
+
+// 병렬이 필요하면
+async function fetchAllParallel(urls: string[]) {
+  return Promise.all(urls.map(url => fetch(url)));
+}
+
+// 병렬인데 실패해도 다른 건 계속
+async function fetchAllSettled(urls: string[]) {
+  return Promise.allSettled(urls.map(url => fetch(url)));
+}
+```
+
+<Callout type="error" title="forEach + async — *왜* 비직관적인가">
+멘탈 모델 차이로 보면 깔끔함:
+
+- **`map`** — 콜백의 반환값을 *모은다*. async 콜백이면 Promise 배열이 만들어지고, 그걸 `Promise.all` 로 묶을 수 있음.
+- **`forEach`** — 콜백의 반환값을 *버린다*. async 콜백을 넘기면 Promise는 만들어지긴 하는데 forEach는 그걸 무시하고 다음 콜백으로 넘어감.
+
+결과적으로 forEach는 모든 Promise를 *불씨처럼 일제히 던지고* 자기는 즉시 return 함. 그래서 `results` 가 빈 배열인 채로 함수가 끝나버림. await가 *안 먹는* 게 아니라, forEach가 *기다릴 생각이 없는* 것.
+
+순차로 처리하려면 `for...of`, 병렬은 `Promise.all(arr.map(...))`. forEach는 async와 거의 항상 잘못된 조합.
+
+면접에서 "forEach가 비동기를 안 기다린다" 가 아니라 "forEach는 콜백 반환값을 신경 쓰지 않는다" 로 설명할 수 있으면 인상이 다름. 같은 사실인데 후자가 *원인* 까지 짚는 표현.
+</Callout>
+
+### 함정 3: 클로저 + 루프
+
+```typescript
+// "1초 간격으로 0, 1, 2, 3, 4를 출력하세요"
+
+// 99%가 처음에 짜는 코드
+for (var i = 0; i < 5; i++) {
+  setTimeout(() => console.log(i), i * 1000);
+}
+// 출력: 5 5 5 5 5 (1초 간격으로)
+// 왜? var는 함수 스코프라 setTimeout 콜백 실행 시점에 i는 이미 5
+
+// 해결법 1: let 사용
+for (let i = 0; i < 5; i++) {
+  setTimeout(() => console.log(i), i * 1000);
+}
+// 출력: 0 1 2 3 4
+
+// 해결법 2: 클로저 (IIFE)
+for (var i = 0; i < 5; i++) {
+  ((j) => {
+    setTimeout(() => console.log(j), j * 1000);
+  })(i);
+}
+
+// 해결법 3: setTimeout 세 번째 인자
+for (var i = 0; i < 5; i++) {
+  setTimeout((j) => console.log(j), i * 1000, i);
+}
+```
+
+이 문제는 10년 전부터 나오는 클래식한데, 아직도 면접에서 자주 봄.
+`let`이 나온 이후로 실무에서는 거의 안 마주치지만,
+"왜 let이 해결하는지" 설명할 수 있어야 함.
+
+---
+
+## 코드 에디터 없이 코딩하는 고통
+
+일부 회사는 CoderPad, HackerRank 같은 온라인 에디터를 쓰는데,
+이게 VS Code랑 다름. **많이 다름.**
+
+### 없는 것들
+
+- **자동완성:** `document.querySelector` 치려면 한 글자도 빠짐없이 다 쳐야 함
+- **자동 import:** React에서 `useState` 쓰려면 직접 import 해야 함
+- **자동 포맷팅:** 들여쓰기 직접 맞춰야 함
+- **에러 표시:** 오타나도 빨간 줄 안 뜸. 실행해봐야 알 수 있음
+- **타입 추론:** TypeScript 쓰는 환경이어도 타입 힌트가 안 나옴
+
+```typescript
+// VS Code에서는 문제없는 코드가
+// CoderPad에서는 이런 상황이 됨
+
+// "아 useState import를 안 했네"
+// "React도 import 해야 하나? 안 해도 되나?"
+// "tsconfig가 어떻게 되어있는 거지?"
+// "이 에디터 탭 크기가 왜 2가 아니라 4지?"
+// "단축키가 다 다르잖아!!!"
+
+// 결국 이렇게 됨
+import React, { useState, useEffect, useCallback } from 'react';
+// ← 혹시 모르니까 다 import해놓는 안전 전략
+```
+
+<Callout type="note" title="라이브 코딩 에디터 대비 팁">
+면접 전에 해당 회사가 어떤 에디터를 쓰는지 미리 확인해야 함.
+
+- **CoderPad** — 자동완성 제한적, 실행 가능
+- **HackerRank** — 자체 에디터, 테스트 케이스 있음
+- **CodeSandbox** — 가장 VS Code에 가까움
+- **Google Docs** — 실행도 안 되는데 여기에 코드 쓰라고? (구글 면접)
+
+면접 전에 해당 플랫폼에서 30분만 연습해도 체감이 다름.
+에디터 적응하느라 시간 쓰면 안 되니까.
+</Callout>
+
+---
+
+## 라이브 코딩 면접 생존 전략
+
+### 1. 먼저 계획을 말하라
+
+코딩 시작하기 전에 30초~1분 투자해서 계획을 말하면 인상이 완전 다름.
+
+```
+"먼저 인터페이스를 정의하고,
+기본적인 CRUD 함수를 만든 다음,
+에러 처리를 추가하고,
+마지막에 테스트해볼게요."
+```
+
+이렇게만 말해도 면접관은 "아 이 사람 구조적으로 생각하는구나" 함.
+
+> 단, 계획을 *너무 정교하게* 말하면 그것만으로 3분이 가버림. 한두 문장으로 큰 흐름만, 디테일은 짜면서 더하는 게 좋음.
+
+### 2. TODO 주석을 활용하라
+
+```typescript
+function processData(data: RawData[]): ProcessedData[] {
+  // TODO: 입력 검증
+  // TODO: 데이터 변환
+  // TODO: 정렬
+  // TODO: 중복 제거
+  return [];
+}
+```
+
+이렇게 뼈대를 먼저 잡고 하나씩 채워나가면:
+- 전체 구조가 한눈에 보임
+- 시간이 부족해도 "여기까지 했고, 나머지는 이렇게 할 예정이었다" 말할 수 있음
+- 면접관이 "TODO 처리를 빼고 핵심 로직에 집중하세요" 라고 가이드해줄 수 있음
+
+> 단, TODO만 잔뜩 채우고 본 코드는 비어있는 채로 끝나면 "구조만 잡고 끝났네" 인상. TODO는 *지금 안 짤 부분* 만 표시하는 도구이지, *전체 함수를 비워두는 핑계* 가 되면 안 됨.
+
+### 3. 작게 시작해서 점진적으로 발전시켜라
+
+```typescript
+// Step 1: 하드코딩으로 일단 동작하게
+function getGreeting(): string {
+  return "Hello, World!";
+}
+
+// Step 2: 파라미터 받기
+function getGreeting(name: string): string {
+  return `Hello, ${name}!`;
+}
+
+// Step 3: 엣지 케이스 처리
+function getGreeting(name?: string): string {
+  if (!name?.trim()) return "Hello, stranger!";
+  return `Hello, ${name}!`;
+}
+
+// Step 4: 국제화 고려 (시간 되면)
+function getGreeting(name?: string, locale = 'ko'): string {
+  const greetings: Record<string, string> = {
+    ko: '안녕하세요',
+    en: 'Hello',
+    ja: 'こんにちは'
+  };
+  const greeting = greetings[locale] || greetings.en;
+  if (!name?.trim()) return `${greeting}!`;
+  return `${greeting}, ${name}!`;
+}
+```
+
+이런 식으로 점진적으로 발전시키면:
+- 각 단계가 동작하는 코드임
+- 시간이 언제 끝나도 "여기까지는 완성"이라고 말할 수 있음
+- 면접관이 발전 과정을 보면서 사고력을 평가할 수 있음
+
+> 단, "작게 시작" 을 *너무 안전하게* 잡으면 (예: 빈 함수 → return 0) 면접관이 답답해함. 첫 단계라도 *문제의 핵심을 어느 정도 건드리는* 수준이 좋음.
+
+### 4. 테스트를 같이 짜라
+
+```typescript
+// 코드 짜면서 바로 테스트도 짜면 좋은 인상
+function isPalindrome(s: string): boolean {
+  const cleaned = s.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const reversed = cleaned.split('').reverse().join('');
+  return cleaned === reversed;
+}
+
+// 바로 테스트
+console.assert(isPalindrome("racecar") === true, "기본 팰린드롬");
+console.assert(isPalindrome("hello") === false, "팰린드롬 아닌 경우");
+console.assert(isPalindrome("A man, a plan, a canal: Panama") === true, "특수문자 포함");
+console.assert(isPalindrome("") === true, "빈 문자열");
+console.assert(isPalindrome(" ") === true, "공백만");
+```
+
+> 단, 본 코드도 못 짠 상태에서 *테스트부터* 쓰면 면접관 입장에선 답답함. *동작 1차 → 테스트 1~2개 → 리팩토링* 순서가 자연스러움. 그리고 테스트는 *엣지 케이스를 자기 입으로 발화하는* 효과가 더 큼. "빈 문자열일 때는 어떻게 처리할까요?" 한 줄로도 평가가 달라짐.
+
+<Callout type="success" title="라이브 코딩 최종 체크리스트">
+- 코딩 전에 계획을 말했는가?
+- 생각을 소리 내어 말하면서 코딩했는가?
+- 엣지 케이스를 고려했는가? (빈 입력, null, 큰 입력)
+- 에러 처리를 했는가?
+- 변수명이 의미있는가?
+- 테스트를 했는가?
+- 시간이 남으면 리팩토링했는가?
+
+**이 중 3개 이상 했으면 충분히 좋은 인상을 줄 수 있음.**
+완벽한 코드보다 좋은 과정이 더 중요함.
+</Callout>
+
+---
+
+## 결론: 라이브 코딩 = 코딩 × *생각을 말로 꺼내는* 능력
+
+라이브 코딩 면접이 어려운 진짜 이유는 *코딩이 어려워서* 가 아님.
+
+평소엔 머릿속에서 흐릿하게 굴리던 사고 — "어 이거 먼저 짜고, 아 이건 나중에, 어차피 이건 안 쓸 거…" — 를 면접에선 **강제로 말로 꺼내야** 함. 평소엔 말 안 하고 짜던 사고를 말로 동기화하는 건 별개의 근육임. 코드 자체는 평소처럼 짜도 *지금 무엇을 하고 있는지 설명하면서 짜기* 가 어색해서 둘 다 무너지는 게 흔한 패턴.
+
+면접관이 보고 싶은 건 **사고의 가시화**임. 묶어서 보면 셋:
+
+- 문제를 어떻게 *분해* 하는가 (요구사항 → 작업 단위)
+- 작업 중에 *어떤 신호* 를 알아차리는가 (엣지 케이스, 비효율, 의심 가는 코드)
+- 막힐 때 *어떻게 빠져나오는가* (질문 / 단순화 / 가정을 명시한 채 진행)
+
+Pramp 같은 모의 면접 도구가 효과 있는 건 코딩 자체를 연습해서가 아님. *말로 꺼내는 어색함* 을 줄여줘서임. 혼자 화면 녹화해서 다시 보는 것도 비슷한 이유 — 본인의 *말 없는 침묵 구간* 이 얼마나 긴지 보면 충격을 받음.
+
+그리고 "실수해도 괜찮다" 는 면접관 *입장에서 본* 말. 본인 입장에선 실수 순간 패닉이 옴. 패닉을 그대로 드러내면 인상이 깎임. 그래서 진짜 훈련해야 할 건 *실수했을 때 한 박자 쉬고 침착하게 복구하는 패턴* — "아, 이 부분 다시 볼게요" 한 줄로 충분한 경우가 많음. 사과 반복은 더 어색하게 만들 뿐.
+
+"제 로컬에선 됐는데요" 는 실무용 변명. 면접에선 그 자리에서 되게 만들고, 안 되면 *왜 안 되는지* 를 추론해서 보여줘야 함. 의외로 그 추론 과정이 *동작하는 코드* 보다 더 인상에 남는 경우도 있음.
