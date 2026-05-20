@@ -1,5 +1,6 @@
 import { describe, test, expect } from 'vitest';
-import { lintFile, ALLOWED_KEYS } from '@/scripts/mdx-lint-core.mjs';
+import { lintFile, fixFile, ALLOWED_KEYS } from '@/scripts/mdx-lint-core.mjs';
+import matter from 'gray-matter';
 
 const ruleSet = (arr: { rule: string }[]) => arr.map(d => d.rule);
 
@@ -71,5 +72,46 @@ describe('lintFile — warning 규칙', () => {
     const raw = '---\ntitle: "T"\nsubtitle: "s"\ndescription: "d"\norder: 1\n---\n\n*"인용"*\n';
     const { warnings } = lintFile(raw, 'a.mdx');
     expect(warnings.map(w => w.rule)).not.toContain('subtitle-candidate');
+  });
+});
+
+describe('fixFile — 자동수정', () => {
+  test('frontmatter 없고 H1 + 이탤릭 인용 → title/subtitle 생성, 본문에서 제거', () => {
+    const raw = '# 라이브 코딩 — "제 로컬에선 됐는데요"\n\n*"손이 떨림"*\n\n## 본문\n';
+    const { content, changed, applied } = fixFile(raw, 'a.mdx');
+    expect(changed).toBe(true);
+    expect(applied).toContain('title');
+    expect(applied).toContain('subtitle');
+    const { data } = matter(content);
+    expect(data.title).toBe('라이브 코딩 — "제 로컬에선 됐는데요"');
+    expect(data.subtitle).toBe('손이 떨림');
+    expect(content).not.toMatch(/^# /m);        // 본문 H1 제거됨
+    expect(content).toContain('## 본문');
+  });
+
+  test('order 문자열 → number 변환', () => {
+    const raw = '---\ntitle: "T"\norder: "3"\n---\n\n## 본문\n';
+    const { content, applied } = fixFile(raw, 'a.mdx');
+    expect(applied).toContain('order-type');
+    expect(matter(content).data.order).toBe(3);
+  });
+
+  test('이미 규칙 준수면 changed=false', () => {
+    const raw = '---\ntitle: "T"\ndescription: "d"\norder: 1\n---\n\n## 본문\n';
+    const { changed } = fixFile(raw, 'a.mdx');
+    expect(changed).toBe(false);
+  });
+
+  test('멱등성 — fix 두 번 돌려도 결과 동일', () => {
+    const raw = '# 제목\n\n*"부제"*\n\n## 본문\n';
+    const once = fixFile(raw, 'a.mdx').content;
+    const twice = fixFile(once, 'a.mdx').content;
+    expect(twice).toBe(once);
+  });
+
+  test('fix 결과는 lint error 0', () => {
+    const raw = '# 제목\n\n## 본문\n';
+    const fixed = fixFile(raw, 'a.mdx').content;
+    expect(lintFile(fixed, 'a.mdx').errors).toEqual([]);
   });
 });

@@ -85,3 +85,57 @@ export function lintFile(raw, relPath) {
 
   return { errors, warnings };
 }
+
+export function fixFile(raw, relPath) {
+  const applied = [];
+  const parsed = matter(raw);
+  const data = { ...parsed.data };
+  const bodyLines = parsed.content.split('\n');
+
+  // 본문 첫 H1 찾기 (코드펜스 밖)
+  let inFence = false, h1Index = -1;
+  for (let i = 0; i < bodyLines.length; i++) {
+    const t = bodyLines[i].trim();
+    if (/^(```|~~~)/.test(t)) { inFence = !inFence; continue; }
+    if (inFence) continue;
+    if (/^#\s+/.test(bodyLines[i])) { h1Index = i; break; }
+  }
+
+  // H1 → title (frontmatter에 title 없을 때만)
+  if (h1Index !== -1 && !data.title) {
+    data.title = bodyLines[h1Index].replace(/^#\s+/, '').trim();
+    bodyLines.splice(h1Index, 1);
+    if (bodyLines[h1Index]?.trim() === '') bodyLines.splice(h1Index, 1);
+    applied.push('title');
+
+    // 이탤릭 인용 → subtitle
+    if (!data.subtitle) {
+      let j = h1Index;
+      while (j < bodyLines.length && bodyLines[j].trim() === '') j++;
+      const t = bodyLines[j]?.trim() ?? '';
+      if (/^\*".*"\*$/.test(t) || /^\*[^*]+\*$/.test(t)) {
+        data.subtitle = t.replace(/^\*\s*"?/, '').replace(/"?\s*\*$/, '').trim();
+        bodyLines.splice(j, 1);
+        if (bodyLines[j]?.trim() === '') bodyLines.splice(j, 1);
+        applied.push('subtitle');
+      }
+    }
+  }
+
+  // order 문자열 → number
+  if (typeof data.order === 'string' && /^\d+$/.test(data.order.trim())) {
+    data.order = parseInt(data.order, 10);
+    applied.push('order-type');
+  }
+
+  if (applied.length === 0) return { content: raw, changed: false, applied: [] };
+
+  // 키 순서 정규화: 화이트리스트 순 → 나머지
+  const ordered = {};
+  for (const k of ALLOWED_KEYS) if (k in data) ordered[k] = data[k];
+  for (const k of Object.keys(data)) if (!(k in ordered)) ordered[k] = data[k];
+
+  const body = bodyLines.join('\n').replace(/^\n+/, '');
+  const content = matter.stringify(body, ordered);
+  return { content, changed: true, applied };
+}
