@@ -120,4 +120,14 @@ describe('fixFile — 자동수정', () => {
     const fixed = fixFile(raw, 'a.mdx').content;
     expect(lintFile(fixed, 'a.mdx').errors).toEqual([]);
   });
+
+  test('본문이 수평선(---)으로 시작해도 char 분해 없이 안전하게 fix', () => {
+    const raw = '# 제목\n\n*"부제"*\n\n---\n\n본문 단락\n';
+    const { content } = fixFile(raw, 'a.mdx');
+    const { data } = matter(content);
+    expect(data.title).toBe('제목');
+    expect(data.subtitle).toBe('부제');
+    expect(Object.keys(data)).toEqual(['title', 'subtitle']); // '0','1'... char 키 없음
+    expect(content).toContain('본문 단락');
+  });
 });

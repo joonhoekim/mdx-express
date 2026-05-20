@@ -153,7 +153,13 @@ export function fixFile(raw, relPath) {
   for (const k of ALLOWED_KEYS) if (k in data) ordered[k] = data[k];
   for (const k of Object.keys(data)) if (!(k in ordered)) ordered[k] = data[k];
 
-  const body = bodyLines.join('\n').replace(/^\n+/, '');
-  const content = matter.stringify(body, ordered);
+  let body = bodyLines.join('\n').replace(/^\n+/, '');
+  // H1/subtitle 제거로 본문이 수평선(---)으로 시작하게 되면 그 수평선 제거.
+  // frontmatter가 생기므로 불필요하고, 아래 stringify가 본문을 재파싱하다
+  // leading ---를 frontmatter로 오인하는 것도 막는다.
+  body = body.replace(/^---[ \t]*\n+/, '');
+  // frontmatter만 직렬화한 뒤 body를 그대로 이어붙인다 (body의 --- 가
+  // matter.stringify에 의해 재파싱되어 깨지는 것을 방지).
+  const content = matter.stringify('', ordered).trimEnd() + '\n\n' + body;
   return { content, changed: true, applied };
 }
