@@ -1,7 +1,7 @@
 ---
 title: "Writing UI 컴포넌트 쇼케이스"
 subtitle: "직접 보고 고르는 문서 작성 컴포넌트 카탈로그"
-description: "MDX 문서에서 사용할 수 있는 Writing UI 컴포넌트(Callout, CodeBlock, Steps, Tabs, Card, Blockquote, Badge, Reference)와 GFM 표 구문을 실제 렌더링 예시로 보여준다."
+description: "MDX 문서에서 사용할 수 있는 Writing UI 컴포넌트(Callout, CodeBlock, Steps, Tabs, Card, Blockquote, Badge, Reference, Chat, BarChart/LineChart/PieChart)와 GFM 표 구문을 실제 렌더링 예시로 보여준다."
 ---
 
 MDX 문서 작성을 위한 아름다운 UI 컴포넌트들을 소개합니다. 이 페이지에서는 각 컴포넌트의 실제 사용 예시를 확인할 수 있습니다.
@@ -381,6 +381,139 @@ MDX에서 GitHub Flavored Markdown 표 구문을 사용할 수 있습니다.
   `:---` (왼쪽), `:---:` (가운데), `---:` (오른쪽) - 표 안에서도 다른 마크다운
   구문을 사용할 수 있습니다
 </Callout>
+
+## 10. Chat 컴포넌트
+
+채팅·대화 형태를 보여주는 컴포넌트입니다. `bubble`(말풍선) / `transcript`(트랜스크립트) 두 variant.
+
+### bubble — 1:1 메신저 (기본)
+
+질문(우측)만 말풍선, 답변(좌측)은 본문처럼 표시. 사이에 자동 구분선.
+
+<Chat
+  speakers={{
+    me: { name: '준석' },
+    gpt: { name: 'ChatGPT' },
+  }}
+>
+  <Message from="me">Next.js 16의 변경점 알려줘.</Message>
+  <Message from="gpt">주요 변경점은 다음과 같습니다:</Message>
+  <Message from="gpt">
+    1. Turbopack 안정화
+    2. React 19 통합
+    3. App Router 개선
+  </Message>
+  <Message from="me">고마워!</Message>
+</Chat>
+
+### transcript — 인터뷰·대담
+
+화자 헤더(●) + 본문 단락. 인용·대담을 본문 흐름에 자연스럽게 녹임.
+
+<Chat
+  variant="transcript"
+  speakers={{
+    host: { name: '진행자' },
+    guest: { name: '김개발' },
+  }}
+>
+  <Message from="host">가장 큰 도전은 무엇이었나요?</Message>
+  <Message from="guest">
+    사실 가장 어려웠던 건 사람과의 협업이었어요. 특히 의견이 갈릴 때 어떻게 합의에 이르는지를 배우는 데 오래 걸렸습니다.
+  </Message>
+</Chat>
+
+### 3인 + 색상 오버라이드
+
+<Chat
+  speakers={{
+    a: { name: 'Alice', color: 'rose' },
+    b: { name: 'Bob', color: 'blue' },
+    c: { name: 'Carol', color: 'emerald' },
+  }}
+>
+  <Message from="a">회의 시작합시다.</Message>
+  <Message from="b">자료 공유했어요.</Message>
+  <Message from="c">확인할게요.</Message>
+</Chat>
+
+## 11. Chart 컴포넌트 (BarChart / LineChart / PieChart)
+
+문서에 간단한 통계 차트를 그리는 컴포넌트 3종. recharts 기반.
+
+### BarChart — 다중 시리즈 + 축 라벨
+
+<BarChart
+  data={[
+    { name: '1월', sales: 30, profit: 12 },
+    { name: '2월', sales: 45, profit: 18 },
+    { name: '3월', sales: 28, profit: 9 },
+    { name: '4월', sales: 52, profit: 22 },
+  ]}
+  series={[
+    { key: 'sales', label: '매출' },
+    { key: 'profit', label: '이익', color: 'emerald' },
+  ]}
+  xLabel="월"
+  yLabel="$ (Million)"
+/>
+
+### BarChart — 단일 시리즈 (범례 자동 숨김)
+
+<BarChart
+  data={[
+    { name: 'A', value: 10 },
+    { name: 'B', value: 25 },
+    { name: 'C', value: 18 },
+  ]}
+  series={[{ key: 'value', label: '값' }]}
+/>
+
+### LineChart — 단일 시리즈
+
+<LineChart
+  data={[
+    { name: '1주차', users: 120 },
+    { name: '2주차', users: 180 },
+    { name: '3주차', users: 240 },
+    { name: '4주차', users: 200 },
+  ]}
+  series={[{ key: 'users', label: '주간 활성 사용자' }]}
+/>
+
+### LineChart — 다중 시리즈 + 색상 명시
+
+<LineChart
+  data={[
+    { name: 'Q1', a: 30, b: 45, c: 20 },
+    { name: 'Q2', a: 50, b: 35, c: 28 },
+    { name: 'Q3', a: 40, b: 55, c: 32 },
+  ]}
+  series={[
+    { key: 'a', label: '제품 A', color: 'rose' },
+    { key: 'b', label: '제품 B', color: 'blue' },
+    { key: 'c', label: '제품 C', color: 'violet' },
+  ]}
+/>
+
+### PieChart
+
+<PieChart
+  data={[
+    { name: '데스크탑', value: 60 },
+    { name: '모바일', value: 35 },
+    { name: '태블릿', value: 5 },
+  ]}
+/>
+
+### PieChart — 색상 명시
+
+<PieChart
+  data={[
+    { name: '성공', value: 80, color: 'emerald' },
+    { name: '실패', value: 20, color: 'rose' },
+  ]}
+/>
 
 <Callout type='success' title='완료!'>
   이제 모든 Writing UI 컴포넌트를 사용할 수 있습니다. 이 컴포넌트들을 활용해서

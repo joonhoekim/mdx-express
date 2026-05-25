@@ -24,6 +24,9 @@ import {
   MugongCard,
   Chat,
   Message,
+  BarChart,
+  LineChart,
+  PieChart,
 } from '@/components/writing-ui';
 import { mdxHtmlElements } from './mdx-html-elements';
 
@@ -49,6 +52,9 @@ export const mdxComponents = {
   MugongCard,
   Chat,
   Message,
+  BarChart,
+  LineChart,
+  PieChart,
 
   // Shadcn UI (접두사로 충돌 방지)
   Button,

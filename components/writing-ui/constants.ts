@@ -156,3 +156,18 @@ export const CHAT_FALLBACK_COLOR = {
     marker: 'text-gray-500 dark:text-gray-400',
     name: 'text-gray-600 dark:text-gray-300',
 }
+
+/** Chart 시리즈 색상 키 */
+export type SeriesColor = 'blue' | 'emerald' | 'violet' | 'amber' | 'rose'
+
+/** Chart 시리즈 색상 hex (recharts SVG에 직접 전달용) */
+export const CHART_SERIES_COLORS: Record<SeriesColor, string> = {
+    blue:    '#3b82f6',
+    emerald: '#10b981',
+    violet:  '#8b5cf6',
+    amber:   '#f59e0b',
+    rose:    '#f43f5e',
+}
+
+/** 자동 색상 라운드로빈 순서 */
+export const CHART_PALETTE_ORDER = ['blue', 'emerald', 'violet', 'amber', 'rose'] as const satisfies readonly SeriesColor[]

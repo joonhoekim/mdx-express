@@ -11,3 +11,6 @@ export { Icon } from './icon';
 export { MathCodeBridge } from './math-code-bridge';
 export { MugongCard } from './mugong-card';
 export { Chat, Message } from './chat';
+export { BarChart } from './bar-chart';
+export { LineChart } from './line-chart';
+export { PieChart } from './pie-chart';
