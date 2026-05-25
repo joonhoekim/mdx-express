@@ -130,6 +130,7 @@ import { Callout, CodeBlock, Tabs, TabsList, TabsTrigger, TabsContent } from '@/
 - Mermaid 다이어그램: 표준 코드 펜스 ` ```mermaid ` 사용 (자동 감지)
 - 코드 블록: 표준 코드 펜스로 작성하면 highlight.js 자동 적용
 - **`<CodeBlock>` 안에서 `{`...`}` 템플릿 리터럴 사용 금지** — sanitize 후 backtick이 MDX 인라인 코드로 해석되어 파싱 오류 발생. 코드 블록은 표준 코드 펜스(```)를 사용할 것
+- **취소선 마크다운(`~text~`, `~~text~~`) 비활성화** — 한글 본문에서 `~`는 숫자 범위("2024~2025"), 감탄("안녕~"), 물결표 강조로 자주 쓰이므로 GFM 취소선을 끄고 원문 텍스트로 렌더링한다. **실제 취소선이 필요하면 `<s>text</s>` HTML 태그를 사용할 것.** 구현은 `mdx-options.ts`의 `remarkNoStrikethrough` 플러그인 참조
 
 ### 컴포넌트 이름 충돌 규칙
 
@@ -141,7 +142,14 @@ import { Callout, CodeBlock, Tabs, TabsList, TabsTrigger, TabsContent } from '@/
 ### CJK 호환성
 
 - `remark-cjk-friendly`가 한글 **볼드**/`*이탤릭*` 렌더링 문제 해결
-- 플러그인 순서: `remarkCjkFriendly` → `remarkMath` → `remarkGfm` (반드시 이 순서)
+- 플러그인 순서: `remarkCjkFriendly` → `remarkMath` → `remarkGfm` → `remarkNoStrikethrough` (반드시 이 순서)
+
+### 취소선 비활성화
+
+- `remarkNoStrikethrough` (in `mdx-options.ts`)가 `remark-gfm` 뒤에서 실행되어 mdast의 `delete` 노드를 원본 틸드(`~`/`~~`) 텍스트로 되돌린다
+- `node.position`의 source offset으로 원래 마커 개수를 복원하므로 시각적 결과가 바뀌지 않음
+- 회귀 테스트: `__tests__/mdx-strikethrough.test.ts` — 신규 마크다운 추가 시 무심코 취소선이 다시 살아나지 않는지 검증
+- 콘텐츠에서 실제 취소선이 필요하면 `<s>text</s>` HTML 사용
 
 ### Sanitization
 
