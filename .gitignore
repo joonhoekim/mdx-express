@@ -47,3 +47,6 @@ next-env.d.ts
 
 # 초안 md 파일들
 *.md
+
+# 중간 작업을 위한 문서들
+docs/
