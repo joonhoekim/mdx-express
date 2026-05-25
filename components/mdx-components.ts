@@ -22,6 +22,8 @@ import {
   Icon,
   MathCodeBridge,
   MugongCard,
+  Chat,
+  Message,
 } from '@/components/writing-ui';
 import { mdxHtmlElements } from './mdx-html-elements';
 
@@ -45,6 +47,8 @@ export const mdxComponents = {
   Icon,
   MathCodeBridge,
   MugongCard,
+  Chat,
+  Message,
 
   // Shadcn UI (접두사로 충돌 방지)
   Button,

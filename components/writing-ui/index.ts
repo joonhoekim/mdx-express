@@ -10,3 +10,4 @@ export { Reference, ReferenceList } from './reference';
 export { Icon } from './icon';
 export { MathCodeBridge } from './math-code-bridge';
 export { MugongCard } from './mugong-card';
+export { Chat, Message } from './chat';

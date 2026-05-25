@@ -112,3 +112,47 @@ export const LANGUAGE_BADGE_COLORS: Record<string, string> = {
     'rust': 'bg-orange-600/20 text-orange-400',
     'go': 'bg-cyan-500/20 text-cyan-400',
 };
+
+/** Chat 화자 색상 팔레트 (Tailwind 클래스).
+ *  Tailwind는 동적 클래스명을 인식하지 못하므로 전체 클래스명을 정적으로 나열한다. */
+export const CHAT_SPEAKER_COLORS: Record<string, {
+    bubble: string
+    marker: string
+    name: string
+}> = {
+    blue: {
+        bubble: 'bg-blue-50 dark:bg-blue-950/40 border-blue-200/60 dark:border-blue-800/60',
+        marker: 'text-blue-600 dark:text-blue-400',
+        name: 'text-blue-700 dark:text-blue-300',
+    },
+    emerald: {
+        bubble: 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200/60 dark:border-emerald-800/60',
+        marker: 'text-emerald-600 dark:text-emerald-400',
+        name: 'text-emerald-700 dark:text-emerald-300',
+    },
+    violet: {
+        bubble: 'bg-violet-50 dark:bg-violet-950/40 border-violet-200/60 dark:border-violet-800/60',
+        marker: 'text-violet-600 dark:text-violet-400',
+        name: 'text-violet-700 dark:text-violet-300',
+    },
+    amber: {
+        bubble: 'bg-amber-50 dark:bg-amber-950/40 border-amber-200/60 dark:border-amber-800/60',
+        marker: 'text-amber-600 dark:text-amber-400',
+        name: 'text-amber-700 dark:text-amber-300',
+    },
+    rose: {
+        bubble: 'bg-rose-50 dark:bg-rose-950/40 border-rose-200/60 dark:border-rose-800/60',
+        marker: 'text-rose-600 dark:text-rose-400',
+        name: 'text-rose-700 dark:text-rose-300',
+    },
+}
+
+/** Chat 자동 색상 라운드로빈 순서 */
+export const CHAT_PALETTE_ORDER = ['blue', 'emerald', 'violet', 'amber', 'rose'] as const
+
+/** Chat에서 알 수 없는 화자 id에 사용하는 fallback 스타일 */
+export const CHAT_FALLBACK_COLOR = {
+    bubble: 'bg-gray-100 dark:bg-gray-800 border-gray-200 dark:border-gray-700',
+    marker: 'text-gray-500 dark:text-gray-400',
+    name: 'text-gray-600 dark:text-gray-300',
+}
