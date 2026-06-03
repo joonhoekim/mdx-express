@@ -218,11 +218,27 @@ interface NavigationItem { title, href, icon?, children?, isActive? }
 ## 테스트
 
 - **프레임워크:** Vitest
-- **테스트 범위:** 전체 MDX 파일 compileMDX 컴파일 성공 여부
 - **실행:** `bun run test` (CI용 1회 실행), `bun run test:watch` (개발용)
-- content/ 하위 모든 .mdx 파일을 `test.each`로 개별 테스트 케이스 생성
-- 프로덕션과 동일한 파이프라인: gray-matter → sanitize → compileMDX (remark/rehype + components)
 - 설정 파일: `vitest.config.ts` (path alias `@/*`, PostCSS 충돌 방지, CSS 무시)
+- content/ 하위 모든 .mdx 파일을 `test.each`로 개별 케이스 생성 (오류 시 어느 파일인지 즉시 표시)
+
+### 테스트 파일별 범위
+
+- `mdx-compile.test.ts` — 전체 MDX 파일 compileMDX 컴파일 성공 (gray-matter → sanitize → compileMDX, 프로덕션 동일 파이프라인)
+- `mdx-frontmatter.test.ts` — 전체 MDX 파일 lint error 0 (`scripts/mdx-lint-core.ts`)
+- `mdx-lint-core.test.ts` — 린터(lintFile/fixFile) 자체 단위 테스트
+- `mdx-strikethrough.test.ts` — 취소선 비활성화 회귀 (mdast→hast→HTML)
+- `mdx-mermaid.test.ts` — 모든 ` ```mermaid ` 블록 구문 검증 (`mermaid.parse`, **jsdom 환경** — 파일 상단 `// @vitest-environment jsdom`)
+- `mdx-links.test.ts` — 내부 `/docs/…` 링크가 실제 content 파일/디렉터리로 해석되는지 (앵커는 미검증)
+- `mdx-math.test.ts` — `$` 포함 파일을 SSR 렌더해 `.katex-error` 부재 검증
+
+### 컴파일 통과 ≠ 정상 렌더 (중요)
+
+`compileMDX`가 성공해도 **클라이언트/렌더 단계에서만 드러나는 오류**는 못 잡는다. 이 공백을 메우는 전용 테스트가 위 3종(mermaid/links/math):
+
+- **Mermaid** — 다이어그램은 브라우저에서 `mermaid.render`로 그려지므로 구문 오류가 compileMDX를 통과한다. 엣지 라벨에 중첩 따옴표(`|'"type": "x"'|`)를 쓰면 파서가 깨지므로, 라벨 안 큰따옴표는 `&quot;`로 이스케이프할 것.
+- **KaTeX** — `rehype-katex`는 오류 시 throw가 아니라 빨간 `.katex-error` 노드를 렌더하므로 compileMDX를 통과한다. 수식 안 `<`는 `&lt;`가 아니라 **그대로 `<`**(remark-math가 JSX 파싱에서 보호함). 통화 표기 `$50~$200`는 remark-math가 수식으로 오인하므로 `$`를 `\$`로 이스케이프(`\$50~\$200`).
+- **내부 링크** — 끊긴 `/docs/…` 링크는 빌드/컴파일에서 안 잡히고 런타임 404가 된다.
 
 ## 주요 의존성
 
