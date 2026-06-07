@@ -1,0 +1,221 @@
+---
+title: "페이지네이션: 맨 위부터 세기 (LIMIT/OFFSET의 함정)"
+subtitle: "OFFSET 10000은 만 줄을 읽고 전부 버린다 — 무한스크롤이 뒤로 갈수록 느려지는 이유"
+description: "LIMIT/OFFSET 페이지네이션이 뒤 페이지로 갈수록 느려지고(O(n)) 데이터 변경 시 누락·중복이 생기는 원리를 다룬다. 인덱스를 타는 키셋(seek) 페이지네이션과 무한스크롤 설계. SQL 안티패턴 시리즈 4편."
+order: 4
+tags: ["sql", "pagination", "keyset", "infinite-scroll", "database"]
+---
+
+## 이게 뭔데
+
+페이지네이션이라고 하면 거의 반사적으로 떠오르는 그 한 줄이 있다.
+
+```sql
+SELECT * FROM posts
+ORDER BY created_at DESC
+LIMIT 20 OFFSET 980;
+```
+
+`LIMIT n OFFSET m`. "한 페이지에 20개씩 보여주고, 49페이지면 980개 건너뛰고 그다음 20개." 너무 자연스러워서 의심할 여지가 없다. 무한스크롤이든, 게시판 페이지 번호든, "더 보기" 버튼이든, 다들 이렇게 시작한다.
+
+근데 여기 함정이 하나 숨어 있다. **OFFSET m은 m개를 공짜로 점프하는 게 아니다.** DB는 건너뛸 m개의 행을 일단 **다 읽고 나서, 그걸 전부 버린다.** 그리고 그다음 n개만 우리한테 준다.
+
+비유를 하나 들자. 책의 1000페이지를 펴고 싶다고 치자. 정상적인 책은 옆면에 색인이 있어서 손가락으로 슥 넘기면 1000페이지가 바로 나온다. 근데 OFFSET 방식은 이렇게 한다. **1페이지부터 999페이지까지 한 장 한 장 손으로 넘기면서 "이거 아니야, 이것도 아니야"를 999번 한 다음**, 1000페이지에 도착해서야 비로소 읽기 시작한다. 우리가 원하는 건 1000페이지 한 장뿐인데, 그 한 장을 위해 999장을 헛넘긴 거다.
+
+OFFSET이 클수록 이 헛넘김이 늘어난다. 그래서 무한스크롤이 **뒤로 갈수록 느려진다.** 데이터가 늘어서가 아니라, 우리가 매번 맨 위부터 세고 있어서다.
+
+<Callout type="warning" title="한 줄 요약">
+OFFSET m은 m개 행을 스캔한 뒤 전부 버린다. 페이지가 깊어질수록 버리는 양이 늘어 느려지고(O(n)), 그사이 데이터가 바뀌면 경계가 흔들려 누락·중복까지 난다.
+</Callout>
+
+## 시나리오: 이런 적 있을 거임
+
+피드 무한스크롤을 만든다. 5분 만에 끝난다.
+
+```sql
+-- page는 0부터, 한 페이지 20개
+SELECT id, title, created_at
+FROM posts
+ORDER BY created_at DESC
+LIMIT 20 OFFSET :page * 20;
+```
+
+1페이지 잘 뜬다. 스크롤 내리면 2페이지도 잘 붙는다. 로컬 데이터 30건. 화면 멀쩡하고, 코드 깔끔하고, PR에 "깔끔하네요 👍"가 달린다. 여기까지는 아무 문제 없다.
+
+운영에 나간다. 데이터 50만 건. 1~5페이지는 여전히 멀쩡하다. 그런데 누가 작정하고 스크롤을 내려서 100페이지까지 가면 `OFFSET 2000`, 200페이지면 `OFFSET 4000`이 된다. **뒤로 갈수록 응답이 눈에 띄게 느려진다.** OFFSET이 앞의 4000줄을 읽고 다 버린 뒤에야 다음 20줄을 내주니까. 사용자 입장에선 "스크롤 내릴수록 로딩이 길어지는" 이상한 피드다.
+
+여기서 끝이 아니다. 더 미묘하고 더 짜증나는 버그가 따라온다. **정합성 문제.**
+
+1페이지를 보고 있는 동안 누가 새 글을 3개 올린다. 그 3개는 `created_at`이 최신이라 맨 앞에 끼어든다. 이제 모든 글이 뒤로 3칸씩 밀린다. 사용자가 2페이지로 넘기면? 방금 1페이지 맨 아래에서 봤던 글 3개가 밀려 내려와서 2페이지 맨 위에 **다시 나타난다(중복).** 반대로 글이 삭제되면 앞으로 당겨지면서 한 번도 안 보이고 **건너뛴다(누락).** 사용자는 "스크롤하다 보면 같은 글이 또 나오는데요?" 하고 버그 리포트를 올린다.
+
+느려지고 중복까지 나는 진짜 원인은 데이터가 아니다. 처음에 우리가 무심코 고른 그 방식이다.
+
+- **"페이지네이션? LIMIT OFFSET이 표준이지."** — 가장 먼저 배운 방식이라 의심 자체를 안 한다. 다른 방법이 있다는 생각을 안 해봤다.
+- **"느린 건 인덱스 더 걸면 되겠지."** — `created_at`에 인덱스를 더 박으면 빨라질 거라 믿는다. 근데 OFFSET은 인덱스를 타도 "앞쪽 m개를 읽고 버리는" 구조 자체가 안 바뀐다. 인덱스로 못 고치는 문제다.
+- **"중복? 사용자가 빨리 스크롤해서 그런 거겠지."** — 정합성 문제를 운이나 타이밍 탓으로 치부한다. 사실은 페이지 경계를 "위치(몇 번째)"로 잡아서 생기는 구조적 문제다.
+
+이 셋 중 하나라도 마음에 있었다면, 당신의 무한스크롤에도 이미 같은 씨앗이 심겨 있을 가능성이 높다.
+
+## 무슨 일이 벌어지나 (비용)
+
+OFFSET 방식이 정확히 어디서 비용을 무는지 세 갈래로 뜯어보자.
+
+**1. 뒤 페이지일수록 느려지는 O(n) 스캔.** 핵심은 이거다. `OFFSET m`은 **m개의 행을 실제로 읽고 나서 버린다.** 1페이지(`OFFSET 0`)는 0개를 버리니 빠르다. 1000페이지(`OFFSET 20000`)는 2만 개를 읽고 버린 다음에야 20개를 준다. 즉 페이지가 깊어질수록 비용이 **선형으로(O(n))** 늘어난다. 첫 페이지와 깊은 페이지의 응답 시간이 수십, 수백 배 차이 나는 게 정상이다. EXPLAIN을 떠보면 인덱스를 타고 있어도 `rows`에 버려질 행까지 다 잡혀 있는 걸 볼 수 있다.
+
+**2. 데이터가 변하면 경계가 흔들린다 (누락·중복).** OFFSET 페이지네이션은 "전체 결과의 980번째부터"라는 식으로 **위치(순번)** 로 경계를 잡는다. 그런데 순번은 데이터가 추가/삭제되면 통째로 밀린다. 페이지 사이에 글 하나가 추가되면 모든 순번이 +1 밀려서 경계에 걸친 행이 두 페이지에 걸쳐 보이거나(중복), 삭제되면 -1 당겨져서 빠진다(누락). 정렬 기준이 최신순일수록, 데이터가 자주 바뀌는 피드일수록 이 문제가 심하게 드러난다.
+
+**3. `COUNT(*)`가 부하를 두 배로.** "전체 1,234,567건 중 49페이지" 같은 UI를 그리려면 전체 개수를 알아야 하고, 그러면 매번 `SELECT COUNT(*) FROM posts WHERE ...`를 같이 날리게 된다. WHERE 조건이 인덱스를 못 타면 이게 사실상 풀스캔이라, 목록 쿼리와 별개로 무거운 쿼리가 한 번 더 도는 셈이다. 결국 한 페이지를 그리는 데 "느린 목록 쿼리 + 무거운 COUNT 쿼리"가 한 세트로 나간다.
+
+<Callout type="error" title="뭐가 문제냐면">
+- **뒤로 갈수록 느려진다**: OFFSET이 클수록 읽고 버리는 행이 많아진다. 인덱스를 더 걸어도 이 구조는 안 바뀐다. 첫 페이지만 보고 "빠르네" 하면 함정에 빠진다.
+- **누락·중복이 난다**: 경계를 "위치"로 잡으니 데이터가 변하면 경계가 흔들린다. 자주 갱신되는 피드에서 특히 잘 터진다.
+- **재현이 안 된다**: 로컬 데이터 30건에선 OFFSET이 작아서 0.01초에 끝난다. 운영의 깊은 페이지에서만 느려지고, 동시에 글이 올라올 때만 중복이 난다.
+</Callout>
+
+## 정석: 키셋(seek) 페이지네이션
+
+발상을 한 칸만 틀면 다 풀린다. **"몇 개를 건너뛸까(OFFSET)"가 아니라 "어디서부터 이어서 읽을까"로 생각하는 것.** 이게 키셋 페이지네이션, 다른 이름으로 seek 방식이다.
+
+OFFSET처럼 "처음부터 980개 세고 그다음"이 아니라, **마지막으로 본 행의 키를 기억했다가 그 지점부터 바로 이어서** 읽는다. 책에 비유하면 999장을 헛넘기는 대신, "지난번에 1000페이지에 책갈피를 꽂아뒀으니 거기를 바로 편다"는 식이다.
+
+```sql
+-- 첫 페이지: 그냥 최신 20개
+SELECT id, title, created_at
+FROM posts
+ORDER BY id DESC
+LIMIT 20;
+
+-- 다음 페이지: 마지막으로 본 id(:last_seen_id)부터 이어서
+SELECT id, title, created_at
+FROM posts
+WHERE id < :last_seen_id   -- 여기가 핵심: 위치가 아니라 "값"으로 경계를 잡음
+ORDER BY id DESC
+LIMIT 20;
+```
+
+이게 왜 빠른가. `id`에 인덱스(보통 PK라 이미 있다)가 있으면, DB는 인덱스에서 `:last_seen_id` 지점으로 **바로 점프**해서 거기서부터 20개만 읽는다. 앞쪽 행을 읽고 버리는 과정이 아예 없다. 그래서 1페이지든 1000페이지든 **읽는 양이 항상 20개로 일정**하다. 페이지 깊이와 무관하게 일정한 속도. O(n)이 O(1)에 가깝게 바뀐다.
+
+정합성 문제도 같이 사라진다. 경계가 "980번째 위치"가 아니라 "id가 이 값보다 작은 것"이라는 **고정된 값**이라서, 그사이에 글이 추가되든 삭제되든 이미 본 경계는 흔들리지 않는다. 새 글은 맨 앞(첫 페이지 쪽)에 쌓일 뿐, 내가 이어 읽는 지점은 그대로다.
+
+<Callout type="info" title="정렬 키가 유일하지 않을 때 (tie-break)">
+방금 예시는 `id`로 정렬해서 깔끔했다. 근데 보통은 `created_at DESC`로 정렬하고 싶은데, `created_at`은 **유일하지 않다.** 같은 밀리초에 글 두 개가 생기면 값이 같아진다. `WHERE created_at < :last_seen`로만 경계를 잡으면, 같은 시각의 행들이 페이지 경계에 걸려서 누락되거나 중복된다.
+
+해법은 **유일한 키를 tie-break로 덧붙이는 것.** `created_at`이 같으면 `id`로 순서를 확정한다.
+
+```sql
+SELECT id, title, created_at
+FROM posts
+WHERE (created_at, id) < (:last_created_at, :last_id)  -- 튜플 비교
+ORDER BY created_at DESC, id DESC
+LIMIT 20;
+```
+
+`(created_at, id)` 튜플 비교는 "created_at이 더 작거나, 같으면 id가 더 작은" 행을 한 번에 표현한다. 정렬 키 마지막에 항상 유일한 컬럼(보통 PK)을 끼워 넣는 게 키셋의 정석이다. 인덱스도 `(created_at, id)` 복합으로 만들어두면 이 비교를 그대로 인덱스로 탄다.
+</Callout>
+
+이렇게 "마지막으로 본 위치"를 클라이언트에 넘겨줄 때, 정렬 키 여러 개를 그대로 노출하면 지저분하고 깨지기 쉽다. 그래서 보통 **커서(cursor)** 라는 하나의 불투명한 문자열로 인코딩한다. `{ created_at, id }`를 JSON으로 묶어 Base64로 감싸면, 클라이언트는 그게 뭔지 몰라도 되고 그냥 "다음 요청에 이 커서 그대로 넘겨주세요"만 하면 된다. 내부 정렬 키가 바뀌어도 API 모양은 안 변한다.
+
+키셋에도 트레이드오프는 있다. **임의 페이지로 점프할 수 없다.** "47페이지로 바로 가기"가 안 된다. 키셋은 본질적으로 "이전 페이지의 끝"을 알아야 다음을 읽기 때문이다. 하지만 잘 생각해보면, **무한스크롤이나 "더 보기" 버튼은 애초에 "다음, 다음, 다음"만 필요하지 47페이지 점프가 필요 없다.** 오히려 키셋이 이런 UI에 딱 맞는다. 페이지 번호를 꼭 찍어야 하는 관리자 테이블 같은 곳은 OFFSET을 써도 되지만, 피드라면 키셋이 정답이다.
+
+## 이렇게 하면 됨
+
+무한스크롤 피드 API를 키셋으로 바꿔보자. Before/After를 나란히 본다.
+
+```sql
+-- Before: OFFSET 방식. 깊은 페이지일수록 느리고, 중복/누락 위험
+SELECT id, title, created_at
+FROM posts
+ORDER BY created_at DESC, id DESC
+LIMIT 20 OFFSET :offset;   -- offset이 커질수록 앞쪽을 읽고 버림
+
+-- After: 키셋 방식. 깊이와 무관하게 일정, 경계가 값으로 고정됨
+SELECT id, title, created_at
+FROM posts
+WHERE (created_at, id) < (:last_created_at, :last_id)
+ORDER BY created_at DESC, id DESC
+LIMIT 21;   -- 21개를 청해서 "다음 페이지 있는지"까지 한 번에 판단 (아래 설명)
+```
+
+`LIMIT 20`이 아니라 `LIMIT 21`로 하나 더 받는 게 작은 트릭이다. 21개가 오면 "다음 페이지가 있다"는 뜻이고, 20개 이하면 "여기가 끝"이다. 그러면 별도의 `COUNT(*)` 없이도 `hasNext`를 알 수 있다. (전체 개수를 굳이 안 세도 무한스크롤은 멀쩡히 동작한다.)
+
+이제 이걸 커서 기반 API로 감싼다. 응답에 `nextCursor`를 같이 내려서, 클라이언트가 다음 요청에 그대로 되돌려주게 한다.
+
+```typescript
+// 커서 = { createdAt, id }를 Base64로 인코딩한 불투명 문자열
+function encodeCursor(post: { createdAt: string; id: number }): string {
+  return Buffer.from(JSON.stringify(post)).toString("base64url");
+}
+
+function decodeCursor(cursor: string): { createdAt: string; id: number } {
+  return JSON.parse(Buffer.from(cursor, "base64url").toString());
+}
+
+async function getFeed(cursor?: string, limit = 20) {
+  const after = cursor ? decodeCursor(cursor) : null;
+
+  // 다음 페이지 유무 판단용으로 limit + 1개를 요청
+  const rows = await db.query(
+    `SELECT id, title, created_at
+       FROM posts
+      WHERE (:hasCursor IS FALSE
+             OR (created_at, id) < (:lastCreatedAt, :lastId))
+      ORDER BY created_at DESC, id DESC
+      LIMIT :take`,
+    {
+      hasCursor: after !== null,
+      lastCreatedAt: after?.createdAt ?? null,
+      lastId: after?.id ?? null,
+      take: limit + 1,
+    },
+  );
+
+  const hasNext = rows.length > limit;
+  const items = hasNext ? rows.slice(0, limit) : rows;
+  const last = items.at(-1);
+
+  return {
+    items,
+    nextCursor: hasNext && last
+      ? encodeCursor({ createdAt: last.created_at, id: last.id })
+      : null, // null이면 더 없음 = 무한스크롤 종료
+  };
+}
+```
+
+응답은 이런 모양이 된다.
+
+```text
+GET /api/feed
+{
+  "items": [ ...20개... ],
+  "nextCursor": "eyJjcmVhdGVkQXQiOiIyMDI2LTA2LTA3VDEyOjAwOjAwWiIsImlkIjoxNDIwfQ"
+}
+
+GET /api/feed?cursor=eyJjcmVhdGVkQXQiOi...
+{
+  "items": [ ...다음 20개... ],
+  "nextCursor": "...또는 null이면 끝"
+}
+```
+
+클라이언트는 커서 안에 뭐가 들었는지 알 필요가 없다. 스크롤이 바닥에 닿으면 `nextCursor`를 그대로 다음 요청에 실어 보내고, `nextCursor`가 `null`이면 멈춘다. 이 모양은 그대로 **REST 커서 페이지네이션**이고, GraphQL의 **Relay Connection 스펙**(`edges`, `pageInfo.endCursor`, `hasNextPage`)도 정확히 같은 발상이다. 이름만 다르지 다 키셋이다.
+
+<Callout type="note" title="OFFSET을 영영 버리란 건 아님">
+키셋이 만능은 아니다. **페이지 번호를 꼭 찍어야 하거나("3 / 4 / 5 ... 47"), 임의 페이지 점프가 핵심 UX인 화면**(관리자 데이터 테이블, 검색 결과 페이지 번호 등)은 OFFSET이 더 자연스럽다. 데이터가 수만 건을 안 넘고 깊은 페이지로 잘 안 가면 OFFSET의 단점이 거의 안 드러나기도 한다.
+
+기준은 단순하다. **"다음, 다음, 다음"만 필요한 흐름(피드·무한스크롤·더 보기)이면 키셋, "47페이지로 점프"가 필요하면 OFFSET.** 안티패턴은 "OFFSET을 쓰는 것" 자체가 아니라, **깊은 페이지로 마구 들어가는 무한스크롤에 OFFSET을 쓰는 것**이다.
+</Callout>
+
+## 정리
+
+OFFSET 페이지네이션은 죄가 없어 보인다. 가장 먼저 배웠고, 5분이면 만들고, 로컬에선 멀쩡하다. 누구도 악의로 느린 피드를 만들지 않는다. 그냥 "페이지네이션은 LIMIT OFFSET"이라고 의심 없이 받아들였을 뿐이다. 하지만 원리는 단순하다.
+
+> **"몇 개를 건너뛰지" 말고 "어디서부터 이어서"로 생각한다.**
+
+OFFSET은 매번 맨 위부터 세느라 뒤로 갈수록 느려지고, 경계를 위치로 잡느라 데이터가 바뀌면 흔들린다. 키셋은 마지막으로 본 키부터 인덱스로 바로 점프하니 깊이와 무관하게 일정하고, 경계가 값으로 고정돼 중복·누락도 없다. 무한스크롤을 만들고 있고 "왜 뒤로 갈수록 느리지", "왜 같은 글이 또 보이지" 싶다면, 그건 거의 항상 "건너뛰기"를 "이어 읽기"로 바꾸라는 신호다.
+
+여기까지가 시리즈 Part I — "관계와 집합을 다루는 법"이었다. 다음 편부터는 Part II, **쿼리 자체가 인덱스를 못 타게 만드는 패턴들**을 본다. 첫 타자는 멀쩡한 인덱스를 걸어놓고도 무용지물로 만드는, 인덱스를 못 타는(non-sargable) 쿼리 얘기다.
+
+---
+
+_← [이전 글: 동적 피벗](/docs/dev/database/anti-patterns/3.dynamic-pivot) | [다음 글: 인덱스를 못 타는 쿼리](/docs/dev/database/anti-patterns/5.non-sargable-queries) →_

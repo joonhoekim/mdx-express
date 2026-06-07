@@ -1,0 +1,272 @@
+---
+title: "관계형 나눗셈: \"이 조건들을 전부 만족하는 행\" 찾기"
+subtitle: "태그 세 개를 다 가진 사람을 찾으랬더니, WHERE에 AND를 줄줄이 박는 사람들"
+description: "지정한 값들을 모두 만족하는 행을 찾는 관계형 나눗셈 문제를, OR·반복 서브쿼리로 어설프게 풀다 꼬이는 과정과 함께 정리한다. GROUP BY ... HAVING COUNT와 이중 NOT EXISTS 정석 패턴. SQL 안티패턴 시리즈 2편."
+order: 2
+tags: ["sql", "relational-division", "group-by", "anti-pattern", "database"]
+---
+
+## 이게 뭔데
+
+관계형 나눗셈. 이름은 또 거창한데, 문제 자체는 너무 흔하다. **"지정한 값들을 전부 만족하는 행"을 찾는 일**이다. 일부가 아니라 전부. 하나라도 빠지면 탈락.
+
+- React **그리고** TypeScript **그리고** Remote 태그를 **모두** 단 채용공고만.
+- `read`, `write`, `delete` 권한을 **모두** 가진 사용자만.
+- 우유, 계란, 빵을 **전부** 담은 장바구니만.
+
+말로 하면 쉽다. "이거랑 이거랑 이거 다 있는 거 찾아줘." 근데 이게 SQL로 넘어오면 사람을 잡는다. 왜냐면 우리 머릿속의 "그리고(AND)"랑, SQL의 `WHERE ... AND ...`가 **완전히 다른 물건**이기 때문이다.
+
+비유를 하나 들어보자. 동아리 가입 조건이 "운전면허 있고, 토익 800 넘고, 자격증 있는 사람"이라고 치자. 이건 **사람 한 명**을 놓고 "너 이 세 개 다 있어?" 물어보는 거다. 그래서 우리는 자연스럽게 한 명을 콕 집어서 조건 세 개를 AND로 검사한다고 생각한다.
+
+근데 DB에서 태그·권한·상품 같은 건 보통 **한 행에 하나씩** 들어 있다. 사용자 한 명의 권한이 3개면 행이 3줄이다. 그러니까 "이 세 개 다 있어?"는 한 행을 보는 게 아니라 **여러 행을 묶어서** 판단해야 하는 문제다. 한 행짜리 질문이 아니라 한 무리(그룹)짜리 질문. 여기서 어긋나기 시작한다.
+
+수학에서 나눗셈이 "이 묶음에 저 묶음이 몇 번 들어가나"인 것처럼, 관계형 나눗셈은 **"이 행 집합이 요구하는 값 집합을 통째로 포함하나"**를 묻는다. 그래서 이름이 나눗셈이다.
+
+<Callout type="warning" title="한 줄 요약">
+"전부 만족"은 한 행을 보는 조건(`WHERE`)이 아니라 여러 행을 묶어 보는 집합 조건이다. 그래서 `AND`로는 안 되고, `GROUP BY ... HAVING` 또는 `NOT EXISTS`로 풀어야 한다.
+</Callout>
+
+## 시나리오: 이런 적 있을 거임
+
+채용 검색에 태그 필터를 단다. 화면 요구사항은 명확하다. "React **그리고** TypeScript **그리고** Remote 태그를 다 가진 공고만 보여줘." 테이블 구조는 이렇게 평범하다.
+
+```sql
+-- 공고 하나가 태그를 여러 개 가짐 (1:N)
+CREATE TABLE job_tags (
+  job_id INT,
+  tag    VARCHAR(30)
+);
+
+-- 예시 데이터
+-- job_id | tag
+--    101 | react
+--    101 | typescript
+--    101 | remote      <- 이 공고가 정답
+--    102 | react
+--    102 | vue
+--    103 | react
+--    103 | typescript   <- remote 없음. 탈락
+```
+
+요구사항이 "React **AND** TypeScript **AND** Remote"니까, 너무 자연스럽게 손이 이렇게 나간다.
+
+```sql
+SELECT job_id FROM job_tags
+WHERE tag = 'react' AND tag = 'typescript' AND tag = 'remote';
+```
+
+결과는 **0건**이다. 당연하다. `tag`는 한 행에 딱 하나뿐인 칸인데, 그 한 칸이 동시에 `'react'`이면서 `'typescript'`이면서 `'remote'`일 수는 없으니까. `tag = 'react' AND tag = 'typescript'`는 영원히 거짓인, 사실상 `WHERE 1=0`이다. 근데 처음엔 이걸 눈치 못 챈다. "어? 분명 데이터 있는데 왜 0건이지?" 하고 한참 쳐다본다.
+
+그러다 깨닫는다. "아 AND가 아니라 OR인가?" 그래서 바꾼다.
+
+```sql
+SELECT DISTINCT job_id FROM job_tags
+WHERE tag = 'react' OR tag = 'typescript' OR tag = 'remote';
+```
+
+이번엔 결과가 **너무 많이** 나온다. React만 단 102번, Remote 없는 103번까지 다 딸려 나온다. "셋 중 하나라도 걸린" 공고가 전부 나오니까. 요구는 "전부 만족"인데 "하나라도 만족"이 나온 거다. 방향이 반대다.
+
+여기서 많은 사람이 SQL을 포기한다. 그리고 익숙한 안전지대인 애플리케이션 코드로 도망친다.
+
+```typescript
+// 태그별로 따로 긁어서, 코드에서 교집합
+const required = ['react', 'typescript', 'remote'];
+
+const sets = await Promise.all(
+  required.map((t) =>
+    db.query(`SELECT job_id FROM job_tags WHERE tag = ?`, [t])
+      .then((rows) => new Set(rows.map((r) => r.job_id)))
+  )
+);
+
+// 첫 집합으로 시작해서 나머지를 차례로 교집합
+const result = sets.reduce((acc, s) =>
+  new Set([...acc].filter((id) => s.has(id)))
+);
+```
+
+돌아간다. 결과도 맞다. 근데 태그가 3개면 쿼리 3방, 5개면 5방이다. 그리고 교집합을 앱 메모리에서 손으로 비빈다. 어디서 본 그림 아닌가? 맞다. **1편의 JOIN 공포증과 정확히 같은 뿌리**다. DB가 한 방에 할 일을, 쿼리 N번으로 쪼개서 코드에서 합치고 있다.
+
+이 안티패턴을 부른 건 요구사항이 아니라, 그 순간 우리가 자연스럽게 택한 **행동 패턴**이다.
+
+- "AND니까 WHERE에 AND 붙이면 되겠지" — 한 행을 보는 조건과 여러 행을 묶어 보는 조건을 헷갈림. 가장 흔한 **착각**.
+- "SQL로 안 되네... 정 안 되면 코드에서 교집합 내지 뭐" — 익숙한 앱 코드로 도망침. **도피**.
+- "관계형 나눗셈? 그런 게 있어?" — 이 문제에 이름과 정석 패턴이 있다는 걸 모름. 그래서 매번 처음부터 삽질.
+
+이건 신입만의 실수가 아니다. 권한 체크("이 역할들을 전부 가진 유저만 통과"), 장바구니("이 상품들을 전부 담은 주문 찾기"), 스킬 매칭("요구 스킬을 다 갖춘 지원자") 같은 형태로 **시니어 코드에도 OR-반복-교집합이 조용히 박혀 있다.** 모양만 다를 뿐 다 같은 문제다.
+
+## 무슨 일이 벌어지나 (비용)
+
+이 안티패턴의 비용은 두 종류다. 하나는 성능, 하나는 더 무서운 정확성이다.
+
+**1. 라운드트립과 메모리 (성능).** 태그 N개면 쿼리 N방이 나간다. 1편에서 본 그 라운드트립 비용이 그대로 붙는다. 거기에 각 태그의 `job_id` 집합을 전부 앱 메모리로 끌어와서 교집합을 돌린다. 인기 태그(`react` 같은) 하나가 공고 수만 건에 붙어 있으면, 그 수만 개 id를 메모리에 올려놓고 필터링하는 셈이다. DB가 인덱스로 0.01초에 할 일을, 앱이 떠안는다.
+
+**2. OR 버전은 그냥 틀림 (정확성).** 이게 진짜 무섭다. AND로 짜서 0건 나오는 건 차라리 낫다. 눈에 보이니까. 근데 "고치다가" OR로 바꿔놓고 결과가 그럴듯하게 잔뜩 나오면, **틀린 줄도 모르고 배포된다.** "전부 만족"을 보여줘야 할 화면에 "하나라도 만족"이 뜨는 거다. 권한 체크에서 이게 터지면? `read` "또는" `write` "또는" `delete` 중 하나만 있어도 통과시키는 인가 버그가 된다. 성능 버그는 느려지는 거지만, 이건 **보안 사고**다.
+
+**3. 동적 조건이면 쿼리 빌더가 누더기가 됨.** 태그가 사용자 입력으로 동적으로 늘었다 줄었다 한다고 치자. AND/OR를 손으로 이어 붙이는 코드를 짜면, 조건 개수마다 분기가 생기고 문자열 결합이 지저분해진다. 0개일 때, 1개일 때 엣지 케이스까지 챙기다 보면 SQL 인젝션 구멍도 슬금슬금 생긴다.
+
+<Callout type="error" title="뭐가 문제냐면">
+- **AND는 0건, OR은 과다** — 직관대로 짜면 둘 다 틀린다. 정답은 "전부 만족"인데 둘 중 어느 쪽도 그걸 표현하지 못한다.
+- **틀린 게 안 보인다** — OR 버전은 결과가 그럴듯하게 나와서 정확성 버그가 조용히 운영에 나간다. 권한 체크면 인가 사고로 직결.
+- **조건이 동적이면 코드가 무너진다** — 태그 개수가 바뀔 때마다 쿼리 빌더에 분기가 늘고, 결국 누더기 + 인젝션 위험.
+</Callout>
+
+## 정석: GROUP BY HAVING / 이중 NOT EXISTS
+
+핵심 발상의 전환은 이거다. **"전부 만족"은 한 행에 묻는 게 아니라, 행들을 그룹으로 묶어서 묻는다.** `job_id`로 묶어놓고, "이 그룹 안에 요구 태그가 다 들어 있나?"를 보면 된다. 정석은 두 갈래다.
+
+### 방법 A — GROUP BY ... HAVING COUNT
+
+가장 직관적이고, 90%의 경우 이거면 끝난다. 발상은 단순하다. **공고별로 묶어서, 요구 태그 중 몇 개를 가졌는지 세고, 그 개수가 요구 개수랑 같으면 정답.**
+
+```sql
+SELECT job_id
+FROM job_tags
+WHERE tag IN ('react', 'typescript', 'remote')   -- 요구 태그만 본다
+GROUP BY job_id
+HAVING COUNT(DISTINCT tag) = 3;                   -- 셋 다 가진 공고만
+```
+
+읽는 순서대로 해석하면 이렇다. (1) `WHERE`로 우리가 관심 있는 세 태그 행만 남긴다. (2) `GROUP BY job_id`로 공고별로 묶는다. (3) 각 그룹에서 서로 다른 태그가 몇 개인지 `COUNT(DISTINCT tag)`로 센다. (4) 그게 정확히 3이면, 세 개를 빠짐없이 다 가졌다는 뜻이다.
+
+`DISTINCT`가 중요하다. 만약 한 공고에 `react` 태그가 실수로 두 번 들어가 있으면, `DISTINCT` 없이는 `react`만 2개여도 `COUNT = 2`가 돼서 오판할 수 있다. `DISTINCT`를 붙이면 "서로 다른 태그가 몇 종류냐"를 세므로 안전하다. (`job_tags(job_id, tag)`에 UNIQUE 제약이 걸려 있으면 중복이 원천 차단되니 `DISTINCT`를 생략해도 되지만, 습관적으로 붙여두는 게 안전하다.)
+
+그리고 이 방식의 진짜 매력은 **요구 개수가 동적이어도 코드가 안 변한다**는 점이다. 태그 목록과 그 개수만 바인딩으로 넘기면 끝이다.
+
+```typescript
+const required = ['react', 'typescript', 'remote']; // 사용자가 5개 골라도 OK
+const placeholders = required.map(() => '?').join(', ');
+
+const rows = await db.query(
+  `SELECT job_id
+   FROM job_tags
+   WHERE tag IN (${placeholders})
+   GROUP BY job_id
+   HAVING COUNT(DISTINCT tag) = ?`,
+  [...required, required.length]   // 값들 + 개수
+);
+```
+
+조건이 3개든 10개든 SQL 구조는 그대로다. `IN` 목록과 마지막 개수만 바뀐다. AND/OR를 손으로 이어 붙이던 누더기가 사라진다.
+
+### 방법 B — 이중 NOT EXISTS
+
+이게 교과서에서 "진짜 관계형 나눗셈"이라고 부르는 패턴이다. 발상이 한 번 꼬여 있어서 처음 보면 어지러운데, 익숙해지면 강력하다. 논리는 이렇다.
+
+> **"요구 태그 중에, 이 공고가 안 가진 게 하나도 없는 공고"를 찾는다.**
+
+이중 부정이다. "안 가진 게 없다" = "다 가졌다". `NOT EXISTS` 두 개가 그래서 나온다.
+
+```sql
+-- 요구 태그 목록을 임시 집합으로 둔다고 치자
+SELECT j.job_id
+FROM jobs j
+WHERE NOT EXISTS (
+  -- 요구 태그들 중에서
+  SELECT 1
+  FROM (VALUES ('react'), ('typescript'), ('remote')) AS req(tag)
+  WHERE NOT EXISTS (
+    -- 이 공고가 그 태그를 안 가진 경우
+    SELECT 1
+    FROM job_tags jt
+    WHERE jt.job_id = j.job_id
+      AND jt.tag = req.tag
+  )
+);
+```
+
+안쪽부터 읽으면 풀린다. 가장 안쪽 `NOT EXISTS`는 "이 공고(`j`)가 이 요구 태그(`req.tag`)를 **안** 가졌다"를 뜻한다. 그걸 바깥 `NOT EXISTS`가 다시 감싸서 "그런(안 가진) 요구 태그가 **하나도 없다**"가 된다. 즉 모든 요구 태그를 다 가진 공고만 남는다.
+
+문법은 DB마다 조금씩 다르다. PostgreSQL은 위처럼 `VALUES`를 쓰면 되고, 요구 태그를 별도 테이블이나 CTE에 넣어 두는 형태가 더 흔하다.
+
+### 둘 중 뭘 쓰나
+
+| | GROUP BY ... HAVING | 이중 NOT EXISTS |
+|---|---|---|
+| 직관성 | 높음. 세서 비교하면 끝 | 낮음. 이중 부정이 헷갈림 |
+| 의미 | "요구 개수만큼 정확히 가졌나" (개수 기반) | "안 가진 게 없나" (포함 관계 기반) |
+| 정확 일치 vs 포함 | `= N`이면 포함, `HAVING ...` 조합으로 정확 일치도 가능 | 기본은 "포함"(전부 가지면 OK, 더 가져도 OK) |
+| NULL | `COUNT`는 NULL을 안 셈 — 비교적 안전 | 서브쿼리 비교에서 NULL이 끼면 의도와 다르게 셀 수 있어 주의 |
+| 인덱스 | `(tag, job_id)` 인덱스가 효자 | `(job_id, tag)` 인덱스로 안쪽 탐색 가속 |
+
+<Callout type="info" title="정확 일치가 필요할 때">
+`HAVING COUNT = 3`은 "이 셋을 포함"을 뜻한다. React·TS·Remote에 더해 다른 태그까지 잔뜩 단 공고도 통과한다(요구 세 개를 다 가졌으니까). 만약 "딱 이 셋만, 그 외엔 없는" 공고를 원한다면 조건을 하나 더 얹어야 한다. 가령 공고의 전체 태그 수까지 함께 봐서 `HAVING COUNT(DISTINCT tag) = 3 AND (SELECT COUNT(*) FROM job_tags x WHERE x.job_id = job_tags.job_id) = 3` 식으로. **"포함"이냐 "정확 일치"냐를 먼저 정하고 시작하자.** 대부분의 검색 필터는 "포함"이 맞다.
+</Callout>
+
+## 이렇게 하면 됨
+
+같은 요구("React·TypeScript·Remote 다 가진 공고")를 Before/After로 나란히 놓아 보자.
+
+```typescript
+// =============================================================
+// Before: 태그별 N방 쿼리 + 앱 메모리 교집합 (성능 + 정확성 위험)
+// =============================================================
+const required = ['react', 'typescript', 'remote'];
+
+const sets = await Promise.all(
+  required.map((t) =>
+    db.query(`SELECT job_id FROM job_tags WHERE tag = ?`, [t])
+      .then((rows) => new Set(rows.map((r) => r.job_id)))
+  )
+);
+const jobIds = [...sets.reduce((acc, s) =>
+  new Set([...acc].filter((id) => s.has(id)))
+)];
+// 쿼리 3방 + 인기 태그 수만 건을 메모리로 끌어와 교집합
+```
+
+```typescript
+// =============================================================
+// After: 쿼리 한 방. 조건 개수가 늘어도 구조 그대로
+// =============================================================
+const required = ['react', 'typescript', 'remote'];
+const placeholders = required.map(() => '?').join(', ');
+
+const rows = await db.query(
+  `SELECT job_id
+   FROM job_tags
+   WHERE tag IN (${placeholders})
+   GROUP BY job_id
+   HAVING COUNT(DISTINCT tag) = ?`,
+  [...required, required.length]
+);
+// 쿼리 1방. DB가 인덱스로 묶고 세서 정답만 돌려줌
+```
+
+차이가 분명하다. Before는 쿼리 3방 + 메모리 교집합 + (실수로 OR 버전이었다면) 정확성 버그. After는 쿼리 한 방, 교집합은 DB가 인덱스로 처리, 조건 개수가 동적이어도 SQL 골격이 그대로다.
+
+조인이 끼는 실전 버전도 같은 모양이다. 공고 제목까지 같이 뽑고 싶으면, 위 쿼리를 서브쿼리나 CTE로 두고 `jobs`에 조인하면 된다.
+
+```sql
+WITH matched AS (
+  SELECT job_id
+  FROM job_tags
+  WHERE tag IN ('react', 'typescript', 'remote')
+  GROUP BY job_id
+  HAVING COUNT(DISTINCT tag) = 3
+)
+SELECT j.job_id, j.title, j.company
+FROM jobs j
+JOIN matched m ON m.job_id = j.job_id
+ORDER BY j.created_at DESC;
+```
+
+권한 체크도 똑같다. "이 역할들을 전부 가진 유저"는 `user_roles` 테이블에 `GROUP BY user_id HAVING COUNT(DISTINCT role) = N`이다. 인가 로직을 앱 메모리 교집합이 아니라 DB 한 방으로 내리면, 성능도 정확성도 같이 잡힌다.
+
+<Callout type="note" title="그럼 IN으로 OR 짜는 건 항상 나쁜가?">
+아니다. `WHERE tag IN ('react', 'typescript', 'remote')`는 그 자체로는 멀쩡한 OR다. "셋 중 하나라도 가진 공고"가 진짜 요구라면 그게 정답이다. 안티패턴은 "OR을 쓴 것"이 아니라, **"전부 만족"이 요구인데 OR(하나라도)로 풀거나 앱 교집합으로 도망친 것**이다. 요구가 "하나라도"인지 "전부"인지부터 분명히 하자. 그게 이 글의 핵심이다.
+</Callout>
+
+## 정리
+
+관계형 나눗셈은 이름만 무섭지, 원인은 단순한 착각이다. 우리 머릿속의 "그리고"는 한 사람을 보는 조건인데, DB의 태그·권한은 여러 행에 흩어져 있어서 같은 "그리고"가 집합 조건이 돼버린다. 그 간극을 모르면 AND로 0건, OR로 과다, 그러다 앱 교집합으로 도망친다.
+
+> **"전부 만족"은 행 조건이 아니라 집합 조건이다 — `GROUP BY ... HAVING COUNT`로 표현한다.**
+
+세서 비교하면 끝이다. 요구 태그만 추려서 공고별로 묶고, 가진 개수가 요구 개수랑 같은지 보면 된다. 조건이 동적으로 늘어도 SQL 골격은 그대로고, 교집합은 DB가 인덱스로 처리한다. 정확 일치가 필요하거나 NULL이 까다로우면 이중 `NOT EXISTS`로 내려가면 된다. "이 값들을 코드에서 교집합 내고 있다"는 생각이 들면, 그건 대개 `HAVING COUNT`로 내려보내라는 신호다.
+
+다음 편에서는 또 다른 결의 문제를 본다. 행으로 쌓인 데이터를 열로 돌려서 보고서처럼 펼치고 싶은데, 컬럼 개수가 데이터에 따라 달라지는 상황 — 동적 피벗 얘기다.
+
+---
+
+_← [이전 글: JOIN 공포증](/docs/dev/database/anti-patterns/1.fear-of-joins) | [다음 글: 동적 피벗](/docs/dev/database/anti-patterns/3.dynamic-pivot) →_

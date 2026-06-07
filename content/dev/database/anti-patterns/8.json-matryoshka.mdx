@@ -1,0 +1,235 @@
+---
+title: "JSON 마트료시카: \"유연성\" 노리고 JSON 컬럼에 다 때려박기"
+subtitle: "마이그레이션이 귀찮아서 JSON에 다 넣으면, 인덱스도 제약도 잃은 잡동사니 보관소가 된다"
+description: "무한한 유연성을 노리고 관계형 테이블에 JSON을 남발하는 패턴을 다룬다. 제약·인덱싱·쿼리 가능성을 잃는 비용, 진짜 가변/희소 데이터에만 절제해 쓰고 안정적 필드는 정식 컬럼으로 모델링하는 원칙. ORM 환경에서 흔한 함정. SQL 안티패턴 시리즈 8편."
+order: 8
+tags: ["sql", "json", "jsonb", "schema", "orm", "database"]
+---
+
+## 이게 뭔데
+
+JSON 마트료시카. 러시아 인형 그거 맞다. 까면 또 인형 나오고, 까면 또 인형 나오는 그거. **"무한한 유연성"을 노리고 관계형 테이블에 JSON 컬럼을 남발하다가, JSON 안에 JSON, 그 안에 또 JSON이 들어차서 결국 아무도 바닥이 뭔지 모르게 되는 습관**이다.
+
+요즘 DB는 다 JSON 타입을 지원한다. PostgreSQL은 `jsonb`, MySQL은 `JSON`. 컬럼 하나 만들고 객체를 통째로 부으면 끝이다. 스키마 안 짜도 되고, 마이그레이션 안 돌려도 되고, 필드 추가도 코드 한 줄이다. 너무 편하다. 그래서 무섭다.
+
+비유를 하나 들어보자. 이사할 때 박스에 라벨 붙이는 사람이 있고, 안 붙이는 사람이 있다. 라벨을 붙이면 "주방-그릇", "옷-겨울옷" 이렇게 나중에 찾기 쉽다. 근데 귀찮다고 그냥 손에 잡히는 대로 박스에 다 쑤셔 넣고 "잡동사니"라고만 적어두면? 당장 이사는 빨리 끝난다. 문제는 두 달 뒤 "겨울 패딩 어딨지" 할 때다. 박스 40개를 다 까봐야 한다. 그게 바로 풀스캔이다.
+
+JSON 컬럼은 라벨 안 붙인 박스다. 처음엔 빠르고 편한데, 나중에 "이 안에 뭐가 들었는지" 알아야 하는 순간 지옥문이 열린다.
+
+<Callout type="warning" title="한 줄 요약">
+JSON은 "스키마를 짜기 싫을 때 쓰는 도피처"가 아니다. JSON에 다 때려박는 순간, 제약(NOT NULL·CHECK·FK)도 인덱스도 쿼리 가능성도 한꺼번에 갖다 버리는 거다.
+</Callout>
+
+## 시나리오: 이런 적 있을 거임
+
+사용자 설정(settings)을 저장해야 한다. 테마, 알림 on/off, 언어, 타임존... 필드가 자꾸 늘 것 같다. 게다가 마이그레이션 돌리기도 귀찮다. 운영 DB에 `ALTER TABLE` 한 번 칠 때마다 가슴이 쫄깃하다. 그래서 이렇게 친다.
+
+```sql
+CREATE TABLE users (
+  id       BIGSERIAL PRIMARY KEY,
+  email    TEXT NOT NULL UNIQUE,
+  settings JSONB NOT NULL DEFAULT '{}'
+);
+```
+
+ORM이면 더 자연스럽다. 한 줄이다.
+
+```typescript
+@Column('jsonb', { default: {} })
+settings: Record<string, any>;
+```
+
+처음엔 진짜 천국이다. 필드 추가? 마이그레이션 0번이다.
+
+```typescript
+user.settings.theme = 'dark';
+user.settings.notifications = { email: true, push: false };
+await userRepo.save(user);
+```
+
+스프린트가 빨라진다. "유연하게 가니까 이렇게 편하구나" 싶다. PR에 "LGTM 👍"이 달린다. 그렇게 6개월이 흐른다. 그리고 어느 날 PM이 묻는다. "다크모드 쓰는 유저 몇 명이에요?" 별거 아닌 질문이다. 쿼리를 짠다.
+
+```sql
+SELECT count(*) FROM users WHERE settings->>'theme' = 'dark';
+```
+
+돌려보니 8초 걸린다. 유저 500만 명, `settings` 안의 `theme`엔 당연히 인덱스가 없으니 **풀스캔**이다. "그럼 인덱스 걸면 되잖아" 싶어서 검색을 시작하는데, 일반 컬럼처럼 `CREATE INDEX ON users(theme)`가 안 된다. JSONB 표현식 인덱스 문법을 따로 찾아야 한다. 여기까진 그래도 양반이다.
+
+진짜 무서운 건 **결과를 믿을 수가 없다는 것**이다. count를 찍었더니 숫자가 묘하게 낮다. 로그를 뒤져보니 데이터가 이 모양이다.
+
+```json
+{ "theme": "dark" }
+{ "theme": "DARK" }
+{ "theme": "Dark" }
+{ "darkMode": true }
+{ "ui": { "theme": "dark" } }
+{ "theme": null }
+```
+
+누구는 `theme: 'dark'`, 누구는 대문자 `'DARK'`, 어떤 옛날 코드는 `darkMode: true`로 넣었고, 어떤 신입은 `ui.theme`로 한 단계 더 중첩시켜 넣었다. **마트료시카가 열린 거다.** 제약(NOT NULL, CHECK, FK)이 하나도 없으니 오타도, 타입 오류도, 구조 불일치도 전부 통과했다. DB는 "이게 더러운 데이터인지" 판단할 근거 자체가 없다. JSON이니까. 뭐가 들어와도 그냥 `jsonb`다.
+
+이제 다크모드 유저를 제대로 세려면 이런 괴물 쿼리를 짜야 한다.
+
+```sql
+SELECT count(*) FROM users
+WHERE lower(settings->>'theme') = 'dark'
+   OR (settings->>'darkMode')::boolean = true
+   OR lower(settings#>>'{ui,theme}') = 'dark';
+```
+
+그리고 이게 전부일 거라는 보장도 없다. 어디 또 다른 코드가 다른 키로 넣었을지 아무도 모른다. 1년 뒤 그 `settings` 컬럼은 **아무도 전체 구조를 모르는 잡동사니 상자**가 된다.
+
+정작 이 사태를 부른 건 "유연성"이라는 목표가 아니다. 그 순간의 행동 패턴이다.
+
+- "유연하게 가자, 일단 다 넣어두면 나중에 편하지" — 스키마라는 **계약을 버린 것**. 스키마는 귀찮은 족쇄가 아니라 "이 데이터는 이런 모양이다"라는 DB와의 약속이다. 그걸 버린 순간 약속을 지킬 강제력도 같이 사라진다.
+- "마이그레이션 귀찮으니까 그냥 JSON에 넣자" — 당장의 귀찮음을 **영구적 부채로 환산**한 것. `ALTER TABLE` 한 번 칠 5분을 아끼려고, 1년 뒤 데이터 정합성 조사 3일을 빚졌다.
+- "어차피 앱 코드가 구조를 알고 있으니 괜찮아" — 그 앱 코드가 1개일 때나 맞는 말이다. 서비스가 커져서 백엔드 2개, 배치 잡 1개, 데이터팀 분석 스크립트, 어드민까지 5곳이 같은 `settings`를 건드리는 순간 **합의는 깨진다.** "구조는 코드가 안다"는 말은 "구조를 강제하는 사람은 아무도 없다"는 말과 같다.
+
+## 무슨 일이 벌어지나 (비용)
+
+JSON에 다 때려박으면 정확히 뭘 잃는지, 비용을 세 갈래로 뜯어보자.
+
+**1. 제약 상실.** 이게 가장 크다. 관계형 DB의 진짜 힘은 데이터를 저장하는 게 아니라 **나쁜 데이터를 거부하는 것**이다. `NOT NULL`은 빈 값을 막고, `CHECK`는 말이 안 되는 값을 막고, `FK`는 존재하지 않는 참조를 막고, `UNIQUE`는 중복을 막는다. JSON 컬럼 안에선 이게 전부 무력화된다. `settings->>'theme'`에 `'dark'`가 오든 `'바나나'`가 오든 `42`가 오든 DB는 다 받는다. 검증을 100% 애플리케이션이 떠안아야 하는데, 그 애플리케이션이 여러 개면 검증 로직도 여러 벌이고, 한 군데서 빠뜨리면 더러운 데이터가 그냥 들어온다. 들어온 더러운 데이터는 영원히 남는다.
+
+**2. 인덱싱·쿼리 난이도.** 일반 컬럼은 `CREATE INDEX ON users(theme)` 한 줄이면 끝이지만, JSON 경로는 표현식 인덱스를 써야 하고 문법도 까다롭다. 그리고 인덱스를 걸었다 해도 **쿼리에서 표현식이 정확히 일치해야** 인덱스를 탄다. `lower(settings->>'theme')`로 인덱스를 만들었으면 쿼리도 `lower(...)`를 써야 한다. 한 글자만 달라도 옵티마이저는 인덱스를 못 쓰고 풀스캔으로 돌아간다. 일반 컬럼이면 옵티마이저가 알아서 통계 보고 잘 타던 걸, JSON에선 매번 손으로 신경 써야 한다.
+
+**3. 구조 불투명.** `\d users`를 쳐도 `settings jsonb`라고만 나온다. 그 안에 어떤 키가 있는지, 각 키가 어떤 타입인지, 필수인지 선택인지 DB는 한 글자도 알려주지 못한다. 스키마가 DB가 아니라 **여기저기 코드에 흩어진다.** 신입이 들어와서 "settings에 뭐가 들어가요?"라고 물으면 답해줄 수 있는 게 git grep밖에 없다. 컬럼이면 한눈에 보일 계약이, JSON에선 고고학 발굴 작업이 된다.
+
+<Callout type="error" title="뭐가 문제냐면">
+- **더러운 데이터가 영원히 남는다**: 제약이 없으니 오타·타입오류·중복이 다 통과한다. 들어온 쓰레기는 안 지워진다.
+- **집계·필터가 느리고 부정확하다**: 풀스캔이거나, 인덱스를 걸어도 표현식이 어긋나면 못 탄다. 키 표기가 제각각이면 count조차 못 믿는다.
+- **아무도 구조를 모른다**: 스키마가 DB에 없고 코드에 흩어져, 시간이 지나면 "이 안에 뭐가 있는지" 답할 사람이 사라진다.
+</Callout>
+
+## 정석: 안정적 필드는 컬럼, 진짜 가변만 JSON
+
+오해하지 말자. JSON 타입 자체는 죄가 없다. 정말 좋은 도구다. 문제는 **"스키마를 안 정하는 자유"로 쓰는 것**이지, JSON을 쓰는 것 자체가 아니다. 판단 기준은 단순하다.
+
+**자주 쿼리하고, 제약이 필요하고, 모든 행에 거의 다 있는 필드 → 정식 컬럼.** `theme`, `language`, `timezone`, `email_notifications` 같은 건 사실 "가변"이 아니다. 명백한 구조가 있고, 자주 필터링하고, 값의 범위도 정해져 있다(테마는 light/dark/system 셋 중 하나). 이런 건 정식 컬럼으로 빼서 `CHECK`도 걸고 인덱스도 걸어야 한다. 이게 안티패턴의 핵심 처방이다. 처음부터 컬럼이었으면 위 시나리오의 모든 비극이 안 일어났다.
+
+**진짜 희소하고, 진짜 가변이고, 미리 알 수 없는 데이터만 → JSON.** 사용자가 임의로 추가하는 메타데이터, 서드파티 웹훅 페이로드 원본 보관, A/B 테스트 플래그 묶음, 플러그인별 설정처럼 **키 자체가 미리 정해지지 않는** 경우. 이런 건 컬럼으로 만들 수가 없다. 키가 무한하거나, 행마다 다르거나, 외부 시스템이 마음대로 바꾸기 때문이다. 여기가 JSON이 빛나는 자리다.
+
+**JSON을 쓰더라도 키 스키마는 코드/검증으로 강제하라.** 진짜 JSON이 맞는 자리라도, "아무거나 들어와도 됨"은 아니다. 애플리케이션 레벨에서 zod 같은 스키마 검증으로 입구를 지켜라.
+
+```typescript
+import { z } from 'zod';
+
+// JSON에 넣더라도 모양은 코드로 강제한다
+const PrefsSchema = z.object({
+  theme: z.enum(['light', 'dark', 'system']),
+  density: z.enum(['comfortable', 'compact']).optional(),
+}).strict(); // strict: 정의 안 된 키는 거부 → 마트료시카 방지
+
+function setPrefs(raw: unknown) {
+  const prefs = PrefsSchema.parse(raw); // 검증 통과한 것만 저장
+  return prefs;
+}
+```
+
+`.strict()`가 핵심이다. 정의되지 않은 키를 거부해서 "아무 코드나 아무 키나 넣는" 마트료시카 중첩을 입구에서 막는다. DB가 제약을 못 거는 만큼, 코드가 문지기를 맡는 거다.
+
+## 이렇게 하면 됨
+
+위 시나리오의 `users.settings`를 고쳐보자. 핵심은 **자주 쓰는 안정적 필드를 컬럼으로 끌어올리고, 진짜 자유로운 것만 JSON에 남기는 것**이다.
+
+**Before — settings 통째로 JSON.** 제약도 인덱스도 구조도 없다.
+
+```sql
+CREATE TABLE users (
+  id       BIGSERIAL PRIMARY KEY,
+  email    TEXT NOT NULL UNIQUE,
+  settings JSONB NOT NULL DEFAULT '{}'   -- theme, language, ... 전부 여기 잡동사니
+);
+```
+
+**After — 안정적 필드는 컬럼, 진짜 가변만 JSON.**
+
+```sql
+CREATE TABLE users (
+  id        BIGSERIAL PRIMARY KEY,
+  email     TEXT NOT NULL UNIQUE,
+
+  -- 안정적이고 자주 쿼리하는 필드는 정식 컬럼 + 제약
+  theme     TEXT NOT NULL DEFAULT 'system'
+            CHECK (theme IN ('light', 'dark', 'system')),
+  language  TEXT NOT NULL DEFAULT 'ko',
+  email_notifications BOOLEAN NOT NULL DEFAULT true,
+
+  -- 진짜 희소·가변인 것만 절제해서 JSON에 (플러그인 설정 등)
+  extra     JSONB NOT NULL DEFAULT '{}'
+);
+
+-- theme는 이제 평범한 컬럼 인덱스
+CREATE INDEX idx_users_theme ON users(theme);
+```
+
+이제 "다크모드 유저 수" 쿼리가 어떻게 바뀌는지 보자. `lower()`도, `OR` 떡칠도, 중첩 경로도 필요 없다.
+
+```sql
+-- Before: 표기 제각각이라 OR 떡칠 + 풀스캔, 그래도 다 못 셈
+SELECT count(*) FROM users
+WHERE lower(settings->>'theme') = 'dark'
+   OR (settings->>'darkMode')::boolean = true;
+
+-- After: 평범한 컬럼 한 줄. 인덱스 타고, CHECK 덕에 값도 깨끗함
+SELECT count(*) FROM users WHERE theme = 'dark';
+```
+
+`CHECK (theme IN (...))` 덕분에 `'DARK'`나 `'바나나'`는 INSERT 단계에서 거부된다. 더러운 데이터가 **들어오기 전에** 막히는 거다. 그리고 정말 JSON에 남겨둔 `extra`를 쿼리해야 한다면, 그땐 표현식 인덱스를 쓴다. 절제해서 쓰는 한 이건 정당하다.
+
+```sql
+-- extra 안의 특정 키를 자주 조회한다면 표현식 인덱스
+CREATE INDEX idx_users_extra_plan
+  ON users ((extra->>'plan'));
+
+SELECT * FROM users WHERE extra->>'plan' = 'pro';
+
+-- 또는 extra 전체에 포함 연산을 자주 쓴다면 GIN 인덱스
+CREATE INDEX idx_users_extra_gin ON users USING GIN (extra);
+
+SELECT * FROM users WHERE extra @> '{"beta": true}';
+```
+
+ORM에서도 마찬가지다. 무심코 `@Column('jsonb')` 하나로 모든 설정을 빨아들이는 패턴을 경계하라. 자주 쓰는 필드는 귀찮아도 컬럼으로 선언하는 게 6개월 뒤의 나를 살린다.
+
+```typescript
+@Entity()
+class User {
+  // Before: 전부 빨아들이는 잡동사니 컬럼 하나 (경계 대상)
+  // @Column('jsonb', { default: {} })
+  // settings: Record<string, any>;
+
+  // After: 안정적 필드는 명시적 컬럼
+  @Column({ default: 'system' })
+  theme: 'light' | 'dark' | 'system';
+
+  @Column({ default: 'ko' })
+  language: string;
+
+  // 진짜 가변인 것만 JSON으로
+  @Column('jsonb', { default: {} })
+  extra: Record<string, unknown>;
+}
+```
+
+<Callout type="info" title="그럼 마이그레이션 귀찮은 건 어쩌고?">
+"컬럼 추가하려면 또 마이그레이션 돌려야 하잖아"가 JSON 남발의 가장 큰 핑계다. 맞다, 마이그레이션은 귀찮다. 근데 요즘 DB는 `ALTER TABLE ADD COLUMN ... DEFAULT`가 대부분 메타데이터만 바꾸는 즉시 연산이라, 테이블 락 없이 수 밀리초에 끝난다(PostgreSQL 11+, 일정 조건). 진짜로 무서운 건 마이그레이션이 아니라, 마이그레이션 안 한 대가로 1년 뒤 떠안을 데이터 정합성 청구서다.
+</Callout>
+
+<Callout type="note" title="JSON이 정답일 때도 분명 있다">
+이 글은 "JSON 쓰지 마라"가 아니다. (1) 외부 웹훅 페이로드 원본 보관, (2) 키가 사용자마다 다른 임의 메타데이터, (3) 스키마가 정말 자주 바뀌는 실험적 기능, (4) 문서를 통째로 읽고 통째로 쓰며 그 안을 거의 필터링하지 않는 경우 — 이런 자리에선 JSON이 명백히 옳다. 안티패턴은 "JSON을 쓰는 것"이 아니라 **"컬럼이어야 할 것까지 JSON에 밀어 넣는 것"**이다. 둘을 구분하자.
+</Callout>
+
+## 정리
+
+JSON 마트료시카도 악의로 생기지 않는다. 그냥 마이그레이션이 귀찮았고, 유연하게 가고 싶었고, "앱 코드가 알아서 하겠지" 했을 뿐이다. 처음엔 정말 천국처럼 빨랐다. 문제는 그 천국에 제약도, 인덱스도, 구조도 없었다는 거다. 원리는 단순하다.
+
+> **JSON은 "스키마를 안 정하는 자유"가 아니라, "정할 수 없는 데이터를 위한 도구"다.**
+
+키가 정해져 있고, 자주 쿼리하고, 제약이 필요한 데이터는 애초에 "가변"이 아니다. 그건 컬럼이다. 컬럼으로 빼는 순간 DB가 더러운 데이터를 막아주고, 인덱스를 알아서 타고, 구조를 한눈에 보여준다. 그러니 "유연하니까 일단 JSON에 넣자"는 생각이 들면, 한 번 멈춰서 물어보자. **"이거 진짜 가변인가, 아니면 그냥 마이그레이션이 귀찮은 건가?"** 대부분은 후자다.
+
+다음 편에서는 또 다른 "당장 편한데 나중에 터지는" 이야기를 본다. 돈 계산을 하면서 트랜잭션도, 캐시도, 동시성 제어도 없이 "읽고-계산하고-쓰기"를 하다가 잔액이 꼬이는 — 캐시 없는 트랜잭션 얘기다.
+
+---
+
+_← [이전 글: NoSQL, 남의 떡](/docs/dev/database/anti-patterns/7.nosql-grass-is-greener) | [다음 글: 캐시 없는 트랜잭션](/docs/dev/database/anti-patterns/9.cacheless-transactions) →_

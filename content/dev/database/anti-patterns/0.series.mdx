@@ -1,0 +1,45 @@
+---
+title: "SQL 안티패턴: \"이렇게 짜면 DB가 운다\""
+subtitle: "JOIN 공포증부터 데이터 호더까지, DB 앞에서 우리가 반복하는 13가지 실수"
+description: "관계형 DB를 다루며 반복하는 13가지 안티패턴을, 책 요약이 아니라 실무에서 마주치는 시나리오 중심으로 풀어내는 시리즈의 개요와 전체 목차. SQL 언어·최적화·애플리케이션 설계 3부 구성."
+order: 0
+tags: ["sql", "database", "anti-pattern", "series", "postgresql"]
+---
+
+> **스캐폴딩 문서** — 개요편 골격. intro·도서 언급·목차 구조만 잡아둠. 살은 추후.
+
+DB를 좀 만져본 사람이라면 안다. "이렇게 하면 좋다"는 조언보다, "이렇게 했다가 새벽에 호출당했다"는 경험담이 훨씬 오래 기억에 남는다는 걸. 인덱스 이론을 달달 외워도, 정작 운영 DB에 데이터가 600만 건 쌓이고 나서야 "어... 이 쿼리 왜 이렇게 느리지?"가 시작된다. 그리고 git blame을 찍으면 대개 3개월 전의 내가 나온다.
+
+이 시리즈는 그 흉터들을 모은 거다. 각 편은 **"이런 적 있을 거임" 하는 시나리오**에서 출발한다. 거창한 코드보다 먼저 짚는 건, 안티패턴을 만든 게 업무 목표가 아니라 **그 순간의 행동 패턴** — "JOIN은 무서우니까 그냥 반복문 돌리자", "일단 JSON에 다 때려박자", "느리네? 캐시 붙이면 되겠지" — 이라는 점이다. 읽다가 "아, 나도 이랬는데" 싶으면, 바로 거기서부터가 시작이다.
+
+## 이 시리즈에 대하여
+
+목차의 뼈대는 **Bill Karwin의 *SQL Antipatterns*** 에서 빌려왔다. 다만 이건 그 책의 요약본이 아니다. 책은 길잡이로 참고했을 뿐, 각 편의 시나리오·예시·설명은 실무에서 직접 부딪힌 것들로 다시 썼다. 원전이 궁금하면 책을 펴보면 되고, 이 시리즈는 "그래서 내 코드에서 이게 어떻게 터지는데?"에 답하는 쪽에 집중한다.
+
+## 목차
+
+### Part I — SQL 언어: 쿼리를 짤 때 시작되는 실수
+
+1. [JOIN 공포증](/docs/dev/database/anti-patterns/1.fear-of-joins) — 쿼리 한 방이면 될 걸 100번 긁는 사람들 (N+1의 입구)
+2. [관계형 나눗셈](/docs/dev/database/anti-patterns/2.relational-division) — "이 조건들을 *전부* 만족하는 행" 찾기
+3. [동적 피벗](/docs/dev/database/anti-patterns/3.dynamic-pivot) — 행을 열로 돌리려다 SQL이 손에 부치는 순간
+4. [페이지네이션: 맨 위부터 세기](/docs/dev/database/anti-patterns/4.pagination-keyset) — LIMIT/OFFSET이 뒤로 갈수록 느려지는 이유와 키셋
+
+### Part II — 최적화: "빠를 것 같아서" 저지르는 실수
+
+5. [인덱스를 못 타는 쿼리](/docs/dev/database/anti-patterns/5.non-sargable-queries) — 인덱스 걸어놓고 함수로 감싸서 무력화하기
+6. [성급한 비정규화](/docs/dev/database/anti-patterns/6.premature-denormalization) — 측정도 없이 "빠를 것 같아서" 데이터 복제
+7. [NoSQL: 남의 떡이 커 보인다](/docs/dev/database/anti-patterns/7.nosql-grass-is-greener) — 갈아타면 고통이 사라진다는 착각 (+ N+1 미니)
+8. [JSON 마트료시카](/docs/dev/database/anti-patterns/8.json-matryoshka) — "유연성" 노리고 JSON 컬럼 남발
+9. [캐시 없는 트랜잭션](/docs/dev/database/anti-patterns/9.cacheless-transactions) — 캐시를 성능 마법으로 여기다 신기루를 보는 경우 (+ 쿼리 캐시 미니)
+
+### Part III — 애플리케이션 설계: 코드 밖에서 DB를 괴롭히는 실수
+
+10. [폴링: 아직 멀었어?](/docs/dev/database/anti-patterns/10.polling) — 몇 초마다 SELECT 때리기 (+ 커밋 전 큐 적재 레이스 미니)
+11. [트랜잭션 캡슐화](/docs/dev/database/anti-patterns/11.transaction-encapsulation) — 모델마다 각자 트랜잭션 여닫기 (+ 복수형 테이블명 ORM 미니)
+12. [데드락 공포증](/docs/dev/database/anti-patterns/12.fear-of-deadlocks) — 데드락을 원천 봉쇄하려는 헛된 시도 (+ 커넥션 스레드 공유 미니)
+13. [데이터 호더](/docs/dev/database/anti-patterns/13.data-hoarding) — "모든 데이터를 영원히 보관해야 한다"는 믿음
+
+---
+
+_"바보는 자기 경험에서 배우고, 현명한 사람은 남의 경험에서 배운다." — 이 시리즈가 당신의 남의 경험이 되길._

@@ -1,0 +1,237 @@
+---
+title: "트랜잭션 캡슐화: 모델마다 각자 트랜잭션 여닫기"
+subtitle: "주문·재고·포인트를 각 리포지토리가 알아서 저장하면, 중간에 하나 실패하는 날 데이터가 반쯤 저장된 채 남는다"
+description: "모델/리포지토리마다 각자 트랜잭션을 여닫아 여러 모델에 걸친 한 업무 단위가 원자적으로 묶이지 않는 문제를 다룬다. 트랜잭션 경계를 서비스/유스케이스 계층(Unit of Work)으로 끌어올리는 정석과, 테이블명 복수형화 ORM 매핑 미니 항목. SQL 안티패턴 시리즈 11편."
+order: 11
+tags: ["transaction", "unit-of-work", "orm", "atomicity", "database"]
+---
+
+## 이게 뭔데
+
+트랜잭션 캡슐화. 말은 멋있는데, 증상은 단순하다. **모델이나 리포지토리마다 자기 저장을 책임지면서, 각자 트랜잭션을 열고 닫는 습관**이다. `save()` 부르면 안에서 트랜잭션 열고, 쓰고, 커밋한다. 객체마다 자기 일은 자기가 끝낸다. 깔끔하다. 너무 깔끔해서 탈이다.
+
+비유를 하나 들어보자. 친구 셋이서 이사를 한다. 정상적인 사람은 트럭 한 대 불러서 짐을 다 싣고 한 번에 옮긴다. 근데 트랜잭션 캡슐화 환자는 이렇게 한다. A가 자기 박스를 들고 가서 새 집에 내려놓고 문 잠그고 옴. B가 자기 박스 들고 가서 내려놓고 문 잠그고 옴. C 차례인데 C가 계단에서 자빠짐. 자, 이제 어떡할 건데. A랑 B 박스는 이미 새 집에 들어가서 문까지 잠겼다. C만 옛날 집에 남았다. "그럼 A랑 B 다시 갖고 와" 하고 싶은데, 문이 잠겼다. 되돌릴 방법이 없다.
+
+DB에서 이 "문 잠그고 옴"이 바로 커밋이다. 한 번 커밋된 건 되돌릴 수 없다. 그게 커밋의 정의니까. **각 객체가 알아서 저장하면 깔끔하다**는 설계가, 사실은 **하나의 업무를 세 개의 독립된 커밋으로 쪼개버리는** 함정이다. 그리고 이게 사람을 잡는 가장 흔한 형태가 바로 **부분 커밋(partial commit)**이다.
+
+<Callout type="warning" title="한 줄 요약">
+객체마다 트랜잭션을 여닫으면, 여러 모델에 걸친 "한 업무"가 원자적으로 안 묶인다. 중간에 하나 실패하면 앞엣것은 이미 커밋돼서 데이터가 반쯤 저장된 채로 남는다.
+</Callout>
+
+## 시나리오: 이런 적 있을 거임
+
+주문을 처리한다. 주문을 만들고, 재고를 깎고, 포인트를 적립한다. 리포지토리 패턴이 깔끔하니까 각자 `save()`를 부른다. 너무나 자연스럽게 이렇게 친다.
+
+```typescript
+async function placeOrder(cmd: PlaceOrderCommand) {
+  // 1) 주문 생성 — 리포지토리 안에서 트랜잭션 열고 커밋
+  const order = await orderRepo.save(Order.from(cmd));
+
+  // 2) 재고 차감 — 또 트랜잭션 열고 커밋
+  await inventoryRepo.decrease(cmd.productId, cmd.qty);
+
+  // 3) 포인트 적립 — 또 트랜잭션 열고 커밋
+  await pointRepo.add(cmd.userId, order.total * 0.01);
+
+  return order;
+}
+```
+
+코드가 객체지향적으로 예쁘다. 각 리포지토리가 자기 책임만 진다. PR에 "클린 아키텍처 👍"가 달린다. 아무 문제 없어 보인다.
+
+그런데 각 리포지토리 안을 열어보면 풍경이 다르다.
+
+```typescript
+class OrderRepository {
+  async save(order: Order) {
+    return this.db.transaction(async (tx) => {   // 여기서 열고
+      const saved = await tx.insert(orders).values(order);
+      return saved;
+    });                                          // 여기서 커밋
+  }
+}
+// inventoryRepo.decrease, pointRepo.add도 똑같이 각자 transaction(...)
+```
+
+세 개의 `save()`가 세 개의 **독립된 트랜잭션**이다. 평소엔 셋 다 멀쩡히 커밋되니까 아무도 눈치 못 챈다. 화면엔 "주문 완료"가 뜨고, 재고도 깎이고, 포인트도 쌓인다. 잘 돌아간다.
+
+문제는 **포인트 적립에서 예외가 나는 날** 터진다. 포인트 테이블에 락이 걸렸거나, 유저 잔액 정책에 막혔거나, 그냥 네트워크가 끊겼다 치자.
+
+```text
+[OK]    INSERT INTO orders ...          -- 트랜잭션 1: 커밋 완료
+[OK]    UPDATE inventory SET qty = ...  -- 트랜잭션 2: 커밋 완료
+[FAIL]  INSERT INTO points ...          -- 트랜잭션 3: 예외!
+```
+
+주문과 재고는 **이미 각각 커밋**됐다. 트랜잭션 3에서 예외가 났지만, 트랜잭션 1과 2는 별개라서 같이 롤백되지 않는다. 결과는 **주문은 들어갔고, 재고도 깎였는데, 포인트만 빠진 반쯤 저장된 상태**다. 고객은 주문은 됐는데 포인트는 안 들어왔다고 문의를 넣고, CS는 손으로 포인트를 꽂아준다. 그러다 재고 차감이 실패하는 날엔 더 가관이다. 주문은 있는데 팔 물건이 없다.
+
+디버깅하다 깨닫는다. "한 업무"가 세 개의 독립 트랜잭션으로 쪼개져 있었다. 원자적이어야 할 일이 처음부터 원자적이지 않았다. `try/catch`로 감싸봐야 소용없다. 예외를 잡는 시점엔 이미 앞의 두 개가 커밋돼서 땅에 박혀 있으니까.
+
+정작 이걸 부른 건 코드가 아니라, 트랜잭션을 바라보는 **관점**이다.
+
+- "각 리포지토리가 자기 저장을 책임지면 깔끔하지" — **객체 단위**와 **트랜잭션 단위**를 혼동했다. 객체는 셋이어도 업무는 하나다.
+- "save() 부르면 알아서 커밋되는 게 편하지" — 트랜잭션 경계를 너무 **낮은 계층**에 박아버렸다. 커밋 시점을 리포지토리가 멋대로 정한다.
+- "예외 나면 그때 처리하지" — 이미 커밋된 건 예외 처리로 못 되돌린다. 커밋은 **돌아올 수 없는 강**이다.
+
+이 셋 중 어느 하나라도 마음 한구석에 있었다면, 당신은 이미 부분 커밋을 한 번쯤 심어봤을 가능성이 높다. 그리고 이건 신입만의 일이 아니다. 리포지토리 패턴을 정석대로 배운 사람일수록, "리포지토리가 영속성을 캡슐화한다"는 말을 "리포지토리가 트랜잭션까지 책임진다"로 잘못 새겨서 이 패턴을 더 단정하게 박아넣는다.
+
+## 무슨 일이 벌어지나 (비용)
+
+부분 커밋이 왜 그렇게 비싼지, 비용을 세 갈래로 뜯어보자.
+
+**1. 정합성이 깨진 데이터가 땅에 박힌다.** 주문은 있는데 재고가 안 깎였거나, 재고는 깎였는데 주문이 없거나, 결제는 됐는데 주문 상태가 `PENDING`에 멈춰 있다. 이건 단순한 버그가 아니라 **데이터 자체가 거짓말을 하는 상태**다. 코드를 고쳐도 이미 깨진 행은 안 고쳐진다. 누군가 손으로 SQL을 쳐서 맞춰야 한다.
+
+**2. 보상 트랜잭션 지옥.** "그럼 포인트 실패하면 주문이랑 재고를 되돌리는 코드를 짜면 되잖아?" 그게 보상 트랜잭션(compensating transaction)이다. 말은 쉬운데, 되돌리는 코드도 또 다른 트랜잭션이라 **그것마저 실패할 수 있다**. 롤백을 롤백하는 코드를 짜다 보면, 경우의 수가 조합 폭발한다. 분산 시스템에서 정말로 트랜잭션을 못 묶는 상황이면 Saga 같은 정식 패턴을 써야 하지만, **단일 DB 안에서 이걸 손으로 흉내 내고 있다면 그건 그냥 트랜잭션을 안 쓴 죄값**이다.
+
+**3. 경계가 흩어져 추적이 불가능하다.** 커밋이 리포지토리 안에 숨어 있으니, 서비스 코드만 봐서는 "이 작업이 어디까지 원자적인지"가 안 보인다. 다섯 줄짜리 함수가 사실은 다섯 개의 독립 트랜잭션일 수도 있고 하나일 수도 있는데, 호출부에선 구분이 안 된다. 리뷰어도 못 잡고, 6개월 뒤의 나도 못 잡는다.
+
+<Callout type="error" title="뭐가 문제냐면">
+- **로컬에선 절대 안 보인다**: 개발 중엔 예외가 안 나니까 셋 다 커밋되고 멀쩡하다. 부분 커밋은 "중간에 하나 실패하는 날"에만 드러난다.
+- **에러 로그에도 안 남는다**: 트랜잭션 3에서 난 예외는 로그에 찍히지만, "트랜잭션 1·2가 이미 커밋됐다"는 사실은 어디에도 안 찍힌다. 데이터를 직접 까봐야 안다.
+- **고칠수록 늪에 빠진다**: 보상 코드를 붙이고, 보상의 보상을 붙이고… 정작 답은 "처음부터 하나로 묶는다" 한 줄인데 그걸 안 한다.
+</Callout>
+
+## 정석: 경계를 유스케이스 계층으로 (Unit of Work)
+
+해법은 단순하다. **트랜잭션 경계를 리포지토리에서 끌어내려서, 서비스/유스케이스 계층으로 올린다.** "한 업무 = 한 트랜잭션"이 되도록.
+
+핵심 원칙은 **Unit of Work**다. 하나의 비즈니스 업무가 시작될 때 트랜잭션을 **한 번** 열고, 그 안에서 리포지토리들이 일을 하고, 업무가 끝날 때 **한 번** 커밋한다. 중간에 하나라도 실패하면 전체가 같이 롤백된다. 리포지토리는 더 이상 커밋을 모른다. 자기에게 **주어진** 트랜잭션(세션) 안에서 읽고 쓸 뿐이다.
+
+```typescript
+// 트랜잭션은 유스케이스 계층에서 "딱 한 번" 연다
+async function placeOrder(cmd: PlaceOrderCommand) {
+  return db.transaction(async (tx) => {
+    // 리포지토리들은 같은 tx를 받아서 그 안에서만 동작한다
+    const order = await orderRepo.save(tx, Order.from(cmd));
+    await inventoryRepo.decrease(tx, cmd.productId, cmd.qty);
+    await pointRepo.add(tx, cmd.userId, order.total * 0.01);
+    return order;
+    // 여기까지 무사 통과하면 한 번에 커밋,
+    // 중간에 어디서든 throw 나면 전부 롤백
+  });
+}
+```
+
+이제 포인트 적립에서 예외가 나면, 같은 트랜잭션 안에 있던 주문과 재고 차감도 **함께 롤백**된다. 반쯤 저장되는 상태가 원천적으로 불가능해진다. 데이터는 "전부 되거나, 전부 안 되거나" 둘 중 하나다. 이게 원자성(Atomicity)이다.
+
+여기서 바뀐 핵심은 딱 하나다. **트랜잭션을 누가 여느냐.** 리포지토리가 아니라 유스케이스가 연다. 리포지토리는 트랜잭션 핸들(또는 세션)을 인자로 받기만 한다. ORM에 따라 이걸 명시적으로 넘기기도 하고(인자 주입), 컨텍스트나 세션이 암묵적으로 따라다니기도 한다(Hibernate `Session`, EF `DbContext`, SQLAlchemy `Session`). 이름은 달라도 원리는 같다. **트랜잭션이라는 "작업 단위(Unit of Work)"를 한 계층이 소유한다.**
+
+<Callout type="info" title="그럼 리포지토리에서 transaction을 영영 못 쓰나?">
+아니다. 리포지토리 메서드를 **단독으로** 호출했을 때도 안전해야 하므로, 내부에서 트랜잭션을 열되 "이미 트랜잭션이 진행 중이면 그걸 이어쓰고, 없으면 새로 연다"는 식으로 짠다. 스프링의 `@Transactional`이 기본으로 하는 게 정확히 이거다(propagation `REQUIRED` — 기존 트랜잭션에 참여, 없으면 생성). 즉 경계를 "올린다"는 건 리포지토리에서 트랜잭션을 박멸하는 게 아니라, **누구든 더 바깥에서 연 트랜잭션이 있으면 거기에 합류하게** 만드는 것이다.
+</Callout>
+
+### 미니: 테이블명 복수형화 ORM
+
+트랜잭션 경계만큼 자주 사람 잡는 게 또 있다. **ORM의 자동 테이블명 추론**이다.
+
+대부분의 ORM은 모델 클래스 이름으로 테이블명을 **관례적으로** 만든다. `User` 모델이면 `users` 테이블, `Order`면 `orders`. 영어 복수형을 자동으로 붙인다. 편하다. 편한데, 관례가 깨지는 순간 **런타임에** 깨진다. 컴파일도 통과하고, 모델 코드만 봐선 멀쩡하다.
+
+```typescript
+class Person {}    // ORM은 "persons"를 기대 → 실제 테이블은 "people"
+class Mouse {}     // "mouses"? 실제는 "mice"
+class Status {}    // "statuses"? "status"? "statu s"? 라이브러리마다 다름
+class Money {}     // "monies"? "moneys"? 셀 수 없는 명사는 답이 없음
+```
+
+복수형화 규칙은 라이브러리마다 미묘하게 다르고, 영어 불규칙 명사 앞에서 갈린다. 게다가 레거시 DB는 `tbl_user`, `USER_MST`, `user_account`처럼 관례를 안 따르는 경우가 태반이다. 그래서 모델은 멀쩡한데 쿼리만 던지면 `relation "persons" does not exist` 같은 에러가 **운영에서** 난다.
+
+```typescript
+// 관례에 기대지 말고, 테이블명을 명시한다
+@Entity({ name: "people" })      // TypeORM
+class Person {}
+
+// Sequelize
+const Person = sequelize.define("Person", { /* ... */ }, {
+  tableName: "people",
+  freezeTableName: true,         // 멋대로 복수형 만들지 마
+});
+```
+
+<Callout type="note" title="관례는 좋은 것, 단 명시 위에서">
+관례(convention over configuration)는 죄가 아니다. 보일러플레이트를 줄여주는 좋은 기본값이다. 함정은 **관례를 "보장"으로 착각**할 때 생긴다. 같은 안티패턴이 트랜잭션에서도 똑같이 반복된다 — `save()`가 알아서 커밋한다는 것도 결국 "관례에 트랜잭션 경계를 맡긴" 것이다. 결론은 하나다. **경계가 중요한 것(테이블명, 트랜잭션)은 관례에 기대지 말고 명시하라.**
+</Callout>
+
+## 이렇게 하면 됨
+
+Before와 After를 나란히 놓고 보자. 코드 모양은 거의 안 변하는데, 누가 트랜잭션을 여느냐만 바뀐다.
+
+**Before — 리포지토리별 커밋.** 각 리포지토리가 자기 트랜잭션을 열고 닫는다. 서비스는 그냥 호출만 한다.
+
+```typescript
+// 리포지토리: 각자 자기 트랜잭션을 열고 커밋한다
+class OrderRepository {
+  async save(order: Order) {
+    return this.db.transaction((tx) => tx.insert(orders).values(order));
+  }                                  // ← 여기서 독립 커밋
+}
+
+// 서비스: 그냥 셋을 순서대로 부른다 = 독립 트랜잭션 3개
+async function placeOrder(cmd: PlaceOrderCommand) {
+  const order = await orderRepo.save(Order.from(cmd));   // 커밋 1
+  await inventoryRepo.decrease(cmd.productId, cmd.qty);  // 커밋 2
+  await pointRepo.add(cmd.userId, order.total * 0.01);   // 커밋 3
+  return order;                      // 커밋 2 다음에 터지면? 1·2는 못 되돌림
+}
+```
+
+**After — 서비스 계층 단일 트랜잭션.** 서비스가 트랜잭션을 한 번 열고, 리포지토리들은 그 핸들 안에서만 동작한다.
+
+```typescript
+// 리포지토리: 트랜잭션을 받기만 한다. 커밋/롤백은 모른다.
+class OrderRepository {
+  async save(tx: Tx, order: Order) {
+    return tx.insert(orders).values(order);
+  }                                  // ← 커밋 없음. 주어진 tx에 쓰기만
+}
+
+// 서비스: 한 업무 = 한 트랜잭션
+async function placeOrder(cmd: PlaceOrderCommand) {
+  return db.transaction(async (tx) => {
+    const order = await orderRepo.save(tx, Order.from(cmd));
+    await inventoryRepo.decrease(tx, cmd.productId, cmd.qty);
+    await pointRepo.add(tx, cmd.userId, order.total * 0.01);
+    return order;                    // 셋 다 성공 → 한 번에 커밋
+  });                                // 중간에 throw → 전부 롤백
+}
+```
+
+선언적으로 트랜잭션 경계를 표시하는 프레임워크라면 더 간결하다. 스프링이면 서비스 메서드에 어노테이션 한 줄이다.
+
+```java
+@Service
+class OrderService {
+  // 메서드 하나가 곧 트랜잭션 경계. 안에서 부르는 리포지토리는 다 같은 트랜잭션에 참여.
+  @Transactional
+  public Order placeOrder(PlaceOrderCommand cmd) {
+    Order order = orderRepo.save(Order.from(cmd));
+    inventoryRepo.decrease(cmd.getProductId(), cmd.getQty());
+    pointRepo.add(cmd.getUserId(), order.getTotal() * 0.01);
+    return order;   // 어디서든 RuntimeException 나면 전체 롤백
+  }
+}
+```
+
+핵심은 어느 스타일이든 **"트랜잭션 경계가 코드에서 한눈에 보인다"**는 것이다. `db.transaction(...)`으로 감싼 블록이든, `@Transactional`이 붙은 메서드든, **"여기부터 여기까지가 한 업무이고 통째로 원자적이다"**가 명확하다. Before 코드엔 그 경계가 리포지토리 안에 숨어서 안 보였다. 경계를 드러내는 것, 그게 전부다.
+
+```sql
+-- 결국 DB가 보는 그림도 단순해진다
+BEGIN;
+  INSERT INTO orders ...;
+  UPDATE inventory SET qty = qty - ? WHERE ...;
+  INSERT INTO points ...;
+COMMIT;   -- 셋 다 성공해야 여기 도달. 중간에 실패하면 ROLLBACK.
+```
+
+## 정리
+
+트랜잭션 캡슐화는 좋은 의도에서 생긴다. 누가 악의로 데이터를 반쯤 저장하지 않는다. 그냥 "객체마다 자기 저장을 책임지게 하면 깔끔하겠다"는, 객체지향적으로 옳아 보이는 생각을 했을 뿐이다. 하지만 원리는 단순하다.
+
+> **트랜잭션 경계는 "한 업무 단위"에 맞춘다 — 객체마다가 아니라.**
+
+객체가 셋이어도 업무가 하나면 트랜잭션도 하나다. 커밋 시점을 리포지토리 같은 낮은 계층에 맡기지 말고, 그 업무를 지휘하는 유스케이스 계층이 쥐어야 한다. 그래야 "전부 되거나, 전부 안 되거나"가 보장된다. 그러니 "이 작업, 중간에 하나 실패하면 어떻게 되지?"라는 생각이 들면, 그건 대개 트랜잭션 경계를 한 계층 위로 올려야 한다는 신호다.
+
+다음 편에서는 트랜잭션을 제대로 쓰기 시작한 사람이 다음으로 만나는 공포를 본다. 동시성 제어를 한답시고 락을 걸었더니, 두 트랜잭션이 서로의 락을 기다리며 영원히 멈춰 서는 일 — 데드락 공포증 얘기다.
+
+---
+
+_← [이전 글: 폴링](/docs/dev/database/anti-patterns/10.polling) | [다음 글: 데드락 공포증](/docs/dev/database/anti-patterns/12.fear-of-deadlocks) →_
