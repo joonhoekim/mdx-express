@@ -2,87 +2,65 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ChevronDown, ChevronRight, Folder } from "lucide-react";
+import { ChevronRight } from "lucide-react";
+import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { NavigationItem } from "@/lib/navigation";
-import { isNavigationItemActive, getIconComponent } from "@/lib/navigation-utils";
+import { isNavigationItemActive } from "@/lib/navigation-utils";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { useState, useMemo, memo } from "react";
 
-interface SidebarNavigationItemProps {
-  item: NavigationItem;
-  pathname: string;
-  level?: number;
+const ROW = "w-full justify-start gap-2 h-auto min-h-9 whitespace-normal py-1.5 text-left";
+
+/** 폴더(자식 있는 디렉토리) — 접기/펴기 + 음영 + 자식 들여쓰기 가이드 */
+function NavFolder({ item, pathname }: { item: NavigationItem; pathname: string }) {
+  const [open, setOpen] = useState(() => isNavigationItemActive(item, pathname));
+
+  return (
+    <Collapsible open={open} onOpenChange={setOpen} className="space-y-1">
+      <CollapsibleTrigger asChild>
+        <Button variant="ghost" className={cn(ROW, "bg-muted/40 font-medium hover:bg-muted")}>
+          <ChevronRight
+            className={cn(
+              "h-4 w-4 shrink-0 text-muted-foreground transition-transform",
+              open && "rotate-90"
+            )}
+          />
+          <span className="flex-1">{item.title}</span>
+        </Button>
+      </CollapsibleTrigger>
+      {/* 자식 컨테이너에 들여쓰기를 줘 중첩될수록 누적된다 (위계 가이드선 포함) */}
+      <CollapsibleContent>
+        <div className="ml-3 space-y-1 border-l border-border/60 pl-2">
+          {item.children!.map((child) => (
+            <NavItem key={child.href} item={child} pathname={pathname} />
+          ))}
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
+  );
 }
 
-const SidebarNavigationItem = memo(({ item, pathname, level = 0 }: SidebarNavigationItemProps) => {
-  const [isOpen, setIsOpen] = useState(isNavigationItemActive(item, pathname));
-
-  // 메모이제이션으로 불필요한 재계산 방지
-  const { isActive, hasChildren, Icon } = useMemo(() => ({
-    isActive: item.href === pathname,
-    hasChildren: item.children && item.children.length > 0,
-    Icon: getIconComponent(item.icon) || (item.type === 'directory' ? Folder : undefined)
-  }), [item, pathname]);
-
-  if (hasChildren) {
-    return (
-      <Collapsible open={isOpen} onOpenChange={setIsOpen}>
-        <div className="space-y-1">
-          <CollapsibleTrigger asChild>
-            <Button
-              variant="ghost"
-              className={cn(
-                "w-full justify-start gap-2 h-auto min-h-9 whitespace-normal py-1.5 hover:bg-accent",
-                level > 0 && "ml-4",
-                isNavigationItemActive(item, pathname) && "bg-accent"
-              )}
-            >
-              <div className="flex items-center gap-2 flex-1">
-                {Icon && <Icon className="h-4 w-4 shrink-0" />}
-                <span className="text-left">{item.title}</span>
-              </div>
-              {isOpen ? (
-                <ChevronDown className="h-4 w-4" />
-              ) : (
-                <ChevronRight className="h-4 w-4" />
-              )}
-            </Button>
-          </CollapsibleTrigger>
-          <CollapsibleContent className="space-y-1">
-            {item.children?.map((child) => (
-              <SidebarNavigationItem
-                key={child.href}
-                item={child}
-                pathname={pathname}
-                level={level + 1}
-              />
-            ))}
-          </CollapsibleContent>
-        </div>
-      </Collapsible>
-    );
+/** 단일 항목 — 폴더면 NavFolder, 파일이면 링크 */
+function NavItem({ item, pathname }: { item: NavigationItem; pathname: string }) {
+  if (item.children?.length) {
+    return <NavFolder item={item} pathname={pathname} />;
   }
 
+  const isActive = item.href === pathname;
   return (
     <Button
       asChild
       variant={isActive ? "secondary" : "ghost"}
-      className={cn(
-        "w-full justify-start gap-2 h-auto min-h-9 whitespace-normal py-1.5 hover:bg-accent relative overflow-hidden",
-        level > 0 && "ml-4",
-        isActive && "bg-secondary before:content-[''] before:absolute before:left-0 before:top-1 before:bottom-1 before:w-[3px] before:rounded-full before:bg-primary"
-      )}
+      className={cn(ROW, "hover:bg-accent", isActive && "font-medium")}
     >
       <Link href={item.href}>
-        {Icon && <Icon className="h-4 w-4 shrink-0" />}
-        <span className="text-left">{item.title}</span>
+        <span>{item.title}</span>
       </Link>
     </Button>
   );
-});
+}
 
 interface SidebarNavigationProps {
   sidebarItems: NavigationItem[];
@@ -99,13 +77,9 @@ export function SidebarNavigation({ sidebarItems }: SidebarNavigationProps) {
     <ScrollArea className="h-full py-4">
       <div className="space-y-1 px-3">
         {sidebarItems.map((item) => (
-          <SidebarNavigationItem
-            key={item.href}
-            item={item}
-            pathname={pathname}
-          />
+          <NavItem key={item.href} item={item} pathname={pathname} />
         ))}
       </div>
     </ScrollArea>
   );
-} 
+}
