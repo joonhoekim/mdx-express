@@ -19,7 +19,7 @@ export default async function DocsLayout({
   const sidebarItems = await getSidebarItems(pathname);
 
   return (
-    <div className="flex h-dvh flex-col overflow-hidden bg-background">
+    <div className="flex h-screen flex-col overflow-hidden bg-background">
       <TopNavigationServer topLevelItems={topLevelItems} />
 
       <div className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
