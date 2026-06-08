@@ -121,7 +121,7 @@ export function ResizableSidebarLayout({
       </aside>
 
       {/* Content area */}
-      <main className="flex-1 min-w-0 overflow-y-auto">
+      <main className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden">
         {/* Floating toolbar */}
         <div className="hidden md:flex sticky top-0 z-10 h-0 overflow-visible items-start justify-between pointer-events-none">
           <Button
