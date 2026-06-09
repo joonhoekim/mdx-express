@@ -1,0 +1,213 @@
+---
+title: "Replace View With Method(s): 뷰를 메서드로 대체"
+subtitle: "뷰로는 부족한 복잡 로직·갱신을 메서드로 연다"
+description: "조회만 가능하고 로직 표현력이 제한된 뷰를, 더 복잡한 계산과 갱신까지 처리하는 메서드(저장 프로시저/함수)로 대체하는 리팩토링. 전환 기간을 둔 안전한 교체 절차와 expand-contract·서비스 계층 같은 현대적 대안까지 정리한다."
+order: 74
+tags: ["database", "architecture", "stored-procedure", "view"]
+---
+
+## 이게 뭔데
+
+`Replace View With Method(s)`. 한 문장으로 줄이면, **기존 뷰(View)를 하나 이상의 메서드(저장 프로시저나 함수)로 갈아끼우는 일**이다.
+
+비유를 하나. 뷰는 유리창이다. 안에 있는 걸 그대로 보여주는 데는 최고다. 깨끗하고, 표준적이고, 어떤 리포팅 도구를 갖다 대도 "아, 이건 테이블이군" 하고 받아먹는다. 근데 딱 거기까지다. 유리창 너머로 손을 뻗어서 물건을 옮기거나, 보여주기 전에 복잡한 가공을 하긴 어렵다. 유리창은 비추기만 한다.
+
+메서드는 창구 직원이다. "이러이러한 조건으로 거래내역 뽑아주세요" 하면 뒤에서 분기도 타고, 루프도 돌고, 임시 테이블도 쓰고, 필요하면 데이터를 **고쳐서** 돌려준다. 대신 유리창처럼 아무 도구나 갖다 댄다고 곱게 보이진 않는다. 창구엔 사람이 가서 말을 걸어야 한다.
+
+이 리팩토링은 "유리창을 떼고 그 자리에 창구를 낸다"는 거다. 단순 조회로는 감당이 안 되는 로직이 생겼거나, 그 자리를 통해 데이터를 **갱신**까지 하고 싶어졌을 때.
+
+<Callout type="info" title="한 줄 요약">
+뷰는 조회 파사드로는 깔끔하지만 복잡한 로직과 갱신엔 약하다. 그 한계에 부딪히면, 같은 자리를 메서드로 바꿔 표현력과 쓰기 능력을 연다.
+</Callout>
+
+## 언제 쓰나
+
+동기는 크게 둘이다. 그리고 둘 다 "뷰가 더는 안 늘어난다"는 한계에서 출발한다.
+
+**첫째, 뷰로는 표현이 안 되는 로직이 생겼을 때.** 뷰는 본질적으로 `SELECT` 한 덩어리다. 조건 분기로 다른 집계를 하거나, 입력 파라미터에 따라 조인 대상이 달라지거나, 중간 결과를 임시로 모았다가 후처리하거나... 이런 게 들어오면 뷰는 금세 괴물이 된다. `CASE WHEN`을 스무 개 쌓고, 서브쿼리를 5중으로 중첩하고, 결국 아무도 못 건드리는 SQL 한 줄이 800자가 된다. 이쯤 되면 "이건 뷰가 아니라 절차적 로직"이라는 신호다. 메서드로 옮기면 분기와 변수와 단계를 멀쩡한 코드로 풀어 쓸 수 있다. 책의 표현을 빌리면, 메서드 전환은 **더 복잡한 로직으로 가는 첫걸음**이다.
+
+**둘째, 그 자리를 통해 갱신까지 하고 싶을 때.** 뷰는 기본적으로 읽기다. 갱신 가능 뷰(Updatable View)라는 게 있긴 한데, DB가 지원해야 하고, 지원하더라도 **단일 테이블 기반의 단순한 뷰**로 한정되는 경우가 대부분이다. 조인이 두 개만 끼어도 "이 뷰엔 INSERT 못 한다"고 거절당한다. 메서드는 그런 제약이 없다. 프로시저 안에서 여러 테이블에 순서대로 쓰고, 트랜잭션으로 묶고, 검증을 넣을 수 있다. 갱신 가능 뷰를 지원하지 않는(또는 빈약하게만 지원하는) DB에서, 메서드 기반 캡슐화로 갈아타면 아키텍처 유연성이 확 열린다.
+
+### 현실 시나리오 한 토막
+
+은행 시스템이다. `CustomerTransactionsHistory`라는 뷰가 있다. 처음엔 착했다.
+
+```sql
+CREATE VIEW CustomerTransactionsHistory AS
+SELECT t.TransactionID, t.AccountID, t.Amount, t.TransactionDate, a.CustomerID
+FROM Transaction t
+JOIN Account a ON a.AccountID = t.AccountID;
+```
+
+고객별 거래내역 보여주는 화면이 이걸 긁어다 쓴다. 잘 돌아간다. 평화롭다.
+
+그러다 기획이 들어온다. "거래내역에 누적 잔액(running balance)도 같이 보여주세요. 그리고 보험 상품(Insurance) 거래는 Policy 기준으로 묶어서 표시하고, 해지된 계좌는 마스킹 처리해주세요." 누군가 뷰 안에 윈도우 함수와 `CASE`를 쑤셔 넣기 시작한다. 두 달 뒤 그 뷰는 이런 꼴이 된다.
+
+```sql
+CREATE VIEW CustomerTransactionsHistory AS
+SELECT t.TransactionID, t.AccountID,
+       CASE WHEN a.Status = 'CLOSED' THEN NULL ELSE t.Amount END AS Amount,
+       SUM(t.Amount) OVER (PARTITION BY t.AccountID
+                           ORDER BY t.TransactionDate
+                           ROWS UNBOUNDED PRECEDING) AS RunningBalance,
+       CASE WHEN p.PolicyID IS NOT NULL THEN p.PolicyID ELSE NULL END AS PolicyGroup,
+       a.CustomerID
+FROM Transaction t
+JOIN Account a ON a.AccountID = t.AccountID
+LEFT JOIN Policy p ON p.AccountID = a.AccountID AND p.ProductType = 'INSURANCE'
+-- ...그리고 여기에 들어올 다음 요구사항들
+;
+```
+
+여기서 끝이 아니다. 다음 스프린트엔 "고객이 화면에서 거래 메모(memo)를 직접 수정할 수 있게 해주세요"가 온다. 뷰로는 못 쓴다. 조인이 셋이라 갱신 가능 뷰도 안 된다. 화면 코드는 어쩔 수 없이 뷰로 읽고, 수정은 별도 `UPDATE` SQL을 따로 박는다. 읽기 경로와 쓰기 경로가 갈라지고, 마스킹 규칙이 양쪽에 중복되기 시작한다.
+
+이 지점이 바로 신호다. **로직은 점점 절차적으로 변하고, 갱신 요구는 뷰의 능력을 넘어섰다.** 뷰를 `GetCustomerTransactions` 같은 메서드로 대체할 때다.
+
+## 주의할 점
+
+좋은 일만 있는 건 아니다. 뷰를 버리는 순간 같이 잃는 것들이 있다.
+
+<Callout type="warning" title="메서드로 옮기면 잃는 것들">
+- **리포팅 도구 궁합이 나빠진다.** BI 툴, 엑셀 쿼리, ad-hoc 분석 도구는 죄다 "테이블처럼 보이는 것"을 전제로 만들어졌다. 뷰는 그 자리에 그냥 끼우면 되지만, 저장 프로시저는 파라미터를 받고 호출해야 하는 물건이라 이런 도구와 잘 안 맞는다. 리포팅이 뷰에 의존하고 있었다면, 메서드 전환은 그쪽을 깨뜨린다.
+- **이식성(portability)이 떨어진다.** 뷰 정의는 대체로 표준 SQL이라 DB를 바꿔도 비교적 잘 따라온다. 반면 저장 프로시저/함수의 언어(PL/SQL, T-SQL, PL/pgSQL...)는 **벤더 종속**이다. Oracle에서 짠 프로시저를 PostgreSQL로 그대로 못 옮긴다. DB 교체 가능성을 열어두고 싶다면 감점 요인이다.
+- **유지보수성이 갈릴 수 있다.** 현장엔 "뷰가 편하다"는 사람이 많다. 선언적이고, 읽기 쉽고, `SELECT`만 알면 되니까. 절차적 메서드로 옮기면 그걸 다룰 줄 아는 사람이 줄어들 수 있다. 팀 역량과 합의가 받쳐줘야 한다.
+</Callout>
+
+대신 안심해도 되는 부분도 있다. **성능·확장성 영향은 거의 없다.** 작업이 어차피 DB 안에서 일어나는 일이라, 뷰를 돌리든 프로시저를 돌리든 데이터가 네트워크를 더 타거나 덜 타거나 하지 않는다. 이 리팩토링은 "어디서 어떻게 계산하느냐"가 아니라 "접근 인터페이스의 모양"을 바꾸는 일이다.
+
+정리하면 트레이드오프는 명확하다. **표현력과 쓰기 능력을 얻는 대신, 도구 궁합과 이식성과 친숙함을 내준다.** 그 교환이 남는 장사인지를 먼저 따져라.
+
+## 이렇게 한다
+
+핵심은 **갑자기 뷰를 지우지 않는다**는 것이다. 뷰를 읽던 곳이 한둘이 아닐 텐데, 어딘가는 우리가 모르는 리포트나 배치가 조용히 쓰고 있을 수 있다. 그래서 전환 기간(transition period)을 둔다. 메서드를 먼저 만들어 둘을 **공존**시키고, 호출부를 하나씩 옮긴 다음, 아무도 안 쓰는 걸 확인하고 나서야 뷰를 떨군다. expand-contract(parallel change) 패턴 그대로다.
+
+<Steps>
+
+<Step title="대체할 메서드를 도입한다 (expand)">
+
+뷰가 하던 일을, 그리고 뷰가 못 하던 일까지 메서드로 옮긴다. 조회용 프로시저를 먼저 만들고, 갱신이 필요하면 갱신 메서드도 짝으로 만든다. 이 시점엔 뷰가 아직 살아 있다. 둘이 나란히 존재한다.
+
+```sql
+-- 조회: 뷰가 하던 일을 그대로 + 파라미터/분기 같은 추가 로직
+CREATE PROCEDURE GetCustomerTransactions(
+  p_customer_id   IN  NUMBER,
+  p_include_closed IN BOOLEAN DEFAULT FALSE,
+  p_result        OUT SYS_REFCURSOR
+) AS
+BEGIN
+  OPEN p_result FOR
+    SELECT t.TransactionID, t.AccountID,
+           CASE WHEN a.Status = 'CLOSED' THEN NULL ELSE t.Amount END AS Amount,
+           SUM(t.Amount) OVER (PARTITION BY t.AccountID
+                               ORDER BY t.TransactionDate
+                               ROWS UNBOUNDED PRECEDING) AS RunningBalance
+    FROM Transaction t
+    JOIN Account a ON a.AccountID = t.AccountID
+    WHERE a.CustomerID = p_customer_id
+      AND (p_include_closed = TRUE OR a.Status <> 'CLOSED');
+END;
+```
+
+```sql
+-- 갱신: 뷰로는 불가능했던 것. 메서드라 가능해진다.
+CREATE PROCEDURE UpdateTransactionMemo(
+  p_transaction_id IN NUMBER,
+  p_memo           IN VARCHAR2
+) AS
+BEGIN
+  UPDATE Transaction
+  SET Memo = p_memo,
+      LastModifiedDate = SYSDATE
+  WHERE TransactionID = p_transaction_id;
+END;
+```
+
+이걸 손으로 `CREATE PROCEDURE` 날리고 끝내지 마라. **마이그레이션 도구로 버전 관리**해라. Flyway/Liquibase면 `V74__add_get_customer_transactions.sql` 같은 버전 스크립트로 올리고, ORM 마이그레이션(Alembic 등)이면 raw SQL 실행으로 넣는다. 프로시저 정의가 코드 리뷰를 거치고, 환경별로 동일하게 배포되고, 롤백 경로가 남는 게 핵심이다. 2006년 책처럼 DBA가 콘솔에서 직접 치는 시대가 아니다.
+
+</Step>
+
+<Step title="테스트로 동치성을 보장한다">
+
+뷰와 메서드가 **같은 입력에 같은 결과**를 주는지 회귀 테스트로 못 박는다. 이게 전환 기간을 안전하게 만드는 핵심이다. 뷰가 살아 있는 동안, 양쪽을 돌려 결과를 비교한다.
+
+```sql
+-- 동치성 검증: 두 결과 집합의 차이가 0이어야 한다
+SELECT * FROM (
+  SELECT CustomerID, TransactionID, Amount FROM CustomerTransactionsHistory
+  WHERE CustomerID = 42
+  MINUS
+  SELECT CustomerID, TransactionID, Amount
+  FROM TABLE(GetCustomerTransactions_TestWrap(42))
+);
+-- 행이 하나라도 나오면 메서드가 뷰와 다르게 동작한다는 뜻
+```
+
+마이그레이션할 데이터는 없다. 이 리팩토링은 데이터를 옮기는 게 아니라 **접근 인터페이스를 바꾸는** 작업이라, DML 마이그레이션 단계가 비어 있다. 대신 그 자리를 동치성 테스트가 채운다고 보면 된다.
+
+</Step>
+
+<Step title="호출부를 메서드로 옮긴다">
+
+앱 코드에서 뷰를 조회하던 자리를 메서드 호출로 바꾼다. 여기서 두 가지를 같이 손봐야 한다.
+
+먼저 **호출 방식**. 뷰는 그냥 `SELECT ... FROM view`였지만, 프로시저는 호출(call) 형태다.
+
+```typescript
+// Before: 뷰를 테이블처럼 조회
+const rows = await db.query(
+  `SELECT * FROM CustomerTransactionsHistory WHERE CustomerID = $1`,
+  [customerId],
+);
+
+// After: 메서드(프로시저) 호출
+const rows = await db.callProcedure('GetCustomerTransactions', {
+  p_customer_id: customerId,
+  p_include_closed: false,
+});
+```
+
+그다음 **오류 처리**. 이게 은근히 발목을 잡는다. 뷰 조회가 실패할 때와 프로시저 호출이 실패할 때는 **오류 코드와 예외 형태가 다르다.** 빈 결과를 "행 없음"으로 처리하던 코드, 권한 오류를 잡던 코드, 타임아웃 핸들링... 뷰 기준으로 짜둔 오류 처리 분기를 메서드 기준으로 손질해야 한다. 컴파일은 통과하는데 런타임에서 엉뚱한 에러 메시지가 뜨는 함정이 여기 숨어 있다.
+
+</Step>
+
+<Step title="전환 기간을 두고, 다 옮겨졌으면 뷰를 떨군다 (contract)">
+
+호출부를 다 옮겼다고 바로 `DROP`하지 마라. 뷰에 **제거 예정(deprecation) 표시**를 달고 전환 기간을 둔다. 주석으로 drop 예정일을 박아두고, 그동안 뷰가 실제로 안 쓰이는지 관측한다.
+
+```sql
+COMMENT ON VIEW CustomerTransactionsHistory IS
+  'DEPRECATED: GetCustomerTransactions 프로시저로 대체됨. 2026-09-01 이후 DROP 예정.';
+```
+
+전환 기간 동안 **뷰에 누가 접근하는지 실제로 감시**해라. 모르고 쓰는 리포트가 있을 수 있다. PostgreSQL이면 `pg_stat_user_tables`나 감사 로그로 접근을 추적하고, 오래 0이면 안전하다는 신호다. 기간이 끝나고 접근이 0인 걸 확인했으면 그때 떨군다.
+
+```sql
+-- 전환 기간 종료, 접근 0 확인 후
+DROP VIEW CustomerTransactionsHistory;
+```
+
+</Step>
+
+</Steps>
+
+### 현대 실무에서는
+
+책의 골격(메서드 도입 → 뷰 deprecate → 전환 후 drop)은 지금도 유효하다. 다만 2026년이라면 한 발 물러나 **"정말 DB 안의 메서드여야 하나?"**를 먼저 묻는 게 보통이다.
+
+뷰의 한계(복잡 로직·갱신 불가)를 푸는 방법이 저장 프로시저만 있는 건 아니다. 같은 문제를 **애플리케이션의 서비스 계층**으로 끌어올려 푸는 선택지가 있다. 누적 잔액 계산, 마스킹, Policy 그룹핑 같은 절차적 로직을 TypeScript/Java 서비스 메서드로 두면, 분기·테스트·버전 관리가 훨씬 익숙한 환경에서 돌아간다. 이식성 문제도 사라진다. 마이크로서비스에서 거래내역이 한 서비스의 소유 데이터라면, 그 서비스가 read/write 메서드를 노출하는 게 책의 "메서드로 대체"를 한 층 위에서 실현한 형태다.
+
+그렇다고 DB 메서드가 죽은 것도 아니다. **대량 데이터를 네트워크 밖으로 안 빼고 DB 안에서 끝내야 할 때**는 여전히 저장 함수가 답이다. 누적 잔액을 수백만 행에 걸쳐 계산해 요약만 돌려줘야 한다면, 앱으로 다 끌어와 계산하는 것보다 DB 함수가 압도적으로 싸다.
+
+읽기 측면만 보면, 뷰가 무거워진 진짜 이유가 "복잡한 집계를 매번 다시 한다"는 거라면 **구체화 뷰(materialized view)**가 메서드 전환보다 나은 답일 수 있다. 누적 잔액 같은 비싼 집계를 미리 계산해 저장해두고, 갱신 주기만 관리하면 된다. 갱신 요구가 핵심이 아니라 "느린 조회"가 핵심이었다면 이쪽을 먼저 검토해라.
+
+<Callout type="note" title="메서드 전환은 목적이 아니라 수단">
+"뷰를 메서드로 바꾼다"는 그 자체가 목표인 적은 없다. 목표는 (1) 절차적 로직을 멀쩡하게 표현하거나 (2) 그 자리로 갱신을 하는 것이다. 그 목표를 서비스 계층, 구체화 뷰, CDC 같은 다른 도구가 더 잘 푼다면 그쪽이 맞다. 책의 카탈로그는 "DB 안에서 푼다"는 전제의 답이고, 현대엔 그 전제 자체를 한 번 의심해보는 게 1단계다.
+</Callout>
+
+## 정리
+
+`Replace View With Method(s)`는 **뷰의 천장에 머리가 닿았을 때** 꺼내는 카드다. 뷰는 조회 파사드로는 더없이 깔끔하지만, 로직이 절차적으로 변하거나 갱신이 필요해지면 더 못 늘어난다. 그 자리를 메서드로 바꾸면 표현력과 쓰기 능력이 열린다.
+
+> **뷰는 비추는 유리창, 메서드는 응대하는 창구다.** 복잡한 가공과 갱신이 필요해지면 유리창을 창구로 바꾼다.
+
+대가는 분명하다. 리포팅 도구 궁합, 이식성, "뷰가 편하다"는 친숙함을 내준다. 그러니 무작정 바꾸지 말고, 전환 기간을 두고 expand-contract로 안전하게 갈아끼우되 — 그 전에 한 번 더 물어라. 이 로직, 정말 DB 안의 메서드여야 하나, 아니면 서비스 계층이나 구체화 뷰가 더 어울리나. 답이 "그래도 DB 안"이면, 그때 이 리팩토링이 정확히 맞는 도구다.

@@ -1,0 +1,289 @@
+---
+title: "Introduce Trigger For History: 이력용 트리거 도입"
+subtitle: "누가 언제 바꿨는지 DB가 빠짐없이 남기게 한다"
+description: "데이터 변경 이력·감사를 애플리케이션이 아니라 DB 트리거에 위임하는 리팩토링. 단일 범용 vs 테이블별 이력 테이블, 사용자 컨텍스트 전달, 그리고 system-versioned temporal table·CDC·표준 audit 컬럼 세트 같은 현대적 대안까지 정리한다."
+order: 63
+tags: ["database", "referential-integrity", "audit", "history", "trigger"]
+---
+
+## 이게 뭔데
+
+Introduce Trigger For History. 이름은 긴데, 하는 일은 한 줄로 끝난다. **테이블에 변경이 일어날 때마다 그 변경을 자동으로 어딘가에 받아 적게 만드는 트리거를 다는 것**이다.
+
+비유하자면 은행 창구 옆에 붙은 CCTV 같은 거다. 창구 직원이 잔액을 바꾸든, 고객 정보를 수정하든, 계좌를 닫든, CCTV는 그냥 묵묵히 다 찍는다. 직원이 "이건 안 찍히겠지" 하고 슬쩍 해도 찍힌다. 앱이 깜빡하고 로그를 안 남겨도 찍힌다. 왜냐면 녹화 버튼이 **앱이 아니라 DB 손에** 있으니까.
+
+핵심이 바로 그거다. "이력을 남긴다"는 책임을 애플리케이션 코드 곳곳에 흩뿌리는 게 아니라, **데이터가 실제로 바뀌는 단 한 지점인 DB에** 못 박는 거다.
+
+<Callout type="info" title="한 줄 요약">
+변경 이력을 앱이 남기게 하면 빠뜨린다. 사람이 빠뜨리고, 신규 배치가 빠뜨리고, "긴급 수정"이라고 콘솔에서 친 UPDATE가 빠뜨린다. 트리거는 데이터가 바뀌는 길목을 지키므로, 누가 어디서 바꾸든 빠짐없이 남는다.
+</Callout>
+
+## 언제 쓰나
+
+동기는 단순하다. **"이 테이블, 누가 언제 뭘로 바꿨는지 나중에 추적해야 한다"**는 요구가 생겼을 때다. 금융이면 거의 기본값이고, 공공·의료·정산처럼 감사(audit)가 걸린 도메인이면 협상의 여지조차 없다.
+
+그런데 이 요구를 받았을 때 사람들이 본능적으로 하는 선택이 "앱에서 남기자"다. 서비스 레이어에 `auditLog.save(...)` 한 줄 끼워 넣으면 되니까. 처음엔 멀쩡히 돌아간다. 문제는 시간이 지나면서 생긴다.
+
+- 배치 잡 하나가 새로 생겼는데, 그 잡은 감사 로그를 안 남긴다. 작성자가 그 컨벤션을 몰랐으니까.
+- 정산팀이 "급한 건"이라며 운영 DB에 콘솔로 직접 `UPDATE Account SET Balance = ...`를 친다. 앱을 안 거쳤으니 로그도 없다.
+- 마이크로서비스를 쪼개면서 같은 `Customer` 테이블을 두 서비스가 건드리게 됐다. 한쪽은 로그를 남기고 한쪽은 안 남긴다.
+
+감사라는 게 무서운 건, **빠진 데이터가 있으면 신뢰가 통째로 깨진다**는 점이다. 100건 중 99건이 기록돼 있어도, 1건이 비어 있으면 "이 로그는 못 믿겠다"가 된다. "전부 다"가 아니면 의미가 없는 거다.
+
+이럴 때 답이 트리거다. 변경의 길목인 DB에 받아 적는 장치를 박으면, 어느 앱이 바꾸든·콘솔에서 바꾸든·배치가 바꾸든 **빠질 수가 없다.**
+
+### 현실 시나리오: 사라진 \$5,000
+
+운영 중인 은행 시스템. 어느 날 고객이 전화해서 "내 계좌 잔액이 \$5,000 줄었는데 나는 출금한 적 없다"고 한다. CS가 추적을 시작한다.
+
+거래 테이블을 본다. 출금 거래는 없다. 그런데 `Account.Balance`는 분명히 줄어 있다. 거래 없이 잔액만 바뀌었다는 건, 누군가 `Account` 행을 직접 UPDATE 했다는 얘기다. 그래서 묻는다. "누가, 언제, 어떤 값에서 어떤 값으로 바꿨어요?"
+
+대답은 침묵이다. 왜냐면 `Account` 테이블엔 **현재 잔액만** 있기 때문이다. 어제 얼마였는지, 누가 만졌는지, 아무 흔적도 없다. 앱 로그를 뒤져도 안 나온다. 그 UPDATE는 앱을 안 거쳤으니까. `git blame`도 못 찍는다. 데이터엔 blame이 없다.
+
+이 순간 깨닫는다. "아, `Account` 같은 핵심 테이블은 변경 이력이 있었어야 했구나." 그리고 이력이 필요하다는 걸 깨닫는 시점은, 늘 **이력이 필요한 사건이 이미 터진 뒤**다. Introduce Trigger For History는 이 깨달음을 늦지 않게 코드로 옮기는 작업이다.
+
+## 어떻게 받아 적을까 — 두 갈래 설계
+
+트리거를 달기 전에 정해야 할 게 두 개 있다. **(1) 이력을 어디에 쌓을 것인가**, **(2) 무엇을 쌓을 것인가**.
+
+### 단일 범용 이력 테이블 vs 테이블별 이력 테이블
+
+이력 테이블 구조는 크게 두 갈래다.
+
+<Tabs defaultValue="generic">
+  <TabsList>
+    <TabsTrigger value="generic">단일 범용 테이블</TabsTrigger>
+    <TabsTrigger value="per-table">테이블별 대응 테이블</TabsTrigger>
+  </TabsList>
+  <TabsContent value="generic">
+
+모든 테이블의 변경을 한 테이블에 몰아넣는다. 보통 "어느 테이블 / 어느 PK / 어느 컬럼 / 이전 값 / 이후 값" 형태로 일반화한다.
+
+```sql
+CREATE TABLE AuditLog (
+  AuditID     BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  TableName   VARCHAR(64)  NOT NULL,
+  RowKey      VARCHAR(128) NOT NULL,   -- 대상 행의 PK (문자열로 일반화)
+  ColumnName  VARCHAR(64),
+  OldValue    TEXT,
+  NewValue    TEXT,
+  Operation   CHAR(1)      NOT NULL,   -- I / U / D
+  ChangedBy   VARCHAR(64)  NOT NULL,
+  ChangedAt   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+장점은 단순함이다. 테이블 하나로 끝나고, 새 테이블에 감사를 붙일 때 구조를 또 만들 필요가 없다. 소규모 시스템엔 이거면 충분하다.
+
+단점은 확장성이다. 모든 변경이 한 테이블로 몰리니 핫스팟이 되고, 값을 죄다 문자열(`TEXT`)로 욱여넣으니 타입 정보가 날아가며, 특정 컬럼으로 조회·집계하기가 불편하다. "지난달 잔액 변경 추이"를 뽑으려면 `WHERE TableName='Account' AND ColumnName='Balance'`로 캐스팅 곡예를 해야 한다.
+
+  </TabsContent>
+  <TabsContent value="per-table">
+
+원본 테이블마다 짝이 되는 이력 테이블을 따로 둔다. 원본의 컬럼 구조를 거의 그대로 복제하고, 감사 메타 컬럼을 덧붙인다.
+
+```sql
+CREATE TABLE CustomerHistory (
+  HistoryID    BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  CustomerID   BIGINT       NOT NULL,   -- 원본 PK (FK 아님: 삭제돼도 이력은 남아야 함)
+  FirstName    VARCHAR(100),
+  LastName     VARCHAR(100),
+  Balance      NUMERIC(15,2),
+  PolicyCode   VARCHAR(20),
+  -- 여기부터 감사 메타
+  Operation    CHAR(1)      NOT NULL,   -- I / U / D
+  ChangedBy    VARCHAR(64)  NOT NULL,
+  ChangedAt    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+장점은 타입이 그대로 살아 있고, 조회·집계가 자연스럽다는 점이다. 원본과 같은 스키마라 "그 시점의 행 전체 스냅샷"을 그대로 떠서 넣을 수 있고, 인덱스도 컬럼별로 제대로 건다. 변경량이 많은 핵심 테이블엔 이쪽이 정석이다.
+
+단점은 손이 더 간다는 것. 테이블마다 이력 테이블과 트리거를 따로 만들어야 하고, 원본 스키마가 바뀌면 이력 테이블도 따라 바꿔야 한다(이건 마이그레이션 스크립트에 한 세트로 묶어두면 관리된다).
+
+  </TabsContent>
+</Tabs>
+
+<Callout type="note" title="실무 감각으로 한 줄">
+잘 모르겠으면 **핵심 테이블은 테이블별 이력, 자잘한 설정성 테이블은 단일 범용 테이블**로 섞는 게 현실적이다. `Account`/`Customer`처럼 추적이 생명인 테이블은 제대로 떠 놓고, 어쩌다 한 번 바뀌는 코드 테이블 따위는 범용 로그로 가볍게 처리한다.
+</Callout>
+
+### 무엇을, 어떤 동작에서 받아 적을까
+
+다음으로 정한다. **어떤 동작을 추적할지** — insert까지 남길지, update와 delete만 남길지. 그리고 **전체 스냅샷을 통째로 적재할지, 아니면 바뀐 컬럼의 전/후 값만 비교해 적을지**.
+
+- **스냅샷 방식**: 변경된 행 전체를 그대로 한 줄 떠서 넣는다. 단순하고, "그 시점의 행 모습"을 그대로 복원하기 좋다. 대신 한 컬럼만 바뀌어도 전 컬럼을 또 저장하니 용량을 먹는다.
+- **변경분(diff) 방식**: 전/후 값을 비교해 실제로 바뀐 컬럼만 "컬럼 / old / new"로 남긴다. 용량은 알뜰한데, 트리거 로직이 복잡해지고 "그 시점 전체 모습"을 보려면 재구성이 필요하다.
+
+핵심 테이블이면 보통 스냅샷이 마음 편하다. 용량은 디스크가 싸졌고, 복원 단순함이 사고 칠 때 빛을 발한다.
+
+## 주의할 점
+
+<Callout type="warning" title="트리거 이력, 이건 알고 깔자">
+- **성능**: 트리거는 공짜가 아니다. `Account` 행을 UPDATE 할 때마다 이력 테이블에 INSERT가 한 번 더 붙는다. 초당 수천 UPDATE가 도는 테이블이면 이 비용이 눈에 띈다. 핫한 테이블은 측정부터.
+- **트랜잭션 운명 공동체**: 트리거 안의 INSERT가 실패하면(이력 테이블 제약 위반 등) 원본 트랜잭션 **전체가 롤백**된다. 감사 로그 한 줄 때문에 정상 비즈니스 트랜잭션이 죽는다. 이력 테이블 제약을 빡빡하게 걸수록 이 위험이 커진다. 이력 테이블은 받아 적기에 관대해야 한다.
+- **누가 바꿨는지**: 가장 흔히 빠뜨리는 함정. 트리거는 "무엇이 바뀌었는지"는 알아도 "**누가** 바꿨는지"는 기본적으로 모른다. DB 입장에선 전부 똑같은 커넥션 유저(`app_user`)로 보이니까. 변경자를 남기려면 앱이 **사용자 컨텍스트를 DB에 전달**해야 한다(아래 참조). 이걸 빼먹으면 "누가"가 죄다 `app_user`로 찍히는, 감사 가치가 절반인 로그가 된다.
+- **숨은 로직**: 트리거는 코드에 안 보인다. 신입이 합류해서 "왜 UPDATE가 느리지" "왜 이 테이블에 데이터가 자꾸 쌓이지" 하고 한참 헤맬 수 있다. 트리거의 존재와 의도를 마이그레이션·문서에 분명히 남겨라.
+</Callout>
+
+## 이렇게 한다
+
+은행 도메인의 `Customer` 테이블에 변경 이력을 붙인다고 하자. 테이블별 이력 테이블 + 스냅샷 방식으로 간다.
+
+<Steps>
+  <Step title="이력 테이블을 만든다">
+
+원본 `Customer`의 컬럼을 복제하고 감사 메타를 붙인다. 핵심은 **원본 PK를 FK로 걸지 않는 것**. 원본 행이 삭제돼도(delete 이력) 그 이력은 남아야 하니까. FK를 걸면 부모가 사라질 때 자식 이력까지 막히거나 끌려간다.
+
+```sql
+CREATE TABLE CustomerHistory (
+  HistoryID    BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  CustomerID   BIGINT       NOT NULL,
+  FirstName    VARCHAR(100),
+  LastName     VARCHAR(100),
+  Balance      NUMERIC(15,2),
+  PolicyCode   VARCHAR(20),
+  Operation    CHAR(1)      NOT NULL,
+  ChangedBy    VARCHAR(64)  NOT NULL,
+  ChangedAt    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_custhist_custid_time ON CustomerHistory (CustomerID, ChangedAt);
+```
+
+  </Step>
+  <Step title="트리거를 단다 (DDL)">
+
+INSERT/UPDATE/DELETE를 모두 받아 행 스냅샷을 적재한다. PostgreSQL 예시. UPDATE·DELETE는 변경 직전 값(`OLD`)을, INSERT는 새 값(`NEW`)을 떠 넣는다. 변경자는 `current_setting`으로 앱이 넣어둔 세션 변수에서 꺼낸다(다음 스텝 참조).
+
+```sql
+CREATE OR REPLACE FUNCTION log_customer_history() RETURNS TRIGGER AS $$
+DECLARE
+  actor TEXT := current_setting('app.current_user', true);  -- 없으면 NULL
+BEGIN
+  IF (TG_OP = 'DELETE') THEN
+    INSERT INTO CustomerHistory (CustomerID, FirstName, LastName, Balance, PolicyCode, Operation, ChangedBy)
+    VALUES (OLD.CustomerID, OLD.FirstName, OLD.LastName, OLD.Balance, OLD.PolicyCode, 'D', COALESCE(actor, 'unknown'));
+    RETURN OLD;
+  ELSE
+    INSERT INTO CustomerHistory (CustomerID, FirstName, LastName, Balance, PolicyCode, Operation, ChangedBy)
+    VALUES (NEW.CustomerID, NEW.FirstName, NEW.LastName, NEW.Balance, NEW.PolicyCode,
+            CASE WHEN TG_OP = 'INSERT' THEN 'I' ELSE 'U' END, COALESCE(actor, 'unknown'));
+    RETURN NEW;
+  END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_customer_history
+  AFTER INSERT OR UPDATE OR DELETE ON Customer
+  FOR EACH ROW EXECUTE FUNCTION log_customer_history();
+```
+
+  </Step>
+  <Step title="사용자 컨텍스트를 전달한다 (접근 프로그램 수정)">
+
+"누가"를 남기려면 앱이 트랜잭션 시작 직후 현재 사용자를 세션에 심어줘야 한다. 트리거는 거기서 꺼내 쓴다. 보통 커넥션 풀에서 트랜잭션을 빌릴 때 한 번 세팅한다.
+
+```typescript
+// Before: 그냥 비즈니스 쿼리만 날린다 — 트리거는 '누가'를 모른다
+await db.query("UPDATE Customer SET Balance = $1 WHERE CustomerID = $2", [newBalance, id]);
+
+// After: 트랜잭션 안에서 먼저 사용자 컨텍스트를 심는다
+await db.transaction(async (tx) => {
+  // 트리거가 current_setting('app.current_user')로 꺼내 쓸 값
+  await tx.query("SELECT set_config('app.current_user', $1, true)", [ctx.userId]);
+  await tx.query("UPDATE Customer SET Balance = $1 WHERE CustomerID = $2", [newBalance, id]);
+});
+```
+
+`set_config(..., true)`의 세 번째 인자가 `true`라 이 값은 **트랜잭션 로컬**이다. 커넥션이 풀로 반납돼 다음 요청에 재사용돼도 값이 새지 않는다. 풀 환경에서 이게 핵심이다.
+
+  </Step>
+  <Step title="앱이 손으로 남기던 이력 코드를 걷어낸다">
+
+이제 DB가 빠짐없이 받아 적으니, 서비스 레이어 곳곳에 흩어져 있던 `auditLog.save(...)` 류를 제거한다. 안 그러면 같은 변경이 두 군데(앱 로그 + 트리거 로그)에 이중 기록돼 서로 안 맞는 날 혼란만 가중된다. 더불어 그 이력을 보여주던 화면 코드를 새 이력 테이블(`CustomerHistory`)을 읽도록 바꾼다.
+
+  </Step>
+  <Step title="기존 데이터를 한 번 채운다 (선택)">
+
+insert까지 추적 대상이라면, 트리거를 단 시점에 **이미 존재하던 행**은 이력이 없다. 원래 생성일 컬럼이 있으면 그걸 살려서, 없으면 현재 시각으로 초기 이력을 1회 백필한다.
+
+```sql
+INSERT INTO CustomerHistory (CustomerID, FirstName, LastName, Balance, PolicyCode, Operation, ChangedBy, ChangedAt)
+SELECT CustomerID, FirstName, LastName, Balance, PolicyCode, 'I', 'backfill', CURRENT_TIMESTAMP
+FROM Customer;
+```
+
+  </Step>
+</Steps>
+
+마이그레이션 도구를 쓴다면(Flyway/Liquibase/Alembic 등) 위 DDL을 **버전 매겨진 마이그레이션 한 세트**로 묶어 둔다. 트리거·함수·이력 테이블·백필이 한 버전에 함께 들어가야 환경 간(로컬·스테이징·운영)에서 일관되게 재현된다. "운영에만 손으로 깐 트리거"는 시한폭탄이다.
+
+## 현대엔 이런 선택지도 있다
+
+2006년 책은 이걸 전부 손으로 짠 트리거로 했다. 골격은 지금도 유효하지만, 요즘은 더 적은 코드로 더 안전하게 갈 길이 몇 개 열려 있다. 요구사항에 맞는 걸 고르면 된다.
+
+<Tabs defaultValue="temporal">
+  <TabsList>
+    <TabsTrigger value="temporal">Temporal Table</TabsTrigger>
+    <TabsTrigger value="cdc">CDC / Debezium</TabsTrigger>
+    <TabsTrigger value="audit-cols">Audit 컬럼 세트</TabsTrigger>
+  </TabsList>
+  <TabsContent value="temporal">
+
+**System-Versioned Temporal Table.** SQL:2011 표준이고, SQL Server(`SYSTEM_VERSIONING`)·MariaDB·Db2가 네이티브로 지원한다. DB가 행의 유효 기간(`SysStartTime`/`SysEndTime`)을 자동 관리하고, 변경 전 버전을 **별도 이력 테이블에 자동 적재**한다. 트리거를 한 줄도 안 짜도 된다.
+
+```sql
+-- SQL Server 예시: 테이블 자체가 자기 이력을 관리
+CREATE TABLE Customer (
+  CustomerID  BIGINT PRIMARY KEY,
+  Balance     DECIMAL(15,2),
+  ValidFrom   DATETIME2 GENERATED ALWAYS AS ROW START,
+  ValidTo     DATETIME2 GENERATED ALWAYS AS ROW END,
+  PERIOD FOR SYSTEM_TIME (ValidFrom, ValidTo)
+) WITH (SYSTEM_VERSIONING = ON (HISTORY_TABLE = dbo.CustomerHistory));
+
+-- "작년 12월 1일 시점의 고객 상태"를 그대로 조회
+SELECT * FROM Customer FOR SYSTEM_TIME AS OF '2025-12-01';
+```
+
+조회 문법(`FOR SYSTEM_TIME AS OF`)까지 표준으로 따라온다는 게 진짜 강점이다. 다만 PostgreSQL은 코어에 아직 없어서(확장으로 흉내) DB 제품에 종속적이고, "누가 바꿨는지"는 여전히 사용자 컨텍스트를 따로 심어야 한다.
+
+  </TabsContent>
+  <TabsContent value="cdc">
+
+**CDC(Change Data Capture) + Debezium.** 트리거가 아니라 **DB의 트랜잭션 로그(WAL/binlog)를 읽어** 변경 스트림을 뽑아낸다. 원본 트랜잭션에 INSERT를 끼워 넣지 않으니 **쓰기 경로에 성능 부담을 거의 안 준다**는 게 결정적 차이다.
+
+변경 이벤트가 Kafka 같은 스트림으로 흘러나오면, 그걸 받아 감사 저장소(별도 DB·검색엔진·데이터 레이크)에 적재한다. 이력을 **운영 DB 바깥**에 쌓고 싶을 때, 또는 마이크로서비스에서 한 서비스의 변경을 다른 서비스가 구독해야 할 때(outbox 패턴과 함께) 잘 맞는다.
+
+대신 인프라가 무거워진다(커넥터·스트림·컨슈머). 감사 한 테이블 붙이자고 Kafka를 세우는 건 과한 경우가 많으니, **이미 이벤트 스트리밍 기반이 있는 조직**에 어울린다. 그리고 변경자는 여기서도 별도로 실어 보내야 한다(흔히 outbox 메시지에 actor를 박는다).
+
+  </TabsContent>
+  <TabsContent value="audit-cols">
+
+**경량 audit 컬럼 세트.** "행 전체 이력"까지는 필요 없고 "마지막으로 누가 언제 만들고 고쳤는지만 알면 된다"면, 별도 테이블 없이 원본 테이블에 컬럼 네 개만 박는 게 제일 싸다.
+
+```sql
+ALTER TABLE Customer
+  ADD COLUMN UserCreated      VARCHAR(64),
+  ADD COLUMN CreationDate     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  ADD COLUMN UserLastModified VARCHAR(64),
+  ADD COLUMN LastModifiedDate TIMESTAMP;
+```
+
+책도 이력 트리거의 변형으로 이 `UserCreated`/`CreationDate`/`UserLastModified`/`LastModifiedDate` 세트를 든다. 사용자 ID는 사용자 상세 테이블의 FK로 두고 룩업 테이블을 붙이는 것도 고려할 만하다. 대부분의 ORM이 `@CreatedBy`/`@CreatedDate`/`@LastModifiedBy`/`@LastModifiedDate`(JPA Auditing)나 `created_at`/`updated_at`(ActiveRecord·TypeORM) 형태로 이걸 자동 채워준다.
+
+한계는 분명하다. **"마지막 상태"만 남고 중간 변경 이력은 사라진다.** \$5,000이 세 번에 걸쳐 빠져나갔다면, 이 방식은 마지막 한 번만 보여준다. 전체 변경 추적이 목적이면 이것만으론 부족하고, 위 두 방식이나 이력 테이블이 필요하다.
+
+  </TabsContent>
+</Tabs>
+
+## 정리
+
+Introduce Trigger For History의 본질은 책임의 이동이다. **"이력을 남긴다"는 책임을 앱 코드 곳곳에서 데이터의 길목인 DB로 옮긴다.**
+
+> 감사 로그는 "대부분 남는다"가 의미 없다. "전부 남는다"여야 가치가 있다. 그래서 변경의 단일 길목인 DB에 못 박는 거다.
+
+세 가지만 기억하면 된다. 첫째, **이력 테이블에 FK를 걸지 마라** — 삭제된 행의 이력도 남아야 한다. 둘째, **사용자 컨텍스트를 트랜잭션 로컬로 심어라** — 안 그러면 "누가"가 죄다 `app_user`가 된다. 셋째, **앱이 손으로 남기던 이력 코드는 걷어내라** — 이중 기록은 안 맞는 날 반드시 온다.
+
+그리고 손코딩 트리거가 부담스럽다면, temporal table이 같은 일을 표준 문법으로 해주고, CDC가 쓰기 경로를 안 건드리고 해주며, 단순 요구라면 audit 컬럼 네 개로 끝난다. 도구는 달라도 목표는 하나다 — **데이터가 바뀐 흔적이 빠짐없이 남게.**

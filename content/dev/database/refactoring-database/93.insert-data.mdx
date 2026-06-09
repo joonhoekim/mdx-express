@@ -1,0 +1,301 @@
+---
+title: "Insert Data: 데이터 삽입"
+subtitle: "룩업·테스트·재구성용 데이터를 넣는다 — 참조 무결성을 깨지 않게"
+description: "Refactoring Databases의 변환(Transformation) 중 하나인 Insert Data를 다룬다. 정적 룩업/테스트/재구성용 데이터를 기존 테이블에 넣을 때의 참조 무결성 함정과, 이를 seed/repeatable 마이그레이션과 버전 관리로 현대화하는 방법을 정리한다."
+order: 93
+tags: ["database", "transformation", "seed-data", "reference-data"]
+---
+
+## 이게 뭔데
+
+Insert Data는 이름 그대로다. **기존 테이블에 새 행을 집어넣는다.** 끝. `INSERT INTO ... VALUES (...)` 한 줄이면 되는 거 아니냐고? 맞다. 정의만 보면 데이터베이스 리팩토링 카탈로그에서 제일 하찮아 보이는 항목이다.
+
+근데 책이 이걸 굳이 "변환(transformation)"이라는 이름을 붙여 한 챕터에 박아 넣은 데는 이유가 있다. 우리가 흔히 하는 리팩토링(Rename Table, Split Table, Merge Tables…)은 스키마의 의미를 **보존**한다. 데이터를 더하지도, 빼지도 않는다. 반면 Insert Data는 데이터베이스에 **없던 데이터를 더한다.** 그래서 엄밀히는 리팩토링이 아니라 그 상위 개념인 변환에 속한다. 리팩토링은 변환의 부분집합이고, Insert Data는 "순수 신규 추가" 쪽 변환이다.
+
+비유하자면 이렇다. 리팩토링이 **이미 차린 밥상을 더 먹기 좋게 재배치하는 일**이라면, Insert Data는 **밥상에 반찬을 한 접시 더 올리는 일**이다. 별것 아닌 것 같지만, 그 반찬이 옆 접시랑 안 어울리면 밥상 전체가 어색해진다. 그리고 DB에서 "어색하다"는 건 곧 **참조 무결성 위반(FK violation)**이라는 빨간 에러로 돌아온다.
+
+<Callout type="info" title="한 줄 요약">
+Insert Data는 그냥 행 추가다. 어려운 건 "어떻게 넣냐"가 아니라 "넣은 값이 다른 테이블과 아귀가 맞냐", 그리고 "이 INSERT를 어떻게 재현 가능하게, 버전 관리되게 굴리냐"다.
+</Callout>
+
+## 언제 쓰나
+
+데이터를 넣고 싶은 순간은 사실 매번 있다. 하지만 Insert Data가 "리팩토링/변환 작업의 일부"로 의식적으로 등장하는 맥락은 크게 셋이다.
+
+**1. 테이블 재구성용.** 우리가 Split Table, Merge Tables, Rename Table, Drop Table 같은 구조 변경을 할 때, 기존 데이터를 새 자리로 옮겨야 한다. 그 "옮김"의 절반은 결국 새 테이블로의 INSERT다. 그래서 큰 리팩토링은 내부적으로 Insert Data를 호출한다. 책이 이걸 "리팩토링의 빌딩블록"이라 부르는 이유다. 너 혼자 보면 INSERT 한 줄이지만, 큰 그림에선 Split Table의 두 번째 단계다.
+
+**2. 정적 룩업(static lookup) 데이터.** 이게 실무에서 제일 자주 만나는 케이스다. 모든 애플리케이션은 거의 변하지 않는 참조 데이터를 깔고 시작한다. 주/도 목록, 국가 코드, 주소 유형(집·회사·휴양지), 그리고 우리 은행 도메인이라면 **계좌 유형(Account Type: 당좌·저축·투자)** 같은 거. 관리자가 화면에서 편집하는 마스터 데이터가 아니라, "코드가 동작하려면 그냥 거기 있어야 하는" 데이터다. 편집 화면이 없으면 누군가는 손으로 INSERT를 짜야 한다.
+
+**3. 테스트 데이터.** 개발 DB에 "알려진 값"을 미리 깔아두는 거다. 테스트가 `AccountTypeId = 2`를 기대하는데 DB가 텅 비어 있으면 테스트가 죄다 깨진다. 그래서 픽스처/시드 데이터를 INSERT로 넣는다.
+
+### 현실 시나리오: Brokerage 계좌가 추가됐다
+
+이런 적 있을 거다. 우리 은행은 그동안 계좌 유형이 세 개였다 — 당좌(Checking), 저축(Savings), 투자(Investment). `AccountType`이라는 룩업 테이블에 행 세 개 박혀 있고, `Account` 테이블은 `AccountTypeId`로 그걸 FK 참조한다. 평화로웠다.
+
+```text
+AccountType
++---------------+-----------+
+| AccountTypeId | Name      |
++---------------+-----------+
+| 1             | Checking  |
+| 2             | Savings   |
+| 3             | Investment|
++---------------+-----------+
+```
+
+그러던 어느 날 기획에서 "증권 위탁계좌(Brokerage) 상품 추가합니다"라고 통보한다. 코드는 이미 다 짰고, 화면도 나왔고, QA도 끝났다. 근데 운영 DB의 `AccountType`에는 여전히 세 줄밖에 없다. 누군가 운영에 행 하나를 넣어야 한다.
+
+```sql
+INSERT INTO AccountType (AccountTypeId, Name, EffectiveDate)
+VALUES (6, 'Brokerage', 'Feb 1 2007');
+```
+
+여기서 보통 두 가지 사고가 난다. 하나는 **"AccountTypeId를 6으로 넣었는데 코드의 enum은 4를 기대하더라"** 같은 매핑 불일치. 다른 하나는 **이 INSERT를 운영에서 손으로 친 다음, 스테이징·다른 리전 DB에는 까먹고 안 넣어서** 환경마다 룩업 데이터가 달라지는 참사다. 후자가 진짜 무섭다. "내 로컬에선 되는데요"의 데이터 버전이다.
+
+## 주의할 점
+
+<Callout type="warning" title="참조 무결성(RI)을 깨지 마라">
+룩업 데이터를 넣을 때 제일 까다로운 게 참조 무결성이다. 다른 테이블이 이 데이터를 FK로 참조한다면, **넣는 값은 그 참조 쪽에서 실제로 나타날 유효한 값**이어야 한다.
+
+방향이 양쪽 다 있다.
+
+- **자식 → 부모 INSERT**: `Account`(자식)에 행을 넣을 건데, 그 행의 `AccountTypeId`가 `AccountType`(부모)에 없으면 FK 위반으로 INSERT가 거부된다. 그래서 **부모(룩업)를 먼저, 자식을 나중에** 넣어야 한다. 순서가 곧 무결성이다.
+- **부모 행 변경/삭제**: 반대로 `AccountType`에서 행을 빼거나 ID를 바꾸면, 그걸 가리키던 `Account` 행들이 미아가 된다. 그래서 룩업 INSERT는 보통 "추가"만 안전하고, "교체"는 위험하다.
+
+책의 예시 그대로다. `Address`가 `State`를 참조한다면, `State`에 넣는 값은 `Address`에 실제로 등장할 수 있는 유효한 코드여야 한다. 아무 주(state)나 막 넣으면 무결성은 안 깨지지만, 빠뜨리면 깨진다.
+</Callout>
+
+또 하나. **대량(bulk) 데이터는 INSERT 한 줄씩 치면 안 된다.** 소량(룩업 수십~수백 행)은 평범한 `INSERT` 스크립트로 충분하다. 그런데 테이블 재구성으로 수백만 행을 옮긴다면, `INSERT ... VALUES`를 행마다 도는 순간 트랜잭션 로그가 폭발하고 시간이 미친 듯이 든다. 2006년 책은 Oracle의 `SQLLDR`(SQL\*Loader) 같은 벌크 로더를 쓰라고 한다. 지금도 본질은 같다 — 대량 적재는 전용 경로(`COPY`, `LOAD DATA`, `INSERT ... SELECT`, 벌크 API)로 내려보내라. 자세한 건 아래에서.
+
+## 이렇게 한다
+
+핵심 메커니즘은 책이 네 단계로 정리한다. 순서대로 가자.
+
+<Steps>
+<Step title="삽입할 데이터 식별">
+무엇을 넣을지 정한다. 의존성 포함해서. 다른 테이블에서 **옮겨오는** 데이터면 원본 행을 지울지 말지 정하고(이건 재구성 케이스), 새로 만드는 값이면 **이해관계자가 그 값을 승인했는지** 확인한다. `Brokerage`라는 이름과 ID를 누가 정했는지가 의외로 중요하다.
+</Step>
+<Step title="대상(destination) 식별">
+어느 테이블에 넣는가. `AccountType`인가, `Account`인가. FK 관계가 있다면 **부모 먼저**라는 순서가 여기서 잡힌다.
+</Step>
+<Step title="원천(source) 식별">
+데이터가 어디서 오나. 다른 테이블에서 오면 `INSERT ... SELECT`, 손으로 만드는 값이면 스크립트를 쓴다.
+</Step>
+<Step title="변환 필요성 식별">
+원본을 그대로 넣어도 되나, 아니면 변환이 필요한가. 책의 예시는 미터법 → 야드파운드법 변환이다. 단위·인코딩·코드 매핑이 다르면 INSERT 전에 손봐야 한다.
+</Step>
+</Steps>
+
+### 1) 스키마 변경 (DDL)
+
+순수 Insert Data만 따지면 스키마 변경이 없는 경우가 많다. 이미 있는 `AccountType` 테이블에 행만 더하는 거니까. 다만 룩업 테이블을 **처음 만드는** 상황이라면 이게 사실상 Introduce New Table + Insert Data 콤보가 된다. 그 경우 테이블과 FK를 먼저 세운다.
+
+```sql
+-- 룩업 테이블이 없다면 먼저 만든다 (Introduce New Table)
+CREATE TABLE AccountType (
+    AccountTypeId  INTEGER     NOT NULL PRIMARY KEY,
+    Name           VARCHAR(30) NOT NULL UNIQUE,
+    EffectiveDate  DATE        NOT NULL
+);
+
+-- 참조하는 쪽에 FK가 걸려 있어야 무결성이 강제된다
+ALTER TABLE Account
+    ADD CONSTRAINT fk_account_type
+    FOREIGN KEY (AccountTypeId) REFERENCES AccountType (AccountTypeId);
+```
+
+FK가 없으면 룩업 무결성을 DB가 안 지켜준다. 그러면 `Account.AccountTypeId = 99` 같은 유령 값이 슬그머니 들어오고, 어느 날 조인하면 행이 사라지는 미스터리가 시작된다.
+
+### 2) 데이터 마이그레이션 (DML)
+
+**룩업 데이터 — 수동 INSERT.** 우리 Brokerage 케이스.
+
+```sql
+-- Before: AccountType에 3행만 존재
+-- After: Brokerage 추가
+
+INSERT INTO AccountType (AccountTypeId, Name, EffectiveDate)
+VALUES (6, 'Brokerage', DATE '2007-02-01');
+```
+
+여기서 실무 한 끗: 이 스크립트가 **한 번만 실행될지, 여러 번 실행돼도 안전할지**가 중요하다. 마이그레이션 도구가 같은 스크립트를 두 번 돌리거나, 새 환경에 처음 적용할 때 깨지면 안 된다. 그래서 멱등(idempotent)하게 쓰는 습관이 좋다.
+
+```sql
+-- PostgreSQL: 이미 있으면 무시 (멱등)
+INSERT INTO AccountType (AccountTypeId, Name, EffectiveDate)
+VALUES (6, 'Brokerage', DATE '2007-02-01')
+ON CONFLICT (AccountTypeId) DO NOTHING;
+```
+
+```sql
+-- MySQL 계열
+INSERT IGNORE INTO AccountType (AccountTypeId, Name, EffectiveDate)
+VALUES (6, 'Brokerage', '2007-02-01');
+```
+
+**재구성 데이터 — INSERT ... SELECT.** Split Table 같은 작업에서 기존 테이블 데이터를 옮길 땐 행 하나씩이 아니라 집합으로 옮긴다.
+
+```sql
+-- 기존 Customer에서 분리한 CustomerContact로 한 번에 적재
+INSERT INTO CustomerContact (CustomerId, Email, Phone)
+SELECT CustomerId, Email, Phone
+FROM   Customer
+WHERE  Email IS NOT NULL;
+```
+
+**대량 적재 — 벌크 로더.** 책의 `SQLLDR` 자리에 지금은 각 DB의 벌크 경로가 들어간다. 수백만 행이면 행 단위 INSERT 대신 이걸 쓴다.
+
+```sql
+-- PostgreSQL: 파일을 통째로 적재 (행 단위 INSERT보다 수십 배 빠름)
+COPY AccountType (AccountTypeId, Name, EffectiveDate)
+FROM '/data/account_types.csv'
+WITH (FORMAT csv, HEADER true);
+```
+
+```sql
+-- MySQL
+LOAD DATA INFILE '/data/account_types.csv'
+INTO TABLE AccountType
+FIELDS TERMINATED BY ','
+IGNORE 1 LINES;
+```
+
+<Callout type="note" title="왜 벌크 경로가 빠른가">
+행 단위 `INSERT`는 매 행마다 파싱·트랜잭션 처리·인덱스 갱신·로그 기록을 반복한다. `COPY`/`LOAD DATA`는 이걸 한 덩어리로 묶어 한 번에 처리한다. 대량 재구성에서 인덱스를 잠시 떼고(`DROP INDEX`) 적재 후 다시 만드는 것도 같은 이유 — 행마다 인덱스 트리를 흔들지 않으려고.
+</Callout>
+
+### 3) 접근 프로그램(코드) 수정
+
+데이터를 넣었다고 끝이 아니다. 그 데이터를 읽는 코드가 새 값을 모르면 사고 난다. 책이 짚는 두 가지가 정확히 이거다.
+
+**WHERE 절 갱신.** `Brokerage`를 추가했더니, "표준 계좌 목록"을 뽑던 쿼리가 갑자기 증권계좌까지 끌고 오기 시작한다. 의도와 다르면 제외 조건을 넣어야 한다.
+
+```sql
+-- Before: 그냥 전부
+SELECT * FROM Account WHERE CustomerId = :cid;
+
+-- After: 표준 조회에서 Brokerage(6) 제외
+SELECT * FROM Account
+WHERE  CustomerId = :cid
+  AND  AccountTypeId <> 6;
+```
+
+이렇게 매직 넘버 `6`을 쿼리마다 박는 게 싫으면, 책이 권하는 대로 **뷰(Introduce View)**로 "표준 계좌"의 정의를 한 곳에 모은다.
+
+```sql
+CREATE VIEW StandardAccount AS
+SELECT * FROM Account
+WHERE  AccountTypeId IN (1, 2, 3);   -- Checking/Savings/Investment만
+```
+
+이제 새 유형이 또 생겨도 뷰 정의 한 줄만 고치면 된다. "표준이 뭐냐"가 코드 곳곳에 흩어지지 않는다.
+
+**값 검증 로직 갱신.** 앱이 enum이나 허용 목록으로 계좌 유형을 검증하고 있었다면, 새 값을 거기 추가해야 한다. 안 그러면 멀쩡한 Brokerage 계좌가 "알 수 없는 계좌 유형"으로 튕긴다.
+
+```typescript
+// Before
+enum AccountType {
+  Checking = 1,
+  Savings = 2,
+  Investment = 3,
+}
+
+// After: 새 값 추가 — DB의 INSERT와 짝을 맞춘다
+enum AccountType {
+  Checking = 1,
+  Savings = 2,
+  Investment = 3,
+  Brokerage = 6, // DB의 AccountTypeId=6과 일치해야 한다
+}
+```
+
+여기서 제일 흔한 버그가 **DB의 ID와 코드의 enum 값이 안 맞는 것**이다. DB엔 6으로 넣고 코드엔 4로 박으면, 컴파일은 되고 테스트도 통과할 수 있지만 운영에서 잘못된 계좌를 분류한다. 룩업 ID는 한 곳(보통 DB)을 진실의 원천으로 두고, 코드는 거기에 맞추는 게 안전하다.
+
+### 현대화: seed/repeatable 마이그레이션과 버전 관리
+
+2006년 책은 INSERT 스크립트를 손으로 짜서 DBA가 환경마다 돌리는 그림이다. 골격은 그대로 두되, 지금은 이걸 **마이그레이션 도구로 버전 관리**한다. 이게 위에서 본 "환경마다 룩업이 달라지는 참사"를 구조적으로 막는다.
+
+룩업/참조 데이터는 마이그레이션에서 두 가지 성격으로 나뉜다. 도구마다 이름이 다른데 개념은 같다.
+
+<Tabs defaultValue="versioned">
+<TabsList>
+<TabsTrigger value="versioned">버전드 (한 번만)</TabsTrigger>
+<TabsTrigger value="repeatable">반복형 (바뀌면 재실행)</TabsTrigger>
+<TabsTrigger value="alembic">ORM/Alembic</TabsTrigger>
+</TabsList>
+
+<TabsContent value="versioned">
+
+**버전드 마이그레이션 (versioned).** "Brokerage 추가" 같은 일회성 변경. 한 번 적용되면 다시는 안 돈다. Flyway라면 `V93__add_brokerage_account_type.sql`.
+
+```sql
+-- V93__add_brokerage_account_type.sql
+INSERT INTO AccountType (AccountTypeId, Name, EffectiveDate)
+VALUES (6, 'Brokerage', DATE '2007-02-01');
+```
+
+도구가 각 환경의 스키마 히스토리 테이블에 "이 버전 적용됨"을 기록하므로, 운영·스테이징·다른 리전 전부 **정확히 같은 INSERT가 정확히 한 번** 적용된다. 손으로 빠뜨릴 일이 없다.
+
+</TabsContent>
+
+<TabsContent value="repeatable">
+
+**반복형 마이그레이션 (repeatable).** 룩업 테이블 **전체 정의**를 한 파일에 두고, 파일이 바뀔 때마다 재실행되게 한다. Flyway의 `R__` 접두사가 이걸 한다. 멱등하게 써야 하므로 `MERGE`/`UPSERT`로 작성한다.
+
+```sql
+-- R__account_types.sql  (파일 체크섬이 바뀌면 자동 재적용)
+MERGE INTO AccountType AS t
+USING (VALUES
+    (1, 'Checking',   DATE '2000-01-01'),
+    (2, 'Savings',    DATE '2000-01-01'),
+    (3, 'Investment', DATE '2000-01-01'),
+    (6, 'Brokerage',  DATE '2007-02-01')
+) AS s (AccountTypeId, Name, EffectiveDate)
+ON t.AccountTypeId = s.AccountTypeId
+WHEN MATCHED THEN UPDATE SET Name = s.Name, EffectiveDate = s.EffectiveDate
+WHEN NOT MATCHED THEN INSERT VALUES (s.AccountTypeId, s.Name, s.EffectiveDate);
+```
+
+이게 참조 데이터를 **코드처럼 버전 관리**하는 모습이다. 룩업 전체가 git에 한 파일로 들어가고, diff로 "언제 Brokerage가 추가됐는지"가 보인다. 새 환경을 세우면 이 파일이 한 번에 전체를 깔아준다.
+
+</TabsContent>
+
+<TabsContent value="alembic">
+
+**ORM/Alembic 데이터 마이그레이션.** Python 진영이라면 Alembic이 스키마와 데이터 변경을 같은 리비전 파일에 담는다.
+
+```python
+def upgrade():
+    account_type = sa.table(
+        "AccountType",
+        sa.column("AccountTypeId", sa.Integer),
+        sa.column("Name", sa.String),
+        sa.column("EffectiveDate", sa.Date),
+    )
+    op.bulk_insert(account_type, [
+        {"AccountTypeId": 6, "Name": "Brokerage",
+         "EffectiveDate": datetime.date(2007, 2, 1)},
+    ])
+
+def downgrade():
+    op.execute("DELETE FROM \"AccountType\" WHERE \"AccountTypeId\" = 6")
+```
+
+`downgrade`로 롤백 경로까지 같이 정의하는 게 핵심이다. 룩업 INSERT도 되돌릴 수 있어야 진짜 마이그레이션이다.
+
+</TabsContent>
+</Tabs>
+
+<Callout type="success" title="현대화의 핵심 한 줄">
+INSERT 자체는 2006년이나 지금이나 똑같다. 달라진 건 **"누가 어디서 몇 번 실행하느냐"를 사람의 기억이 아니라 도구에 맡긴다는 것**이다. 룩업·참조 데이터를 코드처럼 버전 관리하면, 환경 간 데이터 드리프트라는 가장 흔한 사고가 통째로 사라진다.
+</Callout>
+
+분리된 서비스 환경이라면 한 발 더 나간다. 룩업 데이터를 어느 서비스가 **소유**하는지 정하고(데이터 소유권), 다른 서비스는 그 룩업을 직접 INSERT하지 않는다. 공유 룩업이 정말 자주 바뀌면 CDC(예: Debezium)나 outbox로 변경을 흘려보내 각 서비스의 읽기 모델을 동기화하는 식인데, 정적 룩업 대부분은 그렇게까지 안 변해서 repeatable 마이그레이션으로 충분하다. 도구는 문제에 맞춰 고르면 된다.
+
+## 정리
+
+Insert Data는 카탈로그에서 제일 작아 보이는 변환이지만, 실무에서 제일 자주 밟는 지뢰가 여기 숨어 있다.
+
+> **어려운 건 INSERT 문법이 아니라, 넣은 값이 다른 테이블과 아귀가 맞는지, 그리고 그 INSERT가 모든 환경에 똑같이 적용되는지다.**
+
+세 가지만 챙기면 된다. 첫째, **참조 무결성** — 부모(룩업) 먼저, 자식 나중. 넣는 값은 참조 쪽에서 유효한 값이어야 한다. 둘째, **접근 코드** — WHERE 절과 enum 검증을 새 값에 맞춰 갱신하고, 흩어지는 정의는 뷰로 모은다. 셋째, **재현성** — 손으로 운영에 치지 말고, 버전드/반복형 마이그레이션으로 참조 데이터를 코드처럼 관리한다. 그러면 "내 환경에선 되는데"의 데이터 버전을 영원히 안 만난다.

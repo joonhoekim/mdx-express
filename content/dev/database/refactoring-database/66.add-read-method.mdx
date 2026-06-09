@@ -1,0 +1,240 @@
+---
+title: "Add Read Method: 읽기 메서드 추가"
+subtitle: "흩어진 SELECT를 한 군데 조회 메서드로 모은다"
+description: "조회 로직을 저장 프로시저나 리포지토리 메서드로 캡슐화해 앱·리포트에 흩어진 SELECT를 한 곳에 모으는 리팩토링. 소프트/하드 삭제 정책 변경 시 한 군데만 고치면 되는 이유와, query object·repository find 패턴으로의 현대화를 다룬다."
+order: 66
+tags: ["database", "architecture", "stored-procedure", "query"]
+---
+
+## 이게 뭔데
+
+Add Read Method. **"이 조건으로 데이터를 찾는다"는 조회 로직을, 흩어진 SELECT 대신 이름 붙은 메서드 하나로 모으는** 리팩토링이다. 원래 책에선 그 메서드가 저장 프로시저였고, 요즘 우리 손에선 리포지토리 `find` 메서드다. 본질은 같다. 조회를 캡슐화하는 거.
+
+비유를 하나 들자. 회사에 "활성 고객"의 정의가 있다. 탈퇴 안 했고, 계좌가 하나라도 있고, 잔액이 0보다 큰 사람. 그런데 이 정의를 사람들이 각자 머릿속에 들고 다닌다. 마케팅팀 쿼리엔 `WHERE is_deleted = false`만 있고, 정산팀 쿼리엔 `balance > 0`만 있고, 리포트팀은 계좌 JOIN을 빼먹었다. 셋 다 자기는 "활성 고객"을 뽑았다고 믿는다. 결과는 다 다르다. 회의에서 숫자 안 맞는다고 한 시간 싸운다.
+
+Add Read Method는 이 "활성 고객의 정의"를 **코드 한 군데에 못 박는** 일이다. `findActiveCustomers()` 하나 만들고, 다들 그걸 부른다. 정의가 바뀌면? 한 군데만 고친다.
+
+<Callout type="info" title="한 줄 요약">
+조회 조건을 앱 곳곳에 흩뿌리지 말고, 이름 붙은 Read 메서드 하나로 모은다. "활성 고객은 무엇인가" 같은 질문의 답을 한 곳에 둔다.
+</Callout>
+
+## 언제 쓰나
+
+증상은 단순하다. **같은 의미의 SELECT가 코드베이스 여기저기 복붙돼 있다.** grep으로 `is_deleted`를 치면 47군데가 나오는데, 그중 3군데는 빼먹었다. 그 3군데가 탈퇴 고객을 화면에 노출한다. 이게 Add Read Method가 답인 상황이다.
+
+특히 책이 콕 집어 강조하는 상황이 **삭제 정책을 다룰 때**다. Introduce Soft Delete(소프트 삭제 도입)나 Introduce Hard Delete를 하려고 보면, 조회 로직이 흩어져 있을 때 지옥이 펼쳐진다. 소프트 삭제를 도입한다는 건, 앞으로 **모든 조회에 `WHERE is_deleted = false`가 붙어야 한다**는 뜻이다. 조회가 한 곳에 모여 있으면 거기 한 줄 추가하면 끝. 흩어져 있으면 47군데를 다 찾아 고쳐야 하고, 위에서 말한 그 3군데를 또 빼먹는다.
+
+동기를 정리하면 셋이다.
+
+- **캡슐화** — "이 조건으로 찾는다"는 의미를 한 군데에 둔다. 조건이 곧 비즈니스 규칙인데, 규칙이 복붙으로 퍼지면 그건 규칙이 아니라 소문이다.
+- **일관성** — 누가 부르든 같은 정의로 같은 결과가 나온다. 마케팅·정산·리포트가 같은 "활성 고객"을 본다.
+- **변경 격리** — 삭제 정책이든, 조건이든, 테이블 구조든 바뀌면 그 메서드만 손본다. 호출하는 쪽은 모른다.
+
+### 현실 시나리오 한 토막
+
+은행 시스템이다. `Customer`, `Account`, `Balance`가 있다. 어느 날 기획에서 "활성 고객 화면 만들어주세요"가 온다. 너는 짠다.
+
+```sql
+SELECT c.*
+FROM Customer c
+JOIN Account a ON a.customer_id = c.customer_id
+WHERE a.balance > 0;
+```
+
+잘 돈다. 배포한다. 두 달 뒤, 다른 팀이 "활성 고객 이메일 발송" 기능을 만든다. 그 팀은 네 쿼리의 존재를 모른다. 그래서 자기 버전을 짠다. 근데 그 팀은 `balance > 0` 조건을 깜빡하고, 대신 "최근 로그인" 조건을 넣는다. 이제 시스템에 "활성 고객"이 **두 가지** 있다.
+
+여섯 달 뒤, 컴플라이언스에서 폭탄이 떨어진다. **"탈퇴 신청한 고객한테 마케팅 메일이 나갔습니다."** 알고 보니 소프트 삭제는 도입했는데, 이메일 발송 쿼리는 `is_deleted` 필터를 안 걸었던 거다. 너는 `is_deleted`를 grep한다. 41군데가 나온다. 어느 게 빠졌는지 하나하나 확인한다. 주말이 사라진다.
+
+이 모든 게, "활성 고객을 찾는다"는 한 가지 질문의 답이 **41개**였기 때문에 벌어진 일이다. 답이 하나였으면 안 났다.
+
+## 주의할 점
+
+<Callout type="warning" title="트레이드오프 — 메서드라고 다 좋은 건 아니다">
+- **저장 프로시저는 벤더 종속적이다.** Oracle 프로시저랑 PostgreSQL 함수는 문법이 다르다. DB를 갈아탈 일이 생기면 프로시저를 다 다시 짜야 한다. 그래서 요즘은 조회 캡슐화를 DB가 아니라 **앱 계층(리포지토리)** 에 두는 쪽이 흔하다. 이식성을 앱이 떠안는 셈.
+- **잘못 짜면 성능이 죽는다.** "범용 조회 메서드"를 만든답시고 파라미터 20개짜리 거대한 SELECT를 만들면, 옵티마이저가 실행 계획을 못 고른다. 조건마다 적합한 인덱스가 다른데 한 쿼리로 다 처리하려다 풀스캔 도는 거다. 캡슐화는 좋은데, **하나의 메서드가 너무 많은 모양의 쿼리를 떠안지 않게** 쪼개라.
+- **Read 메서드 폭발.** 조건 조합마다 메서드를 만들면 `findByA`, `findByAB`, `findByABC`... 메서드가 끝없이 불어난다. 이건 query object 패턴으로 푼다(아래에서).
+</Callout>
+
+그리고 한 가지 더. Add Read Method는 보통 **Add CRUD Methods와 짝**이다. CRUD의 R(Read)은 기본 키 조회 하나뿐이다 — "ID로 고객 한 명 가져와". 근데 현실의 조회는 "잔액 0 이상", "특정 지점", "이번 달 가입" 같은 **기본 키와 무관한 조건**이 대부분이다. 그 자리를 Add Read Method가 메운다. 둘이 같이 있으면 스키마 리팩토링(테이블 이름 변경, 컬럼 이동 등) 할 때 호출부는 안 건드리고 메서드 안만 고치면 돼서 편하다.
+
+## 이렇게 한다
+
+핵심 메커니즘은 짧다. **(1) 조회할 데이터를 식별하고, (2) 조건을 식별하고, (3) 메서드로 만들고 100% 회귀 테스트로 감싼다.** 마이그레이션할 데이터는 없다(조회 로직만 바꾸는 거니까). 필요한 데이터 묶음마다 여러 번 적용한다.
+
+before/after로 보자.
+
+### Before: 흩어진 SELECT
+
+```typescript
+// 화면 A — 활성 고객 목록
+const rows = await db.query(
+  `SELECT c.* FROM Customer c
+   JOIN Account a ON a.customer_id = c.customer_id
+   WHERE a.balance > 0`
+);
+
+// 화면 B — 활성 고객 이메일 발송 (다른 팀, 조건이 미묘하게 다름)
+const rows = await db.query(
+  `SELECT c.* FROM Customer c
+   WHERE c.last_login_at > NOW() - INTERVAL '90 days'`
+);
+
+// 리포트 C — 또 다른 버전
+const rows = await db.query(
+  `SELECT * FROM Customer WHERE status = 'ACTIVE'`
+);
+```
+
+세 개가 다 "활성 고객"이라고 우긴다. 진실은 하나도 없다.
+
+### After 1: 저장 프로시저 (책의 골격)
+
+책의 원래 방식. 조회를 프로시저 하나로 못 박는다.
+
+```sql
+-- PostgreSQL 함수 버전. "활성 고객"의 정의를 여기 한 군데에 둔다.
+CREATE OR REPLACE FUNCTION find_active_customers()
+RETURNS SETOF Customer AS $$
+  SELECT DISTINCT c.*
+  FROM Customer c
+  JOIN Account a ON a.customer_id = c.customer_id
+  WHERE a.balance > 0
+    AND c.is_deleted = false;   -- 소프트 삭제 필터도 여기 한 줄
+$$ LANGUAGE sql STABLE;
+```
+
+이제 어느 앱이 부르든 `SELECT * FROM find_active_customers()` 하나다. 정의가 한 곳이다.
+
+### After 2: 리포지토리 find 메서드 (현대 실무)
+
+요즘 우리가 더 자주 쓰는 모양. 벤더 종속을 피하려고 캡슐화를 앱 계층에 둔다. 의미는 똑같다 — "활성 고객의 정의를 한 군데에".
+
+```typescript
+// CustomerRepository — "활성 고객"의 정의가 여기 단 한 곳에 산다
+class CustomerRepository {
+  async findActiveCustomers(): Promise<Customer[]> {
+    return this.db
+      .selectFrom('Customer as c')
+      .innerJoin('Account as a', 'a.customer_id', 'c.customer_id')
+      .selectAll('c')
+      .where('a.balance', '>', 0)
+      .where('c.is_deleted', '=', false)   // 소프트 삭제 필터, 한 줄
+      .distinct()
+      .execute();
+  }
+}
+```
+
+호출부는 그냥 `customerRepo.findActiveCustomers()`. 화면 A·B·C가 전부 이걸 부른다. 더 이상 "내가 생각하는 활성 고객"은 없다.
+
+### 소프트/하드 삭제를 한 군데서 갈아끼우기
+
+이게 Add Read Method가 진짜 빛나는 순간이다. 삭제 정책이 바뀌어도 **메서드 안쪽만** 손대면 된다.
+
+<Tabs defaultValue="soft">
+  <TabsList>
+    <TabsTrigger value="soft">소프트 삭제</TabsTrigger>
+    <TabsTrigger value="hard">하드 삭제로 전환</TabsTrigger>
+  </TabsList>
+  <TabsContent value="soft">
+
+소프트 삭제 시절. 삭제는 플래그만 세운다. 그러니 조회는 항상 살아있는 것만 본다.
+
+```typescript
+async findActiveCustomers(): Promise<Customer[]> {
+  return this.db.selectFrom('Customer as c')
+    .innerJoin('Account as a', 'a.customer_id', 'c.customer_id')
+    .selectAll('c')
+    .where('a.balance', '>', 0)
+    .where('c.is_deleted', '=', false)   // 살아있는 행만
+    .distinct()
+    .execute();
+}
+```
+
+  </TabsContent>
+  <TabsContent value="hard">
+
+나중에 "보존 기간 지난 데이터는 진짜 지운다"는 정책으로 바뀌었다. 삭제된 행은 테이블에서 사라지니 `is_deleted` 필터가 필요 없어진다. **고치는 곳은 이 메서드 한 군데뿐.** 호출하는 41군데는 손도 안 댄다.
+
+```typescript
+async findActiveCustomers(): Promise<Customer[]> {
+  return this.db.selectFrom('Customer as c')
+    .innerJoin('Account as a', 'a.customer_id', 'c.customer_id')
+    .selectAll('c')
+    .where('a.balance', '>', 0)
+    // is_deleted 필터 제거 — 정책 바뀌어도 여기 한 줄만 손댄다
+    .distinct()
+    .execute();
+}
+```
+
+  </TabsContent>
+</Tabs>
+
+흩어진 SELECT였으면 이 전환에 41군데 수정 + 회귀 테스트 + 빠뜨린 곳 찾기 삼중고였을 거다. 한 군데로 모았으니 한 줄로 끝난다. **이 차이 하나 보자고 이 리팩토링을 하는 거다.**
+
+### 조건이 많아지면: Query Object 패턴
+
+"잔액 이상", "지점별", "기간별"... 조건 조합이 많아지면 `findByX` 메서드가 폭발한다고 했다. 이건 조건을 **객체로 넘기는** query object로 푼다.
+
+```typescript
+// 조건을 객체 하나로 표현 — 메서드 폭발을 막는다
+interface CustomerCriteria {
+  minBalance?: number;
+  branchId?: string;
+  joinedAfter?: Date;
+  includeDeleted?: boolean;   // 삭제 정책도 여기서 한 번에 제어
+}
+
+class CustomerRepository {
+  async find(c: CustomerCriteria): Promise<Customer[]> {
+    let q = this.db.selectFrom('Customer as c')
+      .innerJoin('Account as a', 'a.customer_id', 'c.customer_id')
+      .selectAll('c');
+
+    if (c.minBalance != null) q = q.where('a.balance', '>=', c.minBalance);
+    if (c.branchId)          q = q.where('c.branch_id', '=', c.branchId);
+    if (c.joinedAfter)       q = q.where('c.joined_at', '>=', c.joinedAfter);
+    if (!c.includeDeleted)   q = q.where('c.is_deleted', '=', false);  // 기본은 살아있는 것만
+
+    return q.distinct().execute();
+  }
+}
+```
+
+조건 100가지 조합도 메서드 하나로 받는다. 그러면서 `is_deleted` 기본 필터 같은 **공통 규칙은 여전히 한 곳**에 못 박혀 있다. 캡슐화는 지키면서 유연성을 얻는 절충이다.
+
+<Callout type="note" title="너무 범용으로 가면 다시 함정">
+query object가 편하다고 모든 조건을 `find(criteria)` 하나로 빨아들이면, 위 트레이드오프에서 말한 "파라미터 20개짜리 괴물 쿼리"로 돌아간다. 의미가 뚜렷한 조회(`findActiveCustomers`)는 **이름 붙은 전용 메서드**로 따로 두고, 자유로운 필터링만 query object로 받는 게 균형점이다. 이름이 곧 문서다 — `find({ minBalance: 0, includeDeleted: false })`보다 `findActiveCustomers()`가 "이게 활성 고객의 정의구나"를 더 잘 말해준다.
+</Callout>
+
+### 무겁고 자주 도는 조회라면: 인덱스와 머티리얼라이즈드 뷰
+
+Read 메서드를 한 곳에 모았으면, **최적화도 한 곳에서** 한다는 보너스가 따라온다. 흩어진 SELECT였으면 어디다 인덱스를 맞춰야 할지도 모른다. 모아두면 그 메서드의 쿼리 패턴이 명확해서 딱 맞는 인덱스를 건다.
+
+```sql
+-- 활성 고객 조회가 자주 돈다면, 조건에 맞춘 부분 인덱스(partial index)
+CREATE INDEX idx_active_account
+  ON Account (customer_id)
+  WHERE balance > 0;
+
+-- 너무 무겁고 실시간성이 덜 중요하면 머티리얼라이즈드 뷰로 미리 계산
+CREATE MATERIALIZED VIEW active_customers AS
+  SELECT DISTINCT c.*
+  FROM Customer c
+  JOIN Account a ON a.customer_id = c.customer_id
+  WHERE a.balance > 0 AND c.is_deleted = false;
+```
+
+머티리얼라이즈드 뷰로 바꿔도 `findActiveCustomers()`의 **호출부는 모른다.** 메서드가 안에서 뷰를 읽도록 바꾸면 끝이다. 이게 캡슐화의 힘이다 — 구현을 통째로 갈아도 인터페이스가 그대로면 바깥은 평온하다.
+
+## 정리
+
+Add Read Method는 화려한 리팩토링이 아니다. 테이블 구조를 안 건드린다. 마이그레이션할 데이터도 없다. 그냥 **흩어진 SELECT를 이름 붙은 메서드 하나로 모으는** 일이다. 근데 효과는 크다.
+
+> **"활성 고객은 무엇인가"의 답이 하나면, 그게 곧 비즈니스 규칙이다. 답이 41개면, 그건 41개의 버그 후보다.**
+
+책에선 저장 프로시저였지만, 요즘은 벤더 종속을 피해 리포지토리 `find` 메서드로 두는 게 자연스럽다. 조건이 많으면 query object로 받고, 의미가 뚜렷하면 전용 이름을 붙인다. 그리고 가장 중요한 보상은 **삭제 정책처럼 가로지르는 규칙이 바뀔 때** 나온다. 소프트에서 하드로, 필터 추가, 머티리얼라이즈드 뷰 전환 — 전부 메서드 안쪽 한 곳만 손대면 된다. 호출하는 41군데는 평화롭다.
+
+그러니 같은 의미의 SELECT를 두 번째로 복붙하고 있다면, 그게 신호다. 거기서 멈추고, 이름을 붙여라.

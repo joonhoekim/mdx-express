@@ -1,0 +1,276 @@
+---
+title: "Add Parameter: 파라미터 추가"
+subtitle: "저장 프로시저에 인자를 더한다 — 안전하게, 목록 맨 끝에"
+description: "저장 프로시저/함수에 새 파라미터를 추가하는 인터페이스 변경 리팩토링. 파라미터를 맨 끝에 두는 이유, 외부 호출부 동시 수정, 기본값·오버로드로 전환 기간을 버는 방법, 그리고 utPLSQL/pgTAP로 회귀를 막는 현대 실무를 정리한다."
+order: 76
+tags: ["database", "method-refactoring", "stored-procedure", "parameters"]
+---
+
+import { Callout, Steps, Step, Tabs, TabsList, TabsTrigger, TabsContent, Icon } from '@/components/writing-ui';
+
+## 이게 뭔데
+
+Add Parameter는 이름 그대로다. **이미 누군가 쓰고 있는 저장 프로시저(혹은 함수)에 인자를 하나 더 끼워 넣는** 리팩토링이다. 끝.
+
+근데 "끝"이 아니라서 이 글이 있는 거다. 비유를 하나 하자. 단골 카페에 가서 늘 "아메리카노요" 한마디면 통했다. 그런데 어느 날 사장이 메뉴를 바꿔서, 이제 "아메리카노요, **사이즈요**" 두 마디를 해야 한다. 너야 적응하면 되는데, 문제는 그 카페에 **다른 단골이 200명** 있다는 거다. 그 사람들은 아직도 "아메리카노요" 한마디만 외치고 카운터를 떠난다. 사장이 사이즈를 못 받아서 멍하니 서 있으면, 그게 바로 운영 장애다.
+
+저장 프로시저는 함수처럼 보이지만 **공용 API**다. 앱도 부르고, 배치도 부르고, 리포트 툴도 부르고, 3년 전에 누가 짜놓고 퇴사한 안드로이드 클라이언트도 부른다. 시그니처를 건드린다는 건 그 모든 호출부를 동시에 흔든다는 뜻이다.
+
+<Callout type="warning" title="한 줄 요약">
+파라미터를 추가하는 건 코드 한 줄이지만, 그건 인터페이스 변경이다. 프로시저를 부르는 모든 외부 호출부를 함께 고쳐야 하고, 그게 한 번에 안 되니까 전환 기간이 필요하다.
+</Callout>
+
+## 언제 쓰나
+
+보통 이런 냄새에서 출발한다. 기존 프로시저가 **하던 일이 늘어나는데, 그 일을 하려면 바깥에서 정보를 더 받아야 할 때**다.
+
+은행 도메인으로 보자. `ApplyMonthlyInterest`라는 프로시저가 있다. 계좌 ID를 받아서 정책(Policy) 테이블에서 이율을 찾아 잔액(Balance)에 이자를 붙인다. 잘 돌아갔다. 그런데 어느 날 상품팀이 들어온다. "프로모션 기간엔 계좌별로 이율을 다르게 줘야 해요. 캠페인 코드별로요." 이제 프로시저는 캠페인 코드를 알아야 이자를 제대로 계산한다. 바깥에서 그걸 넘겨줘야 한다. 그래서 `p_campaign_code`를 받는다.
+
+또는 이런 경우. 계산 로직을 살짝 바꿔야 하는데, **구버전 동작도 당분간 유지**해야 한다. 그러면 "구버전 동작 / 신버전 동작"을 가르는 플래그성 파라미터를 추가하고, 호출부를 천천히 신버전으로 옮긴다. (그러다 구버전 경로를 다 비우면 그 파라미터를 다시 [제거]하는 게 자연스러운 후속 작업이다.)
+
+핵심은, Add Parameter는 보통 **혼자 오지 않는다**는 거다. "기능을 늘리고 싶다 → 입력이 더 필요하다 → 그래서 파라미터를 추가한다"는 흐름의 마지막 칸이다. 입력이 늘 필요한 게 아니라면, 차라리 룩업 테이블에서 읽거나(예: 캠페인 코드를 계좌에 묶어두기), 프로시저를 쪼개는 게 나을 수도 있다. 파라미터를 늘리는 건 인터페이스를 넓히는 일이라, 공짜가 아니다.
+
+### 시나리오: 이런 적 있을 거임
+
+월요일 아침. `ApplyMonthlyInterest`에 캠페인 코드를 추가하라는 티켓을 받는다. PL/SQL을 열고 파라미터 하나 추가하고, 본문에서 캠페인 이율을 조회하도록 고친다. 컴파일 통과. 로컬에서 한 건 돌려보니 잘 된다. PR 올리고 "LGTM" 받고 배포한다. 점심 먹는다.
+
+오후 2시, 정산 배치가 터진다. 로그를 보면 이렇다.
+
+```text
+PLS-00306: wrong number or types of arguments in call to 'APPLYMONTHLYINTEREST'
+```
+
+배치는 3년 전 PL/SQL로 짜인 야간 잡이었고, 아직 `ApplyMonthlyInterest(account_id)`를 **인자 하나로** 부르고 있었다. 너는 프로시저를 고쳤지만 배치는 안 고쳤다. 정확히는, 배치가 이걸 부른다는 사실 자체를 **몰랐다**. 카운터에서 "아메리카노요" 외치고 떠난 단골 한 명을 못 본 거다.
+
+이게 Add Parameter의 본질적 위험이다. 프로시저 자체는 5분이면 고친다. 진짜 일은 **이걸 누가 부르는지 전부 찾아내는 것**이다.
+
+## 주의할 점
+
+<Callout type="warning" title="새 파라미터는 무조건 목록 맨 끝에">
+중간에 끼워 넣지 마라. 끝에 붙여라. 이유는 **위치 기반 호출(positional call)** 때문이다. PL/SQL은 `proc(a, b, c)`처럼 순서로 인자를 매핑한다. 중간에 파라미터를 끼우면, 안 고친 호출부의 인자들이 **한 칸씩 밀려 엉뚱한 자리에 들어간다.** 그것도 타입이 우연히 맞으면 에러도 안 나고 조용히 틀린 값으로 돈다. 끝에 붙이면, 적어도 인자 개수가 안 맞아 컴파일/런타임에서 시끄럽게 터진다. "조용히 틀린 것"보다 "시끄럽게 터진 것"이 백배 낫다.
+</Callout>
+
+같은 이유로, **호출부는 가능하면 명명 표기(named notation)로 부르는 게 안전하다.** `ApplyMonthlyInterest(p_account_id => v_id)`처럼 이름으로 넘기면 순서가 바뀌어도, 파라미터가 늘어도 의미가 안 깨진다. 위치 호출은 인터페이스가 흔들릴 때마다 같이 흔들린다.
+
+그리고 명심할 것. **이건 리팩토링이 아니라 변환에 가깝다.** 순수한 데이터베이스 리팩토링은 동작 의미를 보존한다. 그런데 파라미터를 추가하면서 프로시저가 *새로운 일*을 하게 된다면(캠페인 이율 적용 같은), 그건 의미를 바꾸는 거다. 단순히 "기존과 똑같이 동작하는데 입력만 받는" 게 아니라면, 회귀 테스트로 **기존 호출 경로의 동작이 안 바뀌었는지** 반드시 확인해야 한다.
+
+## 이렇게 한다
+
+순서는 단순하다. (1) 기본값을 주거나 오버로드를 만들어서 **기존 호출부가 안 깨지게** 시그니처를 넓히고, (2) 호출부를 하나씩 신버전으로 옮기고, (3) 전환 기간이 끝나면 호환용 군더더기를 정리한다. expand-contract(parallel change) 패턴 그대로다 — 넓혔다가(expand), 옮기고, 다시 좁힌다(contract).
+
+### 1. 스키마 변경 (DDL): 시그니처를 넓힌다
+
+핵심은 **기존 호출부가 한 줄도 안 깨진 채로 새 파라미터를 받을 수 있게** 만드는 거다. 두 가지 길이 있다.
+
+<Tabs defaultValue="default">
+  <TabsList>
+    <TabsTrigger value="default">기본값 (DEFAULT)</TabsTrigger>
+    <TabsTrigger value="overload">오버로드</TabsTrigger>
+  </TabsList>
+
+  <TabsContent value="default">
+
+가장 깔끔한 방법. 새 파라미터에 `DEFAULT`를 주면, 인자를 안 넘긴 옛 호출부는 기본값으로 동작하고, 새 호출부는 값을 넘기면 된다. 한 프로시저가 두 세계를 다 받아준다.
+
+```sql
+-- Before: 인자 1개
+PROCEDURE ApplyMonthlyInterest(
+  p_account_id IN NUMBER
+);
+
+-- After: 새 파라미터를 끝에, DEFAULT로
+PROCEDURE ApplyMonthlyInterest(
+  p_account_id    IN NUMBER,
+  p_campaign_code IN VARCHAR2 DEFAULT NULL   -- 맨 끝 + 기본값
+);
+```
+
+본문은 새 파라미터가 NULL이면 **기존과 똑같이 동작**하도록 가드를 둔다.
+
+```sql
+PROCEDURE ApplyMonthlyInterest(
+  p_account_id    IN NUMBER,
+  p_campaign_code IN VARCHAR2 DEFAULT NULL
+) IS
+  v_rate Policy.interest_rate%TYPE;
+BEGIN
+  IF p_campaign_code IS NULL THEN
+    -- 옛 경로: 기존 정책 이율 그대로 (동작 의미 보존)
+    SELECT interest_rate INTO v_rate
+    FROM Policy
+    WHERE account_id = p_account_id;
+  ELSE
+    -- 신 경로: 캠페인 이율
+    SELECT interest_rate INTO v_rate
+    FROM CampaignPolicy
+    WHERE campaign_code = p_campaign_code;
+  END IF;
+
+  UPDATE Balance
+  SET amount = amount + (amount * v_rate / 12)
+  WHERE account_id = p_account_id;
+END;
+```
+
+  </TabsContent>
+
+  <TabsContent value="overload">
+
+기본값을 쓰기 곤란한 상황(예: 패키지 정책상 DEFAULT 금지, 혹은 두 버전의 본문이 너무 갈리는 경우)이면, **같은 이름으로 시그니처가 다른 버전을 하나 더** 만든다. PL/SQL 패키지는 오버로드를 지원한다.
+
+```sql
+-- 옛 시그니처: 그대로 남겨둔다 (호환용)
+PROCEDURE ApplyMonthlyInterest(
+  p_account_id IN NUMBER
+);
+
+-- 새 시그니처: 파라미터 추가 버전
+PROCEDURE ApplyMonthlyInterest(
+  p_account_id    IN NUMBER,
+  p_campaign_code IN VARCHAR2
+);
+```
+
+그리고 옛 버전이 **새 버전을 NULL로 위임**하게 한다. 이게 책에서 말하는 "구버전이 신버전을 호출하도록" 그 패턴이다. 로직 중복이 없어진다.
+
+```sql
+PROCEDURE ApplyMonthlyInterest(
+  p_account_id IN NUMBER
+) IS
+BEGIN
+  -- 껍데기. 실제 일은 새 버전이 한다.
+  ApplyMonthlyInterest(p_account_id, NULL);
+END;
+```
+
+전환 기간이 끝나면 이 껍데기(옛 오버로드)를 [중개자 제거]하듯 삭제하면 된다.
+
+  </TabsContent>
+</Tabs>
+
+<Callout type="info" title="DEFAULT vs 오버로드, 뭘 고를까">
+대부분의 경우 **DEFAULT가 더 단순하다** — 프로시저 하나로 끝나고, 전환이 끝나도 시그니처만 두면 된다. 오버로드는 본문 로직이 버전별로 크게 갈리거나, 명확히 "옛 진입점"을 한시적으로 남겨 추적하고 싶을 때 쓴다. 둘 다 목표는 같다: **옛 호출부가 안 깨진 채로 새 입력을 받을 여지를 만드는 것.**
+</Callout>
+
+### 2. 데이터 마이그레이션 (DML)
+
+Add Parameter는 **보통 데이터 마이그레이션이 없다.** 인터페이스를 바꾸는 거지 저장된 데이터의 모양을 바꾸는 게 아니니까. 그래서 11장의 다른 스키마 리팩토링과 달리 백필(backfill) 스크립트가 필요 없는 경우가 많다.
+
+다만 예외가 있다. 새 파라미터가 가리키는 **참조 데이터가 아직 없으면** 그건 채워야 한다. 위 예시에서 `CampaignPolicy` 테이블이 비어 있으면, 신 경로를 타는 순간 `NO_DATA_FOUND`가 난다. 그러니 마이그레이션 도구로 참조 테이블을 먼저 시드(seed)해 두는 게 안전하다.
+
+```sql
+-- Flyway 예: V2025_06_09__seed_campaign_policy.sql
+INSERT INTO CampaignPolicy (campaign_code, interest_rate)
+VALUES ('SPRING2025', 0.045);
+```
+
+이런 변경은 Flyway/Liquibase/Alembic 같은 버전드 마이그레이션 도구로 관리하는 게 정석이다. "프로시저 시그니처 변경"과 "참조 데이터 시드"를 각각 번호 매긴 마이그레이션 파일로 남겨두면, 어느 환경이 어디까지 적용됐는지 추적되고 롤백 계획도 선다. 2006년 책이 손으로 번호를 매기던 그 작업을, 지금은 도구가 해준다.
+
+### 3. 접근 프로그램(코드) 수정
+
+이제 진짜 일. **프로시저를 부르는 모든 외부 호출부를 찾아 고친다.** 순서대로 가자.
+
+<Steps>
+  <Step title="호출부를 전부 찾아낸다">
+
+이게 8할이다. 코드베이스 grep만으로는 부족하다. 배치, 리포트, 다른 마이크로서비스, 다른 스키마의 프로시저까지 부를 수 있다. 다행히 DB가 의존성을 알고 있다. Oracle이면 `ALL_DEPENDENCIES`를 뒤진다.
+
+```sql
+SELECT owner, name, type
+FROM ALL_DEPENDENCIES
+WHERE referenced_name = 'APPLYMONTHLYINTEREST'
+  AND referenced_type = 'PROCEDURE';
+```
+
+DB 안의 의존성은 이걸로 잡힌다. DB 바깥(앱/배치 소스)은 별도로 grep해야 하니, "DB 의존성 + 소스 grep" 두 갈래로 빠짐없이 모은다.
+
+  </Step>
+
+  <Step title="새 호출부는 명명 표기로">
+
+새로 신 경로를 타는 호출부는 캠페인 코드를 넘긴다. 이때 **위치가 아니라 이름으로** 넘겨서 앞으로의 시그니처 변경에 면역을 만든다.
+
+```sql
+-- Before
+ApplyMonthlyInterest(v_account_id);
+
+-- After: 명명 표기. 순서가 바뀌어도 안 깨진다.
+ApplyMonthlyInterest(
+  p_account_id    => v_account_id,
+  p_campaign_code => 'SPRING2025'
+);
+```
+
+앱이 ORM/마이그레이션 도구를 통해 프로시저를 부른다면, 그 호출 래퍼도 같이 넓힌다(예: 새 인자를 옵셔널로 받는 메서드 시그니처). expand 단계에선 기존 호출자가 안 깨지게 옵셔널로 두는 게 포인트다.
+
+  </Step>
+
+  <Step title="옛 호출부를 천천히 옮긴다 (전환 기간)">
+
+DEFAULT/오버로드 덕분에 옛 호출부 `ApplyMonthlyInterest(v_id)`는 **안 고쳐도 계속 돈다.** 그러니 한 번에 다 안 고쳐도 된다. 이게 전환 기간의 핵심 — 옛 인터페이스와 새 인터페이스가 **공존**한다. 정산 배치, 리포트, 다른 팀 코드를 일정에 맞춰 하나씩 신 경로로 옮긴다.
+
+  </Step>
+
+  <Step title="전환이 끝나면 정리한다 (contract)">
+
+모든 호출부가 신 경로로 넘어왔으면, 호환용 군더더기를 걷어낸다. 오버로드를 썼다면 옛 껍데기 프로시저를 [drop]하고, DEFAULT를 썼는데 더 이상 NULL 경로가 안 쓰이면 가드 IF를 정리한다. drop date를 명시하고, 그 전에 의존성 조회를 한 번 더 돌려 "정말 아무도 안 부르는지" 확인한 뒤 지운다.
+
+  </Step>
+</Steps>
+
+<Callout type="error" title="전환 기간 없이 한 방에 고치면">
+"호출부 다 찾았으니까 프로시저랑 호출부를 동시에 한 배포로 밀자"는 유혹이 온다. 위험하다. 배포는 원자적이지 않다 — 프로시저는 새 시그니처로 바뀌었는데 어떤 앱 인스턴스는 아직 옛 호출 코드를 들고 있는 순간이 반드시 생긴다(롤링 배포, 캐시된 커서, 안 죽은 배치). 그 짧은 틈에 PLS-00306이 쏟아진다. **DEFAULT/오버로드로 옛 인터페이스를 살려두면 이 틈이 사라진다.** 인터페이스를 넓히는 변경은 호환을 유지한 채 단계적으로 — 이게 expand-contract가 존재하는 이유다.
+</Callout>
+
+### 회귀를 막는 안전망: 프로시저 단위 테스트
+
+2006년엔 "프로시저 고치고 손으로 한 번 돌려봤다"가 테스트의 전부인 현장이 많았다. 지금은 프로시저에도 단위 테스트 프레임워크가 있다. Oracle이면 **utPLSQL**, PostgreSQL이면 **pgTAP**. Add Parameter처럼 동작 의미를 건드릴 수 있는 변경에선 이게 안전벨트다.
+
+특히 두 가지를 못 박아 둬야 한다. (1) **옛 호출 경로(파라미터 없이 호출)가 예전과 똑같이 동작하는가**, (2) **새 경로(파라미터 넘김)가 의도대로 동작하는가.** 둘 다 테스트로 고정해두면, 전환 기간 내내 "기존 동작이 안 깨졌다"를 자동으로 보증할 수 있다.
+
+```sql
+-- utPLSQL 예시
+CREATE OR REPLACE PACKAGE test_apply_interest IS
+  --%suite(ApplyMonthlyInterest)
+
+  --%test(파라미터 생략 시 기존 정책 이율 그대로 적용)
+  PROCEDURE old_path_unchanged;
+
+  --%test(캠페인 코드 전달 시 캠페인 이율 적용)
+  PROCEDURE new_path_uses_campaign;
+END;
+/
+
+CREATE OR REPLACE PACKAGE BODY test_apply_interest IS
+  PROCEDURE old_path_unchanged IS
+    v_after NUMBER;
+  BEGIN
+    -- 옛 호출부와 동일하게: 파라미터 없이
+    ApplyMonthlyInterest(p_account_id => 1001);
+
+    SELECT amount INTO v_after FROM Balance WHERE account_id = 1001;
+    -- 기존 정책 이율로 계산된 기대값과 비교
+    ut.expect(v_after).to_equal(1003.75);
+  END;
+
+  PROCEDURE new_path_uses_campaign IS
+    v_after NUMBER;
+  BEGIN
+    ApplyMonthlyInterest(p_account_id => 1001, p_campaign_code => 'SPRING2025');
+
+    SELECT amount INTO v_after FROM Balance WHERE account_id = 1001;
+    ut.expect(v_after).to_equal(1003.75 + 0.0);   -- 캠페인 이율 기대값
+  END;
+END;
+/
+```
+
+이 테스트를 CI에 걸어두면, 누가 나중에 프로시저를 또 건드려서 옛 경로 동작을 깨도 빨간불이 켜진다. 인터페이스 변경 리팩토링의 전제 조건은 결국 **프로시저용 자동화 테스트**다 — 이게 없으면 전환 기간 내내 손으로 회귀를 잡아야 하고, 그건 안 잡힌다.
+
+## 정리
+
+Add Parameter는 카탈로그에서 가장 사소해 보이는 항목 중 하나다. 파라미터 한 줄 추가하는 거니까. 그런데 그 한 줄이 **공용 인터페이스를 흔든다**는 게 함정이다.
+
+> **프로시저 본문 고치는 건 5분, 호출부를 빠짐없이 찾아 안전하게 옮기는 게 진짜 일이다.**
+
+규칙은 세 개로 압축된다. **새 파라미터는 맨 끝에** 둬서 위치 호출이 밀리지 않게 한다. **DEFAULT나 오버로드로 옛 인터페이스를 살려둬서** 전환 기간 동안 옛 호출부와 새 호출부가 공존하게 한다. 그리고 **프로시저 단위 테스트로 옛 경로 동작을 고정**해서, 의미를 바꾸는 변경이 기존 호출을 조용히 깨는 일을 막는다. 넓히고(expand), 옮기고, 좁힌다(contract). 그게 전부다.

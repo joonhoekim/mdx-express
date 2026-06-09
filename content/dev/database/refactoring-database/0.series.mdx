@@ -1,0 +1,160 @@
+---
+title: "데이터베이스 리팩토링: 운영 중인 DB를 무중단으로 진화시키는 법"
+subtitle: "\"건드리면 터져요\"라는 공포에서, 의미를 보존하며 스키마를 조금씩 고쳐 나가는 실천으로"
+description: "운영 중인 데이터베이스를 무중단으로 안전하게 진화시키는 기법 — 데이터베이스 리팩토링 — 을 다루는 99부작 시리즈의 개요와 전체 목차. Ambler & Sadalage의 명저 『Refactoring Databases』를 뼈대 삼아, Flyway·Liquibase·ORM 마이그레이션·expand-contract·온라인 DDL·CDC 같은 현대 실무로 강화했다. 마인드셋·프로세스·66개+ 리팩토링 카탈로그를 한 항목씩 독립 편으로 분해했다."
+order: 0
+tags: ["database", "refactoring", "evolutionary-design", "migration", "series"]
+---
+
+코드는 매일 고친다. 함수 이름 바꾸고, 클래스 쪼개고, 중복 합치고. IDE가 단축키 하나로 해주니까 죄책감도 없다. 그런데 데이터베이스 앞에만 서면 사람이 달라진다. 컬럼 이름 하나 바꾸자는 얘기가 나오면 회의실 공기가 싸늘해지고, 누군가는 "그거 건드리면 배치가 터져요"라고 말하고, 결국 `user_nm`이라는 컬럼은 10년째 그 자리에 남는다.
+
+왜 코드는 리팩토링하면서 DB는 못 할까? 정답은 "원래 그런 것"이 아니다. **그동안 DB를 안전하게 바꾸는 방법을 안 배웠을 뿐이다.** 운영 데이터가 들어 있고, 통제 못 하는 앱들이 붙어 있고, 한 번 잘못 건드리면 새벽에 호출당하니까 — 그래서 다들 "변경 방지(change prevention)" 모드로 살아왔다.
+
+이 시리즈는 그 모드를 끄는 법에 대한 것이다. 핵심 도구는 **데이터베이스 리팩토링** — *의미를 보존하면서* 스키마를 한 번에 조금씩 개선하는, 규율 잡힌 작은 변경 — 이고, 그걸 무중단으로 가능하게 해주는 **전환 기간, 회귀 테스트, 마이그레이션 버전 관리, 동기화 전략**이다.
+
+## 이 시리즈에 대하여
+
+뼈대는 **Scott Ambler & Pramod Sadalage의 『Refactoring Databases: Evolutionary Database Design』(2006, Martin Fowler Signature Series)** 에서 빌려왔다. 진화적 데이터베이스 설계의 고전이고, 66개가 넘는 구체적 리팩토링을 카탈로그로 정리한 책이다.
+
+다만 이건 그 책의 요약본이 아니다. **요약을 넘어, 2006년의 통찰을 2020년대 실무로 강화했다.** 책이 손으로 짜던 번호 매긴 SQL 스크립트와 동기화 트리거는 골격으로 두되, 각 편을 **Flyway·Liquibase·Alembic 같은 마이그레이션 도구, Prisma·TypeORM·Django의 ORM 마이그레이션, expand-contract(parallel change) 패턴, gh-ost·pt-osc 같은 온라인 스키마 변경, CDC·이벤트 소싱, 마이크로서비스의 공유 DB 문제** 같은 현대적 맥락으로 다시 썼다. 책이 "무엇을(what)"이라면, 이 시리즈는 "그래서 지금 우리 레포에서 어떻게(how)"에 답한다.
+
+각 편은 철저히 **자기완결적**이다. 순서대로 갈 필요 없고, 궁금한 리팩토링부터 펴 보면 된다. 카탈로그는 한 리팩토링당 한 편이라, 필요할 때 레퍼런스처럼 찾아 읽어도 된다.
+
+## Part I — 진화적 개발의 사고방식
+
+1. [변경 공포증](/docs/dev/database/refactoring-database/1.change-phobia) — 왜 데이터베이스는 "못 건드리는 것"이 됐나
+2. [데이터베이스 리팩토링이란 무엇인가](/docs/dev/database/refactoring-database/2.database-refactoring-101) — 의미를 보존하는 작은 변경
+3. [진화적 데이터 모델링](/docs/dev/database/refactoring-database/3.evolutionary-data-modeling) — 앞에서 다 그리지 않는다 (AMDD·JIT)
+4. [데이터베이스 회귀 테스트](/docs/dev/database/refactoring-database/4.database-regression-testing) — 안 깨졌다는 확신이 있어야 바꾼다
+5. [형상 관리](/docs/dev/database/refactoring-database/5.configuration-management) — DDL·마이그레이션을 앱 소스와 같은 저장소에
+6. [개발자 샌드박스](/docs/dev/database/refactoring-database/6.developer-sandboxes) — 내 DB를 망가뜨릴 자유
+
+## Part II — 리팩토링의 본질
+
+7. [두 가지 의미 보존](/docs/dev/database/refactoring-database/7.behavioral-informational-semantics) — 행위적 vs 정보적 의미
+8. [단일 앱 DB vs 다중 앱 DB](/docs/dev/database/refactoring-database/8.single-vs-multi-app-db) — 난이도가 갈리는 지점
+9. [리팩토링과 변환은 다르다](/docs/dev/database/refactoring-database/9.refactoring-vs-transformation) — 의미를 바꾸면 변환
+10. [여섯 범주](/docs/dev/database/refactoring-database/10.six-categories) — 카탈로그의 지도
+11. [데이터베이스 냄새](/docs/dev/database/refactoring-database/11.database-smells) — 리팩토링이 필요하다는 일곱 신호
+12. [결합도를 낮춰라](/docs/dev/database/refactoring-database/12.reduce-coupling) — 직접 꽂힌 게 많을수록 못 바꾼다
+
+## Part III — 리팩토링 한 판의 프로세스
+
+13. [Move Column 대서사시](/docs/dev/database/refactoring-database/13.move-column-saga) — 리팩토링 한 판에 들어가는 모든 활동
+14. [적절성 검증](/docs/dev/database/refactoring-database/14.verify-refactoring-appropriate) — 말이 되는가, 지금 필요한가, 가치가 있는가
+15. [작은 단계로](/docs/dev/database/refactoring-database/15.take-small-steps) — 한 번에 하나씩만 바꾼다
+16. [전환 기간](/docs/dev/database/refactoring-database/16.transition-period) — 옛 스키마와 새 스키마를 동시에 (= expand-contract)
+17. [전·중·후 테스트](/docs/dev/database/refactoring-database/17.test-before-during-after) — 스키마·데이터·코드를 각각 검증
+18. [스키마 수정과 데이터 마이그레이션](/docs/dev/database/refactoring-database/18.modify-schema-migrate-data) — 작은 번호 매긴 스크립트로
+19. [접근 프로그램 수정과 공지](/docs/dev/database/refactoring-database/19.refactor-access-programs) — 거기 꽂힌 코드도 다 따라온다
+
+## Part IV — 운영 배포
+
+20. [샌드박스 간 배포](/docs/dev/database/refactoring-database/20.deployment-strategies) — 게이트가 점점 빡빡해진다
+21. [묶고 식별하기](/docs/dev/database/refactoring-database/21.bundling-and-identifying) — 빌드 번호냐 타임스탬프냐, 버전 테이블
+22. [배포 윈도우](/docs/dev/database/refactoring-database/22.deployment-windows) — 토요일 새벽 2시에만 열리는 문
+23. [배포 7단계와 롤백](/docs/dev/database/refactoring-database/23.deploying-and-rollback) — 백업 → 테스트 → 배포 → 테스트 → 백아웃
+
+## Part V — 현장 전략
+
+24. [동기화 전략](/docs/dev/database/refactoring-database/24.sync-strategies) — 트리거 vs 뷰 vs 배치, 그리고 CDC
+25. [전환 기간의 길이](/docs/dev/database/refactoring-database/25.transition-period-length) — 얼마나 길어야 충분한가
+26. [CCB·협상·정치](/docs/dev/database/refactoring-database/26.ccb-politics-negotiation) — 기술보다 어려운 것
+
+## Part VI — 카탈로그: 구조 리팩토링
+
+27. [Drop Column](/docs/dev/database/refactoring-database/27.drop-column) — 컬럼 삭제
+28. [Drop Table](/docs/dev/database/refactoring-database/28.drop-table) — 테이블 삭제
+29. [Drop View](/docs/dev/database/refactoring-database/29.drop-view) — 뷰 삭제
+30. [Introduce Calculated Column](/docs/dev/database/refactoring-database/30.introduce-calculated-column) — 계산 컬럼 도입
+31. [Introduce Surrogate Key](/docs/dev/database/refactoring-database/31.introduce-surrogate-key) — 대리 키 도입
+32. [Merge Columns](/docs/dev/database/refactoring-database/32.merge-columns) — 컬럼 병합
+33. [Merge Tables](/docs/dev/database/refactoring-database/33.merge-tables) — 테이블 병합
+34. [Move Column](/docs/dev/database/refactoring-database/34.move-column) — 컬럼 이동
+35. [Rename Column](/docs/dev/database/refactoring-database/35.rename-column) — 컬럼 이름 변경
+36. [Rename Table](/docs/dev/database/refactoring-database/36.rename-table) — 테이블 이름 변경
+37. [Rename View](/docs/dev/database/refactoring-database/37.rename-view) — 뷰 이름 변경
+38. [Replace LOB With Table](/docs/dev/database/refactoring-database/38.replace-lob-with-table) — LOB를 테이블로
+39. [Replace Column](/docs/dev/database/refactoring-database/39.replace-column) — 컬럼 대체
+40. [Replace One-To-Many With Associative Table](/docs/dev/database/refactoring-database/40.replace-one-to-many) — 1:N을 연관 테이블로
+41. [Replace Surrogate Key With Natural Key](/docs/dev/database/refactoring-database/41.replace-surrogate-with-natural) — 대리 키를 자연 키로
+42. [Split Column](/docs/dev/database/refactoring-database/42.split-column) — 컬럼 분할
+43. [Split Table](/docs/dev/database/refactoring-database/43.split-table) — 테이블 분할
+
+## Part VII — 카탈로그: 데이터 품질
+
+44. [Add Lookup Table](/docs/dev/database/refactoring-database/44.add-lookup-table) — 룩업 테이블 추가
+45. [Apply Standard Codes](/docs/dev/database/refactoring-database/45.apply-standard-codes) — 표준 코드 적용
+46. [Apply Standard Type](/docs/dev/database/refactoring-database/46.apply-standard-type) — 표준 타입 적용
+47. [Consolidate Key Strategy](/docs/dev/database/refactoring-database/47.consolidate-key-strategy) — 키 전략 통합
+48. [Drop Column Constraint](/docs/dev/database/refactoring-database/48.drop-column-constraint) — 컬럼 제약 제거
+49. [Drop Default Value](/docs/dev/database/refactoring-database/49.drop-default-value) — 기본값 제거
+50. [Drop Non-Nullable](/docs/dev/database/refactoring-database/50.drop-non-nullable) — 비-Null 제약 제거
+51. [Introduce Column Constraint](/docs/dev/database/refactoring-database/51.introduce-column-constraint) — 컬럼 제약 도입
+52. [Introduce Common Format](/docs/dev/database/refactoring-database/52.introduce-common-format) — 공통 형식 도입
+53. [Introduce Default Value](/docs/dev/database/refactoring-database/53.introduce-default-value) — 기본값 도입
+54. [Make Column Non-Nullable](/docs/dev/database/refactoring-database/54.make-column-non-nullable) — 컬럼 비-Null화
+55. [Move Data](/docs/dev/database/refactoring-database/55.move-data) — 데이터 이동
+56. [Replace Type Code With Property Flags](/docs/dev/database/refactoring-database/56.replace-type-code-with-flags) — 타입 코드를 플래그로
+
+## Part VIII — 카탈로그: 참조 무결성
+
+57. [Add Foreign Key Constraint](/docs/dev/database/refactoring-database/57.add-foreign-key) — 외래 키 제약 추가
+58. [Add Trigger For Calculated Column](/docs/dev/database/refactoring-database/58.add-trigger-calculated-column) — 계산 컬럼용 트리거
+59. [Drop Foreign Key Constraint](/docs/dev/database/refactoring-database/59.drop-foreign-key) — 외래 키 제약 제거
+60. [Introduce Cascading Delete](/docs/dev/database/refactoring-database/60.introduce-cascading-delete) — 연쇄 삭제 도입
+61. [Introduce Hard Delete](/docs/dev/database/refactoring-database/61.introduce-hard-delete) — 하드 삭제 도입
+62. [Introduce Soft Delete](/docs/dev/database/refactoring-database/62.introduce-soft-delete) — 소프트 삭제 도입
+63. [Introduce Trigger For History](/docs/dev/database/refactoring-database/63.introduce-trigger-history) — 이력용 트리거 도입
+
+## Part IX — 카탈로그: 아키텍처
+
+64. [Add CRUD Methods](/docs/dev/database/refactoring-database/64.add-crud-methods) — CRUD 메서드 추가
+65. [Add Mirror Table](/docs/dev/database/refactoring-database/65.add-mirror-table) — 미러 테이블 추가
+66. [Add Read Method](/docs/dev/database/refactoring-database/66.add-read-method) — 읽기 메서드 추가
+67. [Encapsulate Table With View](/docs/dev/database/refactoring-database/67.encapsulate-table-with-view) — 뷰로 테이블 캡슐화
+68. [Introduce Calculation Method](/docs/dev/database/refactoring-database/68.introduce-calculation-method) — 계산 메서드 도입
+69. [Introduce Index](/docs/dev/database/refactoring-database/69.introduce-index) — 인덱스 도입
+70. [Introduce Read-Only Table](/docs/dev/database/refactoring-database/70.introduce-read-only-table) — 읽기 전용 테이블 도입
+71. [Migrate Method From Database](/docs/dev/database/refactoring-database/71.migrate-method-from-database) — DB에서 메서드 이전
+72. [Migrate Method To Database](/docs/dev/database/refactoring-database/72.migrate-method-to-database) — DB로 메서드 이전
+73. [Replace Method(s) With View](/docs/dev/database/refactoring-database/73.replace-method-with-view) — 메서드를 뷰로 대체
+74. [Replace View With Method(s)](/docs/dev/database/refactoring-database/74.replace-view-with-method) — 뷰를 메서드로 대체
+75. [Use Official Data Source](/docs/dev/database/refactoring-database/75.use-official-data-source) — 공식 데이터 소스 사용
+
+## Part X — 카탈로그: 메서드 리팩토링
+
+76. [Add Parameter](/docs/dev/database/refactoring-database/76.add-parameter) — 파라미터 추가
+77. [Parameterize Method](/docs/dev/database/refactoring-database/77.parameterize-method) — 메서드 매개변수화
+78. [Remove Parameter](/docs/dev/database/refactoring-database/78.remove-parameter) — 파라미터 제거
+79. [Rename Method](/docs/dev/database/refactoring-database/79.rename-method) — 메서드 이름 변경
+80. [Reorder Parameters](/docs/dev/database/refactoring-database/80.reorder-parameters) — 파라미터 순서 변경
+81. [Replace Parameter With Explicit Methods](/docs/dev/database/refactoring-database/81.replace-parameter-with-explicit-methods) — 파라미터를 명시적 메서드로
+82. [Consolidate Conditional Expression](/docs/dev/database/refactoring-database/82.consolidate-conditional-expression) — 조건식 통합
+83. [Decompose Conditional](/docs/dev/database/refactoring-database/83.decompose-conditional) — 조건문 분해
+84. [Extract Method](/docs/dev/database/refactoring-database/84.extract-method) — 메서드 추출
+85. [Introduce Variable](/docs/dev/database/refactoring-database/85.introduce-variable) — 변수 도입
+86. [Remove Control Flag](/docs/dev/database/refactoring-database/86.remove-control-flag) — 제어 플래그 제거
+87. [Remove Middle Man](/docs/dev/database/refactoring-database/87.remove-middle-man) — 중개자 제거
+88. [Rename Parameter](/docs/dev/database/refactoring-database/88.rename-parameter) — 파라미터 이름 변경
+89. [Replace Literal With Table Lookup](/docs/dev/database/refactoring-database/89.replace-literal-with-table-lookup) — 리터럴을 테이블 룩업으로
+90. [Replace Nested Conditional With Guard Clauses](/docs/dev/database/refactoring-database/90.replace-nested-conditional-guard-clauses) — 중첩 조건을 보호 절로
+91. [Split Temporary Variable](/docs/dev/database/refactoring-database/91.split-temporary-variable) — 임시 변수 분리
+92. [Substitute Algorithm](/docs/dev/database/refactoring-database/92.substitute-algorithm) — 알고리즘 치환
+
+## Part XI — 카탈로그: 변환
+
+93. [Insert Data](/docs/dev/database/refactoring-database/93.insert-data) — 데이터 삽입
+94. [Introduce New Column](/docs/dev/database/refactoring-database/94.introduce-new-column) — 새 컬럼 도입
+95. [Introduce New Table](/docs/dev/database/refactoring-database/95.introduce-new-table) — 새 테이블 도입
+96. [Introduce View](/docs/dev/database/refactoring-database/96.introduce-view) — 뷰 도입
+97. [Update Data](/docs/dev/database/refactoring-database/97.update-data) — 데이터 갱신
+
+## 부록과 정리
+
+98. [UML 데이터 모델링 표기법](/docs/dev/database/refactoring-database/98.uml-notation) — 테이블·키·관계를 그리는 공통 언어
+99. [핵심 정리](/docs/dev/database/refactoring-database/99.key-takeaways) — 운영 DB를 무중단으로 진화시키는 행동요령
+
+---
+
+_"설계를 얼리는 순간, 그것은 낡기 시작한다(As soon as one freezes a design, it becomes obsolete)." — Fred Brooks. 그러니 얼리지 말고, 안전하게 흐르게 하자._

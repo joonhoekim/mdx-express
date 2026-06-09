@@ -1,0 +1,236 @@
+---
+title: "Drop Column Constraint: 컬럼 제약 제거"
+subtitle: "비즈니스 규칙이 바뀌어 무의미해진 CHECK를 떼낸다"
+description: "비즈니스 규칙 변경으로 무효화된 컬럼 제약(CHECK)을 안전하게 제거하는 데이터 품질 리팩토링. DDL 변경부터 깨진 뷰/프로시저/예외 처리 코드 정리, 그리고 일부 앱에만 필요한 규칙을 애플리케이션으로 옮기는 현대적 접근까지 다룬다."
+order: 48
+tags: ["database", "data-quality", "constraints", "check-constraint"]
+---
+
+## 이게 뭔데
+
+Drop Column Constraint는 이름 그대로다. **테이블 컬럼에 걸어 둔 제약(CHECK 같은 거)을 떼어내는 리팩토링**이다. `잔액 >= 0` 처럼 "이 컬럼 값은 항상 이래야 한다"고 DB한테 지켜달라 부탁해 둔 규칙을, 이제 그만 지켜도 된다고 풀어주는 일.
+
+비유하자면, 회사 정문에 붙어 있던 "반바지 출근 금지" 안내문 같은 거다. 예전엔 의미가 있었다. 근데 회사가 리모트 친화 캐주얼로 바뀌고 나면, 그 안내문은 그냥 벽에 붙은 옛날 규칙일 뿐이다. 경비 아저씨(DB)는 여전히 그걸 보고 반바지 입은 사람을 막는다. 막을 이유가 사라졌는데도. Drop Column Constraint는 그 낡은 안내문을 떼는 일이다.
+
+<Callout type="info" title="한 줄 요약">
+비즈니스 규칙이 바뀌어 무효가 된 컬럼 제약은, 데이터가 아니라 규칙이 변한 거다. 제약을 떼고, 그 제약이 던지던 오류를 처리하던 코드도 같이 정리한다. 데이터 마이그레이션은 없다.
+</Callout>
+
+## 언제 쓰나
+
+이 리팩토링이 답이 되는 상황은 몇 가지로 정리된다.
+
+**1. 비즈니스 규칙이 바뀌어 제약이 무효화됐을 때.** 가장 흔한 경우다. 은행이 국내 거래만 하던 시절엔 `Country IN ('US', 'Canada')` 같은 제약이 말이 됐다. 근데 국제 거래를 시작하면? 이 제약은 멀쩡한 신규 고객의 입력을 막는 **버그**가 된다. 규칙이 죽었으면 제약도 죽어야 한다.
+
+**2. 제약이 일부 애플리케이션에만 필요할 때.** 공통 DB를 여러 앱이 공유하는데, 어떤 규칙은 그중 한 앱한테만 의미가 있는 경우가 있다. 모든 앱한테 강제하는 DB 제약으로 박아두면, 그 규칙이 필요 없는 다른 앱까지 발목을 잡힌다. 그럴 땐 DB에서 빼고, 그 규칙이 필요한 앱이 직접 들고 있는 게 맞다.
+
+**3. 작은 성능 이득.** 부수 효과긴 한데, 제약을 떼면 DB가 INSERT/UPDATE마다 그 값을 검사하지 않는다. 핫한 쓰기 경로라면 티끌만큼이라도 가벼워진다. 이걸 주된 이유로 삼지는 말되, 공짜로 따라오는 보너스 정도로 생각하면 된다.
+
+**4. 제약 재구성을 위한 선행 작업.** Apply Standard Codes나 Apply Standard Type 같은 리팩토링으로 값/타입을 갈아엎을 때, 옛 값 기준의 제약이 새 값을 거부한다. 그래서 일단 제약을 떼고(Drop), 값을 정리한 다음, 새 기준의 제약을 다시 거는(Introduce Column Constraint) 순서로 간다. 이때 Drop은 임시 철거다.
+
+### 시나리오: 이런 적 있을 거임
+
+우리 은행 `Account` 테이블엔 옛날부터 이런 제약이 박혀 있었다.
+
+```sql
+ALTER TABLE Account
+  ADD CONSTRAINT Positive_Balance CHECK (Balance >= 0);
+```
+
+당연한 규칙처럼 보였다. 계좌 잔액이 마이너스라니, 말이 안 되잖아. 그렇게 5년이 지났다.
+
+그러다 어느 날 기획에서 **마이너스 통장(당좌대월)** 상품을 출시한다고 한다. 약정 한도 안에서 잔액이 음수로 내려갈 수 있는 계좌. 개발자가 신나게 출금 로직을 짜고, 스테이징에서 출금을 때린다. 그러자 DB가 차갑게 뱉는다.
+
+```text
+ERROR: new row for relation "account" violates check constraint "Positive_Balance"
+DETAIL:  Failing row contains (..., -50000, ...).
+```
+
+5년 전의 누군가가 "잔액은 당연히 0 이상이지"라고 박아둔 한 줄이, 오늘의 신상품을 막아선 거다. 데이터가 잘못된 게 아니다. **규칙이 바뀐 거다.** 마이너스 \$50,000은 이제 정상값이다. 그러니 할 일은 명확하다. 이 제약을 떼낸다.
+
+## 주의할 점
+
+떼는 거 자체는 한 줄이라 쉽다. 진짜 신경 쓸 건 "그 제약이 사라진 뒤의 세계"다.
+
+<Callout type="warning" title="제약을 떼면 그 규칙은 누가 지키나">
+DB 제약은 "마지막 안전망"이다. 이걸 떼면 그 값에 대한 보증이 사라진다. 규칙이 **완전히 죽은 거라면** 문제없다. 하지만 규칙이 **일부 앱한테는 여전히 살아 있다면**, 그 검증을 이제 애플리케이션이 떠안아야 한다. 그리고 여기서 함정이 하나 생긴다.
+
+같은 규칙을 여러 앱이 **제각각 다르게** 구현할 위험이다. A 앱은 `balance < 0`을 막고, B 앱은 깜빡하고, C 앱은 한도까지 허용하고... DB라는 단일 진실의 원천이 빠지면, 검증 로직이 코드베이스마다 미묘하게 갈라진다. 가능하면 검증을 공유 라이브러리/도메인 서비스 한 곳에 모아, "흩어진 같은 규칙"이 안 생기게 해라.
+</Callout>
+
+추가로, 떼기 전에 한 번은 확인하자. **이 제약을 전제로 짠 코드가 어디 있나?** 잔액이 절대 음수가 아니라고 믿고 짠 잔액 표시 로직, 통계 쿼리, "음수면 버그니까 0으로 보정" 같은 방어 코드가 있을 수 있다. 제약이 사라지면 그 가정도 같이 무너진다. 떼는 순간 음수가 들어오기 시작하니까.
+
+## 이렇게 한다
+
+이 리팩토링의 묘미는 **데이터 마이그레이션이 없다**는 점이다. 값은 한 줄도 안 건드린다. 규칙만 푸는 거라. 그래서 작업은 크게 세 덩어리다: 스키마 변경, 깨진 의존 객체 정리, 접근 프로그램 수정.
+
+<Steps>
+<Step title="떼기 전에 영향 범위를 훑는다">
+제약 이름을 정확히 알아두고, 그 컬럼/제약에 묶인 뷰·프로시저·앱 코드를 먼저 검색한다. 데이터 품질 리팩토링은 거의 항상 깨진 뷰와 깨진 프로시저를 끌고 다닌다. 테스트 스위트를 돌려보고, 뷰 정의에서 하드코딩된 값을 grep 해 두면 나중에 덜 운다.
+</Step>
+<Step title="제약을 제거한다 (DDL)">
+스키마에서 제약을 떼는 단 한 줄. 데이터는 그대로 둔다.
+</Step>
+<Step title="제약이 던지던 오류를 처리하던 코드를 정리한다">
+이제 DB는 그 위반 오류를 절대 안 던진다. 그 예외를 잡던 `try/catch`, 에러 코드 분기, 사용자 메시지("잔액은 0 이상이어야 합니다")는 죽은 코드가 된다. 지운다.
+</Step>
+<Step title="규칙이 일부 앱에 살아 있으면, 거기에 검증을 심는다">
+완전히 죽은 규칙이면 여기서 끝. 일부 앱한테만 필요하면, 그 앱(또는 공유 도메인 계층)에 검증을 옮긴다.
+</Step>
+</Steps>
+
+### 스키마 변경 (DDL)
+
+핵심은 정말 한 줄이다.
+
+```sql
+-- Before: 잔액 음수 금지 제약이 살아 있음
+-- ALTER TABLE Account ADD CONSTRAINT Positive_Balance CHECK (Balance >= 0);
+
+-- After: 마이너스 통장을 위해 제약을 떼낸다
+ALTER TABLE Account DROP CONSTRAINT Positive_Balance;
+```
+
+데이터 마이그레이션? 없다. `Balance` 값은 단 하나도 안 바뀐다. 그냥 앞으로 음수가 들어와도 DB가 막지 않을 뿐이다.
+
+<Callout type="note" title="DROP CONSTRAINT는 보통 가볍지만, 방심은 금물">
+CHECK 제약을 떼는 건 일반적으로 메타데이터만 건드리는 빠른 연산이다(FK나 인덱스를 떼는 것과 달리 물리 구조 변경이 거의 없다). 그래도 운영 DB에서 `ALTER TABLE`은 테이블 락을 잡을 수 있으니, 트래픽 한가한 시간이나 짧은 락만 허용되는 윈도우에 거는 게 안전하다. PostgreSQL은 CHECK DROP이 짧은 ACCESS EXCLUSIVE 락으로 끝나는 편이고, MySQL/InnoDB도 `ALTER ... DROP CHECK`는 비교적 가볍다. 그래도 "가볍다 ≈ 무료"는 아니니 마이그레이션 도구로 관리하자.
+</Callout>
+
+### 현대 도구로: 마이그레이션 버전 관리
+
+2006년 책은 이걸 번호 매긴 SQL 스크립트로 손코딩했다. 지금은 그럴 필요 없다. Flyway/Liquibase/Alembic, 혹은 ORM 마이그레이션으로 버전 관리되는 변경으로 남긴다. 그래야 "언제, 왜 이 제약을 뗐는지"가 히스토리에 박힌다.
+
+<Tabs defaultValue="flyway">
+<TabsList>
+<TabsTrigger value="flyway">Flyway</TabsTrigger>
+<TabsTrigger value="prisma">Prisma</TabsTrigger>
+<TabsTrigger value="alembic">Alembic</TabsTrigger>
+</TabsList>
+
+<TabsContent value="flyway">
+```sql
+-- V20260609__drop_positive_balance_constraint.sql
+-- 마이너스 통장(당좌대월) 상품 출시로 잔액>=0 규칙 폐기
+ALTER TABLE Account DROP CONSTRAINT Positive_Balance;
+```
+</TabsContent>
+
+<TabsContent value="prisma">
+```sql
+-- migrations/20260609_drop_positive_balance/migration.sql
+-- Prisma는 raw DDL 마이그레이션을 그대로 버전 관리한다.
+-- 스키마에서 @@check 또는 raw constraint를 제거한 뒤 생성된 파일.
+ALTER TABLE "Account" DROP CONSTRAINT "Positive_Balance";
+```
+</TabsContent>
+
+<TabsContent value="alembic">
+```python
+# alembic revision: 마이너스 통장 위해 잔액 제약 제거
+def upgrade():
+    op.drop_constraint("Positive_Balance", "account", type_="check")
+
+def downgrade():
+    op.create_check_constraint(
+        "Positive_Balance", "account", "balance >= 0"
+    )
+```
+</TabsContent>
+</Tabs>
+
+`downgrade`/롤백에 제약을 **되살리는** 정의를 같이 적어두는 게 포인트다. 단, 롤백 시점에 이미 음수 잔액이 들어가 있으면 제약 재생성이 실패한다. 그게 정상이다. 데이터가 새 규칙에 맞게 바뀌어 버렸으니, 옛 규칙으로 되돌리려면 그 데이터부터 처리해야 한다는 걸 롤백 실패가 알려주는 거다.
+
+### 데이터 마이그레이션
+
+없다. 진짜로 없다. 이 리팩토링은 값을 안 만진다. 혹시 "음수가 된 김에 뭔가 정리하고 싶은데" 같은 게 떠올랐다면, 그건 별개의 리팩토링(Update Data 같은)이다. 이 작업의 책임 범위에 섞지 마라.
+
+### 접근 프로그램 수정
+
+가장 손이 많이 가는 부분이다. 제약이 사라졌으니, **그 제약을 전제로 하던 모든 코드**가 정리 대상이다.
+
+먼저, DB가 던지던 위반 오류를 잡던 코드. 이건 이제 절대 안 불린다.
+
+```typescript
+// Before: DB의 CHECK 위반을 잡아 사용자 메시지로 변환하던 코드
+async function withdraw(accountId: string, amount: number) {
+  try {
+    await db.query(
+      "UPDATE Account SET Balance = Balance - $1 WHERE id = $2",
+      [amount, accountId],
+    );
+  } catch (e) {
+    // Positive_Balance 제약 위반 → "잔액 부족" 으로 안내
+    if (isCheckViolation(e, "Positive_Balance")) {
+      throw new InsufficientFundsError("잔액은 0 미만이 될 수 없습니다");
+    }
+    throw e;
+  }
+}
+```
+
+제약이 사라지면 이 `catch` 가지는 영원히 안 탄다. 죽은 코드다. 그리고 더 중요한 건, **DB가 막아주던 "잔액 부족" 보호 자체가 사라진다**는 점이다. 마이너스 통장이면 한도까지는 음수가 정상이지만, 한도를 넘는 출금은 여전히 막아야 한다. 그 규칙은 이제 애플리케이션 몫이다.
+
+```typescript
+// After: 검증 책임을 애플리케이션(도메인)으로 이동
+async function withdraw(accountId: string, amount: number) {
+  const account = await loadAccount(accountId);
+
+  // 옛 DB 제약(>=0)이 하던 일을, 새 비즈니스 규칙으로 도메인에서 강제한다.
+  // 마이너스 통장: 약정 한도까지는 음수 허용, 그 아래로는 거부.
+  const projected = account.balance - amount;
+  if (projected < account.overdraftLimit) {
+    throw new InsufficientFundsError("당좌대월 한도를 초과했습니다");
+  }
+
+  await db.query(
+    "UPDATE Account SET Balance = Balance - $1 WHERE id = $2",
+    [amount, accountId],
+  );
+}
+```
+
+규칙이 "사라진" 게 아니라 "옮겨가고 진화한" 거다. DB의 `Balance >= 0`이라는 단순 제약이, 도메인의 `Balance >= overdraftLimit`이라는 계좌별 규칙으로 바뀌었다. 이게 제약을 DB에서 뗀 진짜 이유다.
+
+### 일부 앱에만 필요한 규칙이라면
+
+위 시나리오는 규칙이 통째로 진화한 경우였다. 다른 결의 케이스도 보자. 공통 DB를 **정산 앱**과 **분석 앱**이 같이 쓰는데, `Positive_Balance` 같은 어떤 제약이 정산 앱한테만 의미가 있다고 치자. DB에 박아두면 분석 앱이 적재하는 보정/임시 데이터까지 막혀버린다.
+
+이럴 땐 DB에서 제약을 떼고, **정산 앱 쪽 도메인 계층**에 검증을 둔다. 핵심은 그 검증을 **한 곳에 모으는 것**이다. 같은 규칙이 컨트롤러, 서비스, 배치 잡에 복붙되어 미묘하게 갈라지면, "DB 제약 하나"보다 관리가 훨씬 어려워진다.
+
+```typescript
+// 도메인 한 곳에 규칙을 모은다 — "흩어진 같은 규칙" 방지
+export function assertNonNegativeBalance(account: Account): void {
+  if (account.balance < 0) {
+    throw new BalanceRuleViolation(account.id);
+  }
+}
+```
+
+서비스든 배치든 이 한 함수를 부르게 한다. 규칙이 또 바뀌면 여기 한 줄만 고치면 된다. DB 제약이 주던 "단일 진실의 원천"을, 애플리케이션 안에서라도 흉내 내는 거다.
+
+### 깨진 뷰와 프로시저
+
+데이터 품질 리팩토링이 늘 끌고 다니는 동반 작업이다. 제약 자체보다, **그 컬럼 값을 하드코딩으로 가정한 뷰/프로시저**가 더 자주 깨진다.
+
+```sql
+-- 잔액이 음수일 리 없다고 믿고 짠 뷰 — 이제 음수 행을 누락한다
+CREATE VIEW HealthyAccounts AS
+  SELECT * FROM Account WHERE Balance > 0;   -- 의도는 "모든 정상 계좌"였는데...
+```
+
+이런 뷰는 제약이 살아 있을 땐 "Balance > 0 = 모든 활성 계좌"였지만, 음수가 허용되는 순간 **마이너스 통장을 통째로 누락**시킨다. 컴파일도 잘 되고 에러도 안 나서 더 위험하다. 떼기 전에 뷰 정의를 검색하고, 테스트 스위트를 돌려 이런 숨은 가정을 찾아내라.
+
+## 정리
+
+Drop Column Constraint는 카탈로그에서 가장 짧은 DDL 중 하나다. 핵심 명령은 `ALTER TABLE ... DROP CONSTRAINT` 한 줄이고, 데이터 마이그레이션은 없다.
+
+> **떼는 건 한 줄, 진짜 일은 "그 제약이 사라진 세계"를 정리하는 거다.**
+
+기억할 세 가지.
+
+- **규칙이 죽었는지, 옮겨가는지 구분하라.** 완전히 죽은 규칙이면 제약과 관련 코드를 깔끔히 지운다. 살아 있는데 자리만 옮기는 거라면, 그 검증을 애플리케이션의 **한 곳**에 모아 흩어지지 않게 한다.
+- **DB가 던지던 오류는 이제 안 온다.** 그 위반을 잡던 `catch`와 사용자 메시지는 죽은 코드다. 동시에 DB가 막아주던 보호도 사라지니, 필요한 보호는 앱이 다시 책임진다.
+- **조용히 깨지는 뷰/프로시저를 조심하라.** 제약을 전제로 값을 하드코딩한 객체들은 에러 없이 잘못된 결과를 낸다. 떼기 전에 검색하고 테스트로 잡아라.
+
+낡은 안내문은 떼는 게 맞다. 다만 그 안내문이 막던 게 뭐였는지 확인하고, 여전히 막아야 할 게 남았다면 그건 다른 방식으로 막으면 된다.

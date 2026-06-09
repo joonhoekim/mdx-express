@@ -1,0 +1,210 @@
+---
+title: "Drop Non-Nullable: 비-Null 제약 제거"
+subtitle: "엔티티가 여러 시점에 나뉘어 저장되면서 NOT NULL이 거추장스러워질 때"
+description: "NOT NULL 제약을 풀어 컬럼이 null을 허용하게 만드는 데이터 품질 리팩토링. 프로세스가 쪼개져 값이 나중에 들어오는 상황, 전환 기간의 임시 완화, 모든 앱이 null을 받아들여야 하는 파급, 그리고 expand-contract로 안전하게 푸는 현대적 절차를 다룬다."
+order: 50
+tags: ["database", "data-quality", "nullable", "constraints"]
+---
+
+## 이게 뭔데
+
+**`NOT NULL` 걸려 있던 컬럼에서 그 빗장을 풀어, null이 들어와도 되게 만드는 리팩토링**이다. 이름 그대로다. `ALTER TABLE ... MODIFY ... NULL` 한 줄.
+
+비유를 들자면, 입국 심사대 같은 거다. 원래는 "이 칸은 무조건 채워서 내라, 빈칸이면 안 받아준다"였다. 그런데 업무가 바뀌어서, 어떤 사람은 입국할 때 이 정보를 아예 모른다. 나중에 다른 창구에서 채운다. 그래서 심사대 규칙을 "지금은 비워도 통과, 나중에 채워라"로 푸는 거다. 빗장 자체를 영원히 없애는 게 아니라, **이 칸이 잠깐(혹은 앞으로 쭉) 비어 있을 수 있다는 현실을 스키마가 인정**하는 거다.
+
+DDL만 보면 이게 무슨 리팩토링이냐 싶을 만큼 시시하다. 진짜 일은 DDL 한 줄이 아니라, **이 컬럼을 만지는 모든 앱이 "여기 null일 수도 있음"을 받아들이게 만드는 것**에 있다. 거기서 사고가 난다.
+
+<Callout type="warning" title="한 줄 요약">
+NOT NULL을 푸는 건 DB 입장에선 한 줄이지만, 그 컬럼을 읽는 모든 코드 입장에선 "이제 null이 올 수 있다"는 계약 변경이다. DDL은 쉽고, 파급이 어렵다.
+</Callout>
+
+## 언제 쓰나
+
+이 리팩토링이 답이 되는 상황은 의외로 또렷하다. 두 가지다.
+
+**1. 프로세스가 쪼개졌다 — 엔티티가 한 번에 다 안 채워진다.** 예전엔 한 화면, 한 트랜잭션에서 고객 정보를 통째로 받아 저장했다. 그래서 모든 컬럼에 `NOT NULL`을 걸어도 멀쩡했다. 그런데 비즈니스가 바뀐다. 이제 영업점 앱이 고객 행(row)을 먼저 만들고, 며칠 뒤 심사 앱이 신용등급을 채우고, 또 나중에 마케팅 앱이 선호 연락 채널을 채운다. **한 엔티티의 조각조각이 서로 다른 시점에, 서로 다른 앱 손에서 저장**되기 시작한 거다. 이렇게 되면 행을 처음 만드는 순간엔 신용등급 칸이 비어 있는 게 정상이다. 근데 거기 `NOT NULL`이 걸려 있으면? 영업점 앱이 행을 만들지도 못하고 DB가 예외를 뱉는다.
+
+**2. 전환 기간이라 어떤 앱이 잠깐 값을 못 준다.** 마이그레이션 중간이라 한 앱은 이미 새 컬럼을 채우는데, 다른 레거시 앱은 아직 그 컬럼의 존재조차 모른다. 이 레거시가 행을 `INSERT`할 때 값을 안 주니까, 전환 기간 동안만 임시로 null을 허용해 준다. 그리고 모든 앱이 새 컬럼을 채우게 정비되면, **다시 `Make Column Non-Nullable`로 빗장을 도로 채운다.** 즉 이 경우의 Drop Non-Nullable은 영구 변경이 아니라 **임시 완화**다. 끝나면 원복하는 게 정상 시나리오다.
+
+핵심 냄새는 이거다. **"이 컬럼, 행 만들 때는 아직 모르는 값이잖아?"** 행 생성 시점에 채울 수 없는 값에 `NOT NULL`이 걸려 있으면, 그건 스키마가 현실보다 빡빡한 거다.
+
+### 현실 시나리오 한 토막
+
+은행 시스템. `Customer` 테이블에 `Status` 컬럼이 있다. 고객 상태(`ACTIVE`, `DORMANT`, `CLOSED`...). 이 컬럼은 5년 전부터 `NOT NULL`이었다. 당연했다. 고객 등록 화면에서 직원이 상태를 골라 저장했으니까.
+
+그런데 작년에 "셀프 온보딩"이 생겼다. 고객이 앱에서 직접 가입을 시작한다. 이때는 본인 인증만 끝난 반쪽짜리 고객이다. 상태를 아직 정할 수 없다. 정식 상태는 영업점 직원이 서류 검토를 마쳐야 부여된다. 그러니까 **셀프 온보딩 앱은 `Status`를 모르는 채로 `Customer` 행을 만들고 싶다.**
+
+신입이 이 기능을 붙이고 로컬에서 테스트한다. 자기 로컬 DB엔 `Status`에 기본값을 슬쩍 박아놔서 잘 된다. 운영에 올라간다. 첫 셀프 온보딩 고객이 가입 버튼을 누른다.
+
+```text
+ERROR: null value in column "status" of relation "customer"
+       violates not-null constraint
+```
+
+가입이 안 된다. 슬랙에 "셀프가입 500 에러"가 올라온다. `git blame`을 찍으면... 뭐, 늘 그렇듯이 누군가가 나온다. 진짜 원인은 코드 버그가 아니다. **프로세스가 둘로 쪼개졌는데 스키마가 아직 옛날 프로세스(한 번에 다 채움)를 강제하고 있는 것**이다. 답은 `Status`의 `NOT NULL`을 푸는 것 — 바로 이 리팩토링이다.
+
+## 주의할 점
+
+여기가 진짜다. DDL은 안 무섭다. 무서운 건 파급이다.
+
+<Callout type="warning" title="모든 앱이 null을 받아들여야 한다">
+NOT NULL을 푸는 순간, **이 컬럼을 읽는 모든 코드의 가정이 깨진다.** 지금까지 모든 코드는 "이 칸은 절대 안 비어 있어"를 믿고 짜였다. `customer.status.toUpperCase()` 같은 코드는 값이 항상 있다고 가정한다. null이 들어오는 순간 `NullPointerException` / `Cannot read properties of null`이 사방에서 터진다.
+
+null을 받아들인다는 건 두 가지 중 하나를 한다는 뜻이다. (1) null이면 그냥 무시하거나 빈칸으로 보여주거나, (2) null을 지능적 기본값으로 메운다. 어느 쪽이든 **읽는 쪽 코드를 전부 점검**해야 한다.
+</Callout>
+
+책의 원래 트레이드오프 항목이 짚는 게 정확히 이거다. 이 컬럼에 접근하는 모든 애플리케이션이 null을 받아들여야 한다. 그리고 지능적 기본값을 쓸 거라면, 차라리 `Introduce Default Value`(DB 기본값 도입)를 같이 검토하라는 거다. 예를 들어 `Status`를 null 허용으로 바꾸면서, 행 생성 시 기본값으로 `PENDING`을 넣어주면 읽는 쪽이 굳이 null 분기를 안 만들어도 된다. **null을 허용하는 것과, 그 null을 누가 어떻게 메우느냐는 별개의 결정**이다. 같이 설계해야 한다.
+
+또 하나. 이 리팩토링은 **돌이키기 쉬운 듯 보이지만 한쪽 방향만 안전하다.** NOT NULL을 푸는 건 언제든 된다(제약을 푸는 거니까 기존 데이터는 다 통과). 반대로 나중에 `Make Column Non-Nullable`로 도로 채우려면, **그사이에 들어간 null 행들을 전부 메워야** 빗장이 걸린다. 전환 기간용으로 잠깐 풀었다면, 푸는 순간부터 "이 null들을 언제 어떻게 메울 것인가" 계획이 같이 있어야 한다. 그냥 풀어놓고 잊으면, 6개월 뒤 `Make Non-Nullable` 시도할 때 8만 건의 null이 발목을 잡는다.
+
+<Callout type="error" title="조용히 번지는 데이터 품질 부채">
+NOT NULL은 데이터 품질 보증서다. 그걸 푼다는 건 보증서를 한 장 찢는 거다. 풀어놓고 방치하면, 원래는 "절대 안 비는 칸"이라 믿고 짠 리포트·집계·조인이 슬금슬금 어긋난다. `COUNT(status)`는 null을 안 세고, `GROUP BY status`엔 null 버킷이 생기고, `status = 'ACTIVE'` 필터는 null을 조용히 떨군다. **느린 게 아니라 틀린 숫자가 나온다.** 그래서 "잠깐만 풀자"는 가능하면 만료일(drop date)을 박아두는 게 안전하다.
+</Callout>
+
+## 이렇게 한다
+
+원래 책의 절차는 단순하다. 데이터 마이그레이션도 없다(제약을 푸는 거라 기존 행은 손댈 게 없다). 그래서 진짜 작업은 **스키마 한 줄 + 접근 프로그램 수정**이다. 여기에 현대 실무를 얹는다.
+
+### 1. 스키마 변경 (DDL)
+
+책 표기는 `ALTER TABLE CityLookup MODIFY StateCode NULL` 꼴이다. 벤더마다 문법이 갈린다.
+
+```sql
+-- 우리 시나리오: Customer.Status의 NOT NULL을 푼다
+
+-- PostgreSQL
+ALTER TABLE customer ALTER COLUMN status DROP NOT NULL;
+
+-- MySQL / MariaDB (컬럼 정의를 다시 써야 함 — 타입까지 그대로 반복할 것)
+ALTER TABLE customer MODIFY status VARCHAR(20) NULL;
+
+-- Oracle
+ALTER TABLE customer MODIFY (status NULL);
+```
+
+<Callout type="info" title="이건 거의 항상 안전한 변경이다">
+NOT NULL을 **푸는** 방향은 온라인으로도 대체로 안전하다. 제약을 강화하는 게 아니라 푸는 거라 기존 데이터를 재검증할 필요가 없기 때문이다. PostgreSQL의 `DROP NOT NULL`은 풀 테이블 스캔 없이 카탈로그만 건드린다(짧은 메타데이터 락). MySQL은 버전·스토리지 엔진에 따라 `ALGORITHM=INSTANT`/`INPLACE`로 처리되지만, 대형 테이블이면 `gh-ost`·`pt-online-schema-change`로 안전하게 도는 게 습관이다. 무서운 건 늘 반대 방향(NOT NULL을 **거는** `Make Non-Nullable`)이다 — 그건 전체 행을 검증해야 하니까.
+</Callout>
+
+마이그레이션 도구를 쓴다면 한 줄짜리 변경이라도 버전으로 박아둔다. 손으로 콘솔에서 `ALTER`치고 까먹는 게 데이터 품질 부채의 시작이다.
+
+```sql
+-- Flyway: V50__drop_not_null_customer_status.sql
+ALTER TABLE customer ALTER COLUMN status DROP NOT NULL;
+
+-- 전환 기간용 임시 완화라면, 만료 의도를 주석으로 명시
+COMMENT ON COLUMN customer.status IS
+  'NOT NULL temporarily dropped for self-onboarding (2026-06). '
+  'Re-tighten via Make-Non-Nullable after backfill. Tracking: JIRA-1234';
+```
+
+### 2. 데이터 마이그레이션 (DML)
+
+원래 책 그대로, **없다.** 제약을 푸는 거라 기존 값은 다 합법이다.
+
+단, 현대적으로 한 가지를 덧붙인다. 지능적 기본값을 쓰기로 했다면(`Introduce Default Value` 동반), 새로 들어올 행만 기본값을 받게 할지, 기존 null도 소급해 메울지를 정해야 한다. 소급한다면 그게 유일한 DML이다.
+
+```sql
+-- 선택: null을 지능적 기본값(PENDING)으로 소급 backfill 할 경우만
+-- 대형 테이블이면 한 번에 UPDATE 하지 말고 배치로 쪼갠다 (락·복제 지연 회피)
+UPDATE customer
+SET    status = 'PENDING'
+WHERE  status IS NULL
+  AND  customer_id IN (
+        SELECT customer_id FROM customer
+        WHERE status IS NULL
+        ORDER BY customer_id
+        LIMIT 10000
+       );
+-- 위를 0건 될 때까지 반복 (애플리케이션 영향 최소화)
+```
+
+여기서 책이 짚는 데이터 갱신 전략 두 갈래가 그대로 적용된다. **전체 락 후 일괄 갱신**은 일관성은 깔끔하지만 대량이면 가용성이 죽고, **부분(한 행씩) 락 후 갱신**은 서비스는 살지만 갱신 도중 행 간 잠깐 불일치가 생긴다. Drop Non-Nullable 자체는 DML이 없어서 이 고민이 안 나지만, **기본값 backfill을 같이 한다면** 이 선택이 바로 따라온다.
+
+### 3. 접근 프로그램 수정 — 진짜 일
+
+DDL은 끝났다. 이제 코드다. 두 종류의 수정이 있다. **null을 받아들이는 코드를 더하고, 이제 안 나는 null 예외 처리를 빼는 것.**
+
+**(a) 읽는 쪽 — null 체크를 더한다.** 지금까지 값이 항상 있다고 믿었던 모든 자리.
+
+```typescript
+// Before: status가 항상 있다고 믿음 — 이제 여기서 터진다
+function statusLabel(customer: Customer): string {
+  return customer.status.toUpperCase(); // status가 null이면 폭발
+}
+
+// After: null을 명시적으로 처리 (무시하거나 지능적 기본값)
+function statusLabel(customer: Customer): string {
+  if (customer.status == null) return "심사 대기"; // 지능적 기본값
+  return customer.status.toUpperCase();
+}
+```
+
+타입 시스템이 있다면 이 변경을 컴파일러가 거들게 만드는 게 정석이다. **타입을 `string`에서 `string | null`로 바꾸면**, 그 컬럼을 읽는 모든 자리에서 컴파일 에러가 나면서 "여기 null 처리 안 했다"를 기계가 일러준다. 손으로 다 찾는 것보다 압도적으로 안전하다.
+
+```typescript
+// 엔티티 타입을 현실에 맞춘다 — 이제 컴파일러가 누락 지점을 다 잡아준다
+interface Customer {
+  customerId: string;
+  status: string | null; // NOT NULL → nullable 반영
+}
+```
+
+**(b) 쓰는 쪽 — 이제 행을 만들 때 값을 안 줘도 된다.** 셀프 온보딩 앱은 `Status` 없이 `INSERT` 한다.
+
+```sql
+-- Before: status를 안 주면 NOT NULL 위반으로 거부됨
+INSERT INTO customer (customer_id, name) VALUES (?, ?); -- 과거엔 실패
+
+-- After: 이제 합법. status는 나중에 영업점 앱이 UPDATE로 채운다
+INSERT INTO customer (customer_id, name) VALUES (?, ?);
+```
+
+**(c) 안 나는 예외 처리는 정리한다.** 예전엔 `Status`에 null을 넣으려다 DB가 던지던 제약 위반을 잡아 처리하는 코드가 있었을 거다. 이제 그 예외는 영원히 안 난다. **죽은 코드는 치워야 한다.** 안 그러면 다음 사람이 "이거 왜 있지?" 하며 시간을 버린다.
+
+```typescript
+// Before: 이제 절대 안 도는 catch — 죽은 코드
+try {
+  await customerRepo.insert(customer);
+} catch (e) {
+  if (isNotNullViolation(e, "status")) {
+    // status 빠뜨려서 막힌 케이스 — 이제 발생하지 않음
+    throw new ValidationError("상태값이 필요합니다");
+  }
+  throw e;
+}
+
+// After: 분기 제거. 단순해졌다
+await customerRepo.insert(customer);
+```
+
+### 다중 앱이면 expand-contract로
+
+위 시나리오에서 `Customer`를 만지는 앱이 셀프 온보딩·영업점·심사·마케팅 넷이라고 했다. 이걸 무중단으로 안전하게 풀려면, 순서를 지킨다. 핵심은 **읽는 쪽이 null을 받아들일 준비가 되기 전에 null이 들어오면 안 된다**는 것.
+
+<Steps>
+<Step title="expand: 먼저 읽는 쪽을 null-safe로">
+모든 앱(특히 `Status`를 읽는 리포트·집계·UI)을 먼저 배포해서, status가 null이어도 안 터지게 만든다. 이 단계에선 아직 아무도 null을 안 넣는다. 그냥 받아들일 준비만 한다.
+</Step>
+<Step title="DDL: NOT NULL을 푼다">
+모든 읽는 쪽이 준비된 걸 확인한 뒤에야 마이그레이션으로 `DROP NOT NULL`을 적용한다. 순서가 거꾸로면(빗장부터 풀면) 준비 안 된 코드에 null이 흘러들어 사고 난다.
+</Step>
+<Step title="쓰는 쪽 활성화">
+이제 셀프 온보딩 앱이 status 없이 INSERT 하도록 배포한다. 비로소 null이 실제로 흘러들기 시작한다 — 받아들일 준비가 다 된 상태에서.
+</Step>
+<Step title="contract: (임시 완화였다면) 정리·원복">
+전환 기간용이었다면, 모든 앱이 status를 채우게 정비된 뒤 남은 null을 backfill 하고 Make Non-Nullable로 빗장을 도로 건다. 영구 변경이었다면 죽은 예외 처리 코드만 정리하고 끝.
+</Step>
+</Steps>
+
+이게 expand-contract(parallel change)의 전형이다. "스키마를 먼저 느슨하게 만들어 양쪽을 동시에 살려두고, 옮겨갈 게 다 옮겨간 뒤 정리한다." Drop Non-Nullable은 그중 "느슨하게 만드는(expand)" 쪽에 딱 맞는 도구라, 무중단 마이그레이션의 **첫 단추**로 자주 쓰인다.
+
+## 정리
+
+Drop Non-Nullable은 DDL만 보면 시시한 한 줄이다. 하지만 그 한 줄이 말하는 건 작지 않다. **"이 컬럼은 이제 비어 있을 수 있다"**는 계약 변경이고, 그 계약을 믿고 짜인 모든 코드가 영향을 받는다.
+
+> NOT NULL을 푸는 건 쉽다. null을 받아들이는 건 어렵다.
+
+그래서 이 리팩토링의 무게중심은 항상 스키마가 아니라 **접근 프로그램** 쪽에 있다. 읽는 쪽에 null 처리를 더하고(타입을 nullable로 바꿔 컴파일러를 동원하면 최고), 이제 안 나는 제약 위반 예외 처리는 치우고, 필요하면 지능적 기본값(`Introduce Default Value`)을 같이 도입한다. 다중 앱이면 expand-contract 순서를 지켜 읽는 쪽을 먼저 준비시킨다.
+
+그리고 잊지 말 것. 전환 기간용으로 잠깐 푼 거라면, **언젠가 `Make Column Non-Nullable`로 도로 채울 계획**이 풀던 그날부터 같이 있어야 한다. 풀어놓고 잊은 NOT NULL은, 조용히 쌓이는 데이터 품질 부채가 된다.

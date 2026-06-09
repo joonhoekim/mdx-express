@@ -1,0 +1,333 @@
+---
+title: "Add Lookup Table: 룩업 테이블 추가"
+subtitle: "코드에 박힌 enum을 DB 테이블로 — CA가 California임을 DB가 알게"
+description: "Address.State 같은 코드성 컬럼에 룩업 테이블과 FK를 도입해 참조 무결성과 설명(CA→California)을 확보하는 리팩토링. DISTINCT 추출·값 정제, DB enum vs 룩업 테이블, 캐싱·메모리 로드까지 현대 실무로 정리한다."
+order: 44
+tags: ["database", "data-quality", "lookup-table", "enum"]
+---
+
+import { Callout, Steps, Step, Tabs, TabsList, TabsTrigger, TabsContent, Icon } from '@/components/writing-ui';
+
+## 이게 뭔데
+
+룩업 테이블 추가는 한 문장으로 끝난다. **어떤 컬럼에 들어갈 수 있는 값 목록을 별도 테이블로 빼고, 그 컬럼이 그 테이블을 FK로 가리키게 하는 것**이다. `Address.State`에 `"CA"`, `"NY"`, `"TX"`가 막 들어가던 걸, `State`라는 테이블을 따로 만들어서 거기 적힌 코드만 들어가게 막는 거다.
+
+비유하자면 이렇다. 회사 출입증 발급할 때 부서명을 그냥 자유 입력으로 받으면 어떻게 되겠나. 누구는 "개발팀", 누구는 "개발부", 누구는 "Dev", 누구는 "개발1팀(임시)"라고 쓴다. 6개월 뒤 부서별 인원을 세려고 하면 같은 부서가 네 개로 쪼개져 있다. 룩업 테이블은 출입증 양식에 부서명을 **드롭다운**으로 바꾸는 거다. 목록에 없는 부서는 애초에 못 고른다. 그리고 보너스로, 그 드롭다운 옆에 "CA는 California예요" 같은 **설명**까지 붙여둘 수 있다.
+
+<Callout type="info" title="한 줄 요약">
+코드값 컬럼 옆에 "이 값들만 허용"이라는 화이트리스트 테이블을 두고 FK로 묶는다. 오타가 못 들어오고(참조 무결성), 코드의 풀네임(CA→California)을 DB가 안다.
+</Callout>
+
+## 언제 쓰나
+
+이 리팩토링이 답이 되는 상황은 냄새가 꽤 분명하다. 다음 중 하나라도 콧속을 스쳤다면 룩업 테이블을 의심해라.
+
+**첫째, 같은 의미인데 표기가 제각각인 값이 쌓인다.** 캘리포니아 주가 `CA`, `Ca`, `ca`, `California`, `Calif.` 다섯 가지로 들어와 있다. `GROUP BY State`를 돌리면 한 주가 다섯 줄로 나온다. 누구도 막은 적이 없으니까.
+
+**둘째, 허용 값 목록이 코드 여기저기에 흩어진 enum으로 박혀 있다.** 결제 서비스에도 `const STATES = ['CA', 'NY', ...]`, 정산 배치에도 똑같은 배열, 어드민 프론트엔드에도 또 하나. 주가 하나 추가되거나 바뀌면 세 군데를 다 고쳐야 하는데, 항상 한 군데는 빠뜨린다.
+
+**셋째, 코드값은 있는데 그게 뭔지 사람이 모른다.** DB엔 `TX`만 있고 "이게 텍사스다"라는 정보는 어디에도 없다. 리포트에 풀네임을 띄우려면 또 어딘가의 매핑 테이블(주로 프론트 상수)을 들춰야 한다.
+
+**넷째, 컬럼 `CHECK` 제약으로 값 목록을 관리하다가 한계에 부딪힌다.** 코드가 5개일 땐 `CHECK (state IN ('CA','NY','TX','FL','WA'))`로 버텼는데, 50개로 늘어나니 제약 정의가 흉물이 됐다. 값 하나 추가하려고 `ALTER TABLE`로 제약을 깠다 다시 거는 짓을 반복한다.
+
+값 자체가 "정해진 코드 집합"의 성격을 갖고, 그 집합이 천천히 늘어나며, 코드마다 설명이 붙으면 좋겠다 싶을 때 — 그게 룩업 테이블의 자리다.
+
+### 시나리오: 이런 적 있을 거임
+
+은행 시스템이다. `Customer`, `Account`, 그리고 고객 주소를 담는 `Address` 테이블이 있다. `Address.State`는 처음 만들 때 그냥 `VARCHAR(20)`이었다. "주 이름이야 알아서 잘 넣겠지" 하고.
+
+2년이 지났다. 마케팅팀에서 "주별 가입자 수 좀 뽑아주세요"라는 요청이 온다. 가볍게 쿼리를 친다.
+
+```sql
+SELECT State, COUNT(*) FROM Address GROUP BY State ORDER BY COUNT(*) DESC;
+```
+
+결과를 보고 커피를 내려놓는다.
+
+```text
+State        COUNT(*)
+-----------  --------
+CA           41204
+California    8810
+NY           33001
+N.Y.          512
+Texas         9930
+TX            9210
+tx             88
+텍사스          3
+...
+```
+
+캘리포니아가 두 줄, 뉴욕이 두 줄, 텍사스는 무려 네 줄로 흩어져 있다. 심지어 한글로 "텍사스"라고 쓴 행이 세 건 있다(누군가 한글 입력기를 켜둔 채 폼을 채운 거다). 마케팅팀이 원한 건 "주별 합계"인데, 우리가 줄 수 있는 건 "표기별 합계"다. 둘은 다르다.
+
+여기서 알게 된다. **아무도 막지 않으면, 사람은 같은 걸 다르게 쓴다.** 그것도 아주 창의적으로. 이 데이터를 신뢰할 수 있게 만들려면, 들어올 수 있는 값을 못박고, 이미 들어온 쓰레기를 정제하고, 앞으로 못 들어오게 잠가야 한다. 그게 룩업 테이블 추가다.
+
+## 주의할 점
+
+만들기 전에 두 가지를 합의하고 가야 한다. 안 하면 마이그레이션 도중에 발이 묶인다.
+
+<Callout type="warning" title="채우기 전에 '무엇을 채울지' 합의부터">
+룩업 테이블의 가장 큰 함정은 기술이 아니라 **정의**다. `State` 테이블에 뭘 넣을 건가? 미국 50개 주만? 워싱턴 D.C.를 포함한 51개? 푸에르토리코·괌 같은 자치령(territory)까지 넣은 55~56개? "우리 데이터에 이미 들어와 있는 값"과 "비즈니스가 허용하려는 값"이 다를 수 있다.
+
+이걸 정하지 않고 `DISTINCT`로 긁어서 그대로 룩업 테이블을 채우면, 오타와 한글 "텍사스"까지 전부 "공식 허용값"으로 승격시켜 버린다. **DISTINCT는 출발점이지 정답이 아니다.** 비즈니스가 원하는 공식 집합을 먼저 정하고, 거기에 안 맞는 기존 값은 정제 대상으로 분류해라. 만약 일부 화면은 50개 주만, 다른 화면은 자치령 포함이 필요하다면 룩업 테이블을 둘로 나누거나(예: `State`와 `Territory`), 애플리케이션 검증 로직으로 부분집합을 거른다.
+</Callout>
+
+그리고 두 번째, **FK는 공짜가 아니다.** 외래 키를 걸면 `Address`에 INSERT/UPDATE가 일어날 때마다 DB가 "이 State 값이 룩업 테이블에 있나?"를 확인한다. 보통은 룩업 테이블이 작고 PK 인덱스로 찍으니 비용이 미미하지만, 대량 적재(bulk load) 경로에서는 이 체크가 누적돼 눈에 띌 수 있다. 또한 룩업 테이블의 행을 삭제하려 할 때 그 코드를 쓰는 주소가 하나라도 있으면 FK가 삭제를 막는다(이게 본래 의도이긴 하다). 이런 동작이 새로운 예외 경로를 만든다는 걸 코드가 알아야 한다.
+
+## 이렇게 한다
+
+세 박자로 간다. **스키마를 바꾸고(DDL), 데이터를 옮기고 정제하고(DML), 코드를 고친다.** 책의 골격은 그대로 두되, 각 단계에 현대 도구를 끼워 넣겠다.
+
+<Steps>
+
+<Step title="룩업 테이블 구조 결정 + 생성">
+
+먼저 테이블 모양을 정한다. 최소한 **코드(PK)** 와 **설명**은 있어야 한다. 룩업 테이블의 절반은 이 설명 컬럼을 위해 존재한다고 봐도 된다. 활성/비활성 플래그나 정렬 순서 같은 메타도 자주 같이 둔다.
+
+```sql
+CREATE TABLE State (
+    code         CHAR(2)      NOT NULL,           -- 'CA'
+    name         VARCHAR(100) NOT NULL,           -- 'California'
+    is_active    BOOLEAN      NOT NULL DEFAULT TRUE,
+    display_order INT         NOT NULL DEFAULT 0,
+    CONSTRAINT pk_state PRIMARY KEY (code)
+);
+```
+
+PK는 코드값 자체(`CHAR(2)`)로 잡는 게 보통이다. 룩업 테이블은 `State` 코드처럼 자연키가 의미를 갖는 대표적 케이스라, 굳이 surrogate `id`를 또 만들 이유가 약하다. `Address.State`가 이미 코드 문자열을 들고 있으니 그대로 FK로 묶으면 마이그레이션이 가장 매끈하다.
+
+</Step>
+
+<Step title="룩업 데이터 채우기 — DISTINCT로 시작, 그러나 정제가 본론">
+
+이제 값을 채운다. 첫 삽은 기존 컬럼에서 유일값을 긁는 거다.
+
+```sql
+-- 1차: 일단 현재 들어와 있는 값들을 본다 (정답이 아니라 '현황 파악')
+SELECT DISTINCT UPPER(TRIM(State)) AS raw_state, COUNT(*)
+FROM Address
+GROUP BY UPPER(TRIM(State))
+ORDER BY COUNT(*) DESC;
+```
+
+이 결과를 그대로 INSERT하면 안 된다고 위에서 경고했다. 여기서 하는 건 "어떤 쓰레기가 있는지" 지도를 그리는 거다. 그다음 **공식 집합을 확정**해서 깨끗하게 INSERT한다. 50개 주 + D.C. 같은 정본은 보통 SQL에 손코딩하기보다 외부 시드 파일(CSV/JSON)이나 마이그레이션 시드로 관리한다.
+
+```sql
+INSERT INTO State (code, name) VALUES
+    ('CA', 'California'),
+    ('NY', 'New York'),
+    ('TX', 'Texas'),
+    ('FL', 'Florida'),
+    ('WA', 'Washington')
+    -- ... 나머지 공식 코드들
+;
+```
+
+`name` 컬럼(CA→California)은 `DISTINCT`로 절대 안 채워진다. 원본 데이터엔 풀네임이 없거나 제각각이니까. 이건 표준 시드 데이터로 따로 넣는 게 맞다. 미국 주 코드는 변하지 않는 외부 표준이라, 위키나 우편 표준에서 한 번 받아 시드로 박아두면 끝이다.
+
+</Step>
+
+<Step title="기존 값 정제 — FK를 걸기 전에 쓰레기를 치운다">
+
+여기가 진짜 노동이다. FK를 걸려면 `Address.State`의 **모든** 값이 룩업 테이블에 존재해야 한다. `California`, `Calif.`, `tx`, "텍사스" 같은 비표준 값이 하나라도 남아 있으면 FK 생성이 실패한다. 그러니 표준값으로 `UPDATE`해서 매핑해준다.
+
+```sql
+-- 표기 흔드는 것들을 공식 코드로 수렴시킨다
+UPDATE Address SET State = 'CA' WHERE UPPER(TRIM(State)) IN ('CA','CALIFORNIA','CALIF.');
+UPDATE Address SET State = 'NY' WHERE UPPER(TRIM(State)) IN ('NY','N.Y.','NEW YORK');
+UPDATE Address SET State = 'TX' WHERE UPPER(TRIM(State)) IN ('TX','TEXAS','텍사스');
+-- ...
+```
+
+정제 후엔 반드시 **남은 미아(orphan)를 확인**한다. 룩업 테이블에 없는 값이 아직 있는지.
+
+```sql
+SELECT a.State, COUNT(*)
+FROM Address a
+LEFT JOIN State s ON s.code = a.State
+WHERE s.code IS NULL
+GROUP BY a.State;
+```
+
+이게 0행이 나와야 다음 단계로 간다. 한 줄이라도 나오면 그 값을 표준으로 매핑하거나, 정말 정체불명이면 비즈니스와 상의해 처리한다(임의 폐기는 위험하다 — 누군가의 진짜 주소일 수 있다).
+
+<Callout type="note" title="갱신 전략: 한 방에 락 vs 한 행씩">
+대량 테이블에서 위 `UPDATE`를 한 트랜잭션으로 돌리면 테이블이 오래 잠긴다. 데이터 품질 리팩토링의 고전적 선택지는 둘이다. (1) **전체 락 후 일괄 갱신** — 일관성은 완벽하지만 대량이면 가용성이 떨어진다. (2) **부분(배치/한 행씩) 갱신** — 서비스를 살려두지만 갱신 도중엔 일부 행만 정제된 과도기 상태가 된다. 운영 중인 큰 테이블이면 PK 범위로 쪼개 배치 UPDATE하고, 과도기 동안엔 읽는 쪽이 둘 다 견디게 만들어라.
+</Callout>
+
+</Step>
+
+<Step title="FK 제약 추가 — 잠금 없이 거는 현대식">
+
+이제 못을 박는다. 소스 컬럼이 룩업 테이블을 가리키게 FK를 건다.
+
+```sql
+ALTER TABLE Address
+    ADD CONSTRAINT fk_address_state
+    FOREIGN KEY (State) REFERENCES State (code);
+```
+
+순진하게 이렇게 하면 PostgreSQL은 제약을 거는 동안 기존 모든 행을 검증하느라 테이블에 강한 락을 잡는다. 운영 트래픽이 있는 큰 테이블이면 위험하다. 현대식은 **두 단계로 쪼개는 것**이다. 먼저 `NOT VALID`로 "앞으로 들어오는 행만 검사하고 기존 행 검증은 미룬다" 상태로 빠르게 걸고, 그다음 한가한 시간에 `VALIDATE`로 기존 행을 약한 락으로 훑는다.
+
+```sql
+-- 1) 신규 INSERT/UPDATE만 즉시 보호. 기존 행 풀스캔 검증은 건너뛴다 (락 짧음)
+ALTER TABLE Address
+    ADD CONSTRAINT fk_address_state
+    FOREIGN KEY (State) REFERENCES State (code) NOT VALID;
+
+-- 2) 한가할 때 기존 행 검증 (이때는 강한 락을 안 잡는다)
+ALTER TABLE Address VALIDATE CONSTRAINT fk_address_state;
+```
+
+MySQL/MariaDB 계열에서 큰 테이블의 스키마 변경이 부담되면 `gh-ost`나 `pt-online-schema-change` 같은 온라인 스키마 변경 도구로 그림자 테이블에 변경을 적용하고 무중단 교체하는 길도 있다. 어느 쪽이든 요지는 같다 — **"제약 추가 = 긴 잠금"이라는 옛 전제를 현대 도구로 깬다.**
+
+</Step>
+
+<Step title="마이그레이션 도구로 버전 관리">
+
+위 DDL/DML을 콘솔에 손으로 치고 끝내면 안 된다. 다른 환경(스테이징·운영)에서 재현이 안 되고, 롤백 근거도 안 남는다. Flyway/Liquibase/Alembic이나 ORM 마이그레이션으로 **버전 매겨진 스크립트**로 남긴다.
+
+<Tabs defaultValue="flyway">
+<TabsList>
+<TabsTrigger value="flyway">Flyway (SQL)</TabsTrigger>
+<TabsTrigger value="alembic">Alembic (Python)</TabsTrigger>
+</TabsList>
+
+<TabsContent value="flyway">
+
+```sql
+-- V44__add_state_lookup_table.sql
+CREATE TABLE State (
+    code  CHAR(2)      NOT NULL,
+    name  VARCHAR(100) NOT NULL,
+    CONSTRAINT pk_state PRIMARY KEY (code)
+);
+
+INSERT INTO State (code, name) VALUES
+    ('CA', 'California'), ('NY', 'New York'), ('TX', 'Texas');
+-- ... 시드
+
+-- 정제 UPDATE는 여기 또는 반복 가능한 R__ 스크립트로
+UPDATE Address SET State = 'TX'
+WHERE UPPER(TRIM(State)) IN ('TX','TEXAS','텍사스');
+
+ALTER TABLE Address
+    ADD CONSTRAINT fk_address_state
+    FOREIGN KEY (State) REFERENCES State (code) NOT VALID;
+```
+
+</TabsContent>
+
+<TabsContent value="alembic">
+
+```python
+def upgrade():
+    op.create_table(
+        "state",
+        sa.Column("code", sa.CHAR(2), primary_key=True),
+        sa.Column("name", sa.String(100), nullable=False),
+    )
+    op.bulk_insert(
+        sa.table("state",
+                 sa.column("code"), sa.column("name")),
+        [{"code": "CA", "name": "California"},
+         {"code": "TX", "name": "Texas"}],
+    )
+    # 정제 후 FK
+    op.create_foreign_key(
+        "fk_address_state", "address", "state",
+        ["state"], ["code"],
+    )
+```
+
+</TabsContent>
+</Tabs>
+
+</Step>
+
+</Steps>
+
+### 접근 프로그램 수정: enum을 버리고 테이블을 읽어라
+
+스키마만 바꾸고 코드를 안 고치면 반쪽이다. 룩업 테이블 추가의 목적 중 하나가 "코드 여기저기 박힌 enum 박멸"이었다는 걸 떠올려라. 이제 그 하드코딩 배열을 **DB에서 읽는 로직**으로 바꾼다.
+
+```typescript
+// Before: 허용 주 목록이 코드에 박혀 있다. 결제·정산·어드민에 각각 한 벌씩.
+const US_STATES = ['CA', 'NY', 'TX', 'FL', 'WA' /* ... 빠뜨린 거 분명 있음 */];
+
+function isValidState(code: string): boolean {
+  return US_STATES.includes(code);
+}
+```
+
+```typescript
+// After: 룩업 테이블이 단일 진실 공급원(SSOT).
+// 값이 거의 안 변하니 앱 기동 시 한 번 메모리에 올려두고 캐시한다.
+let stateCache: Map<string, string> | null = null;
+
+async function loadStates(db: Db): Promise<Map<string, string>> {
+  if (stateCache) return stateCache;
+  const rows = await db.query('SELECT code, name FROM State WHERE is_active = TRUE');
+  stateCache = new Map(rows.map((r) => [r.code, r.name]));
+  return stateCache;
+}
+
+async function isValidState(db: Db, code: string): Promise<boolean> {
+  return (await loadStates(db)).has(code);
+}
+
+// 보너스: 이제 풀네임도 공짜다
+async function stateName(db: Db, code: string): Promise<string | undefined> {
+  return (await loadStates(db)).get(code); // 'CA' -> 'California'
+}
+```
+
+핵심은 캐싱이다. 룩업 데이터는 변동이 거의 없으니 매 요청마다 DB를 때릴 이유가 없다. **앱 기동 시 통째로 메모리에 로드**하고, 주가 추가되는 드문 이벤트에만 캐시를 무효화하면 된다(짧은 TTL이나 명시적 invalidate). 이게 "DB에 두면 느려지지 않나?" 걱정의 답이다 — 자주 안 변하는 데이터라 캐싱이 거의 100% 적중한다.
+
+그리고 FK를 새로 걸었으니, 룩업에 없는 코드로 INSERT/UPDATE하면 이제 **DB가 예외를 던진다.** 예전엔 조용히 들어가던 게 이젠 `foreign key violation`으로 막힌다. 이건 좋은 일이지만, 그 예외를 잡아 "유효하지 않은 주 코드입니다" 같은 사용자 메시지로 바꿔주는 처리 경로를 코드에 추가해야 한다.
+
+뷰나 저장 프로시저의 `WHERE`에 주 코드가 하드코딩돼 있었다면 그것도 점검 대상이다. 정제 과정에서 `'Texas'`를 `'TX'`로 바꿨다면, `WHERE State = 'Texas'`라고 박힌 뷰는 이제 0건을 반환한다.
+
+### DB enum vs 룩업 테이블
+
+"근데 PostgreSQL엔 `ENUM` 타입도 있고, MySQL엔 `ENUM` 컬럼도 있는데 그거 쓰면 안 되나?" 좋은 질문이고, 함정이 있다.
+
+<Tabs defaultValue="dbenum">
+<TabsList>
+<TabsTrigger value="dbenum">DB enum 타입</TabsTrigger>
+<TabsTrigger value="lookup">룩업 테이블</TabsTrigger>
+</TabsList>
+
+<TabsContent value="dbenum">
+
+DB 네이티브 enum(`CREATE TYPE state_code AS ENUM (...)`)은 값 목록이 **정말로 고정**이고 짧을 때(요일, 결제 상태 `PENDING/PAID/FAILED` 등) 깔끔하다. 저장 공간도 작고 타입 안전성도 높다.
+
+문제는 **변경이 아프다는 것**이다. PostgreSQL에서 enum에 값을 추가하는 `ALTER TYPE ... ADD VALUE`는 가능하지만, **값을 제거하거나 이름을 바꾸는 건 표준 경로가 없다.** 사실상 타입을 새로 만들어 컬럼을 갈아끼우는 마이그레이션을 해야 한다. 게다가 enum 값엔 **설명(CA→California)을 붙일 데가 없다.** 정렬 순서나 활성 플래그 같은 메타도 못 단다. 그냥 문자열 라벨의 집합일 뿐이다.
+
+</TabsContent>
+
+<TabsContent value="lookup">
+
+룩업 테이블은 그냥 행을 INSERT/UPDATE/소프트삭제하면 되니 **값 변경이 일상 데이터 조작**이다. 마이그레이션 없이 주 하나 추가? `INSERT` 한 줄이면 된다. 그리고 `name`, `is_active`, `display_order` 같은 **부가 정보를 컬럼으로 얼마든지 붙인다.** 코드별 설명, 다국어 라벨, 비활성화 같은 게 전부 자연스럽다.
+
+대가는 JOIN이다. 풀네임을 보려면 `Address JOIN State` 한 번이 더 든다. 하지만 룩업 테이블은 작아서 PK 인덱스로 즉시 찍히고, 어차피 메모리에 캐싱하면 JOIN조차 앱에서 흡수된다.
+
+</TabsContent>
+</Tabs>
+
+대략의 판단선은 이렇다. **값이 (a) 거의 안 변하고 (b) 손에 꼽게 적고 (c) 설명이 필요 없으면** DB enum도 괜찮다. 반대로 **값이 (a) 천천히라도 늘어나고 (b) 코드별 설명·메타가 붙고 (c) 여러 앱이 같은 목록을 공유하면** 룩업 테이블이다. 미국 주(50+개, 풀네임 필요, 여러 서비스 공유)는 교과서적인 룩업 테이블 케이스다.
+
+<Callout type="success" title="얻는 것">
+- **참조 무결성**: 오타·한글 "텍사스"가 INSERT 단계에서 막힌다. `GROUP BY State`가 드디어 진실을 말한다.
+- **단일 진실 공급원**: 흩어진 enum이 테이블 하나로 모인다. 주 추가 = `INSERT` 한 줄.
+- **설명 동반**: CA가 California임을 DB가 안다. 리포트·UI가 풀네임을 공짜로 얻는다.
+- **캐싱 친화**: 변동이 없어 메모리 로드 + 긴 TTL로 성능 부담이 사실상 0.
+</Callout>
+
+## 정리
+
+룩업 테이블 추가는 데이터 품질 리팩토링의 가장 흔하고 가장 남는 장사다. 자유 입력으로 방치된 코드성 컬럼을 화이트리스트 테이블로 가두고 FK로 못박는다. 그 결과 오타가 막히고, 흩어진 enum이 한곳으로 모이고, `CA`가 `California`임을 DB가 알게 된다.
+
+> **사람은 막지 않으면 같은 값을 다르게 쓴다. 룩업 테이블은 "허용된 값만"이라는 규칙을 DB 안에 둔다.**
+
+작업의 순서는 변하지 않는다. 공식 값 집합을 합의하고(DISTINCT는 현황 파악일 뿐 정답이 아니다), 기존 쓰레기를 표준값으로 정제하고, FK를 — 가능하면 `NOT VALID`로 잠금 없이 — 건 다음, 코드의 하드코딩 enum을 캐싱된 테이블 조회로 바꾼다. 마지막으로 이 모든 걸 마이그레이션 도구의 버전 스크립트로 남겨, 다음 사람이 운영에서 똑같이 재현할 수 있게 한다.

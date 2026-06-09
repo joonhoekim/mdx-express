@@ -1,0 +1,199 @@
+---
+title: "Introduce Index: 인덱스 도입"
+subtitle: "읽기를 빠르게, 쓰기를 느리게 — 인덱스라는 양날의 검"
+description: "테이블에 인덱스를 도입하는 리팩토링을 다룬다. 읽기 성능을 끌어올리는 대신 쓰기 비용을 떠안는 트레이드오프, unique 인덱스 전 중복 제거, CREATE INDEX CONCURRENTLY, covering/partial 인덱스, 미사용 인덱스 탐지까지 현대 실무로 정리한다."
+order: 69
+tags: ["database", "architecture", "index", "performance"]
+---
+
+## 이게 뭔데
+
+Introduce Index. 테이블에 **인덱스 하나를 새로 다는** 리팩토링이다. 고유(unique)든 비고유(nonunique)든, 자주 긁는 컬럼에 색인을 붙여서 조회를 빠르게 만든다.
+
+비유는 책 뒤표지 안쪽 색인이다. 두꺼운 전문서를 펴놓고 "트랜잭션 격리 수준"이 어디 나왔는지 찾는다고 치자. 색인이 없으면 1쪽부터 600쪽까지 손가락으로 짚어가며 풀스캔을 해야 한다. 색인이 있으면 맨 뒤 "ㅌ" 항목을 펴서 "트랜잭션 격리 수준 ... 327"을 보고 바로 327쪽을 편다. DB 인덱스가 정확히 이 색인이다. `WHERE customer_number = 'C-90210'`을 던지면, 인덱스가 있는 테이블은 600만 행을 다 훑지 않고 327쪽으로 바로 점프한다.
+
+공짜는 아니다. 책에 새 챕터를 끼워 넣을 때마다 뒤쪽 색인도 같이 갱신해야 하듯, 인덱스가 걸린 컬럼에 INSERT/UPDATE/DELETE를 할 때마다 DB는 본문뿐 아니라 색인도 같이 고친다. **읽기를 빠르게 하는 대가로 쓰기를 느리게 만드는 것** — 이게 인덱스가 양날의 검인 이유다.
+
+<Callout type="warning" title="한 줄 요약">
+인덱스는 SELECT를 빠르게 하고 INSERT/UPDATE/DELETE를 느리게 한다. 공짜로 빨라지는 마법이 아니라, 읽기 비용을 쓰기 비용으로 옮기는 트레이드오프다.
+</Callout>
+
+## 언제 쓰나
+
+동기는 거의 하나로 모인다. **읽기 쿼리가 느려서**다. 책의 은행 도메인으로 가보자. `Account` 테이블이 600만 행쯤 쌓였는데, 고객센터 화면이 고객번호로 계좌를 찾는다.
+
+```sql
+SELECT * FROM Account WHERE CustomerNumber = 'C-90210';
+```
+
+`CustomerNumber`에 인덱스가 없으면 DB는 이 쿼리 한 번에 600만 행을 전부 훑는다(풀 테이블 스캔). 한 건 찾자고 매번 600만 행을 읽는 거다. 상담원이 고객번호를 칠 때마다 2초씩 멍하니 기다린다. 여기에 인덱스를 달면 600만 행 스캔이 인덱스 탐색 몇 단계로 줄어든다.
+
+읽기 성능 말고도 인덱스가 끌려 나오는 상황이 두 가지 더 있다.
+
+- **기본 키(Primary Key)를 만들 때** — 대부분의 DB는 PK를 걸면 그 컬럼에 unique 인덱스를 자동으로 만든다. PK 자체가 인덱스에 얹혀 있다.
+- **외래 키(Foreign Key)를 지원할 때** — `Account.CustomerID`가 `Customer`를 참조한다면, 그 FK 컬럼에 인덱스가 없으면 부모 행을 지우거나 조인할 때마다 자식 테이블을 풀스캔한다. (키 전략을 정리하는 Consolidate Key Strategy 리팩토링이 인덱스를 데려오는 것도 이 때문이다.)
+
+### 현실 시나리오: 이런 적 있을 거임
+
+운영 중인 서비스. 어느 날 슬랙에 "고객 조회가 느려요"가 올라온다. APM을 보면 `Account` 조회 쿼리가 평균 1.8초. `EXPLAIN`을 찍어보면 떡하니 `Seq Scan on account`(또는 MySQL이면 `type: ALL`)가 박혀 있다. 풀스캔이라는 뜻이다.
+
+원인은 단순하다. 초기엔 데이터가 1만 건이라 인덱스 없이도 0.01초에 끝났다. 그래서 아무도 인덱스를 안 달았다. 그런데 데이터가 600만 건으로 늘면서, 풀스캔 비용이 데이터 양에 비례해 같이 늘어난 거다. **로컬에선 절대 안 보이고, 운영 데이터가 쌓여야 터진다.** 어디서 많이 본 패턴이다.
+
+해법은 인덱스 한 줄. 근데 이 "한 줄"을 운영 DB에 잘못 날리면 테이블이 잠긴다. 그래서 주의할 게 있다.
+
+## 주의할 점
+
+<Callout type="warning" title="인덱스는 공짜가 아니다 — 비용 세 갈래">
+1. **쓰기가 느려진다**: 인덱스가 걸린 테이블은 INSERT/UPDATE/DELETE마다 인덱스도 같이 갱신한다. 인덱스 10개짜리 테이블은 한 번 INSERT할 때 본체 1번 + 인덱스 10번을 쓴다. 쓰기 무거운 테이블에 인덱스를 남발하면 쓰기 처리량이 깎인다.
+2. **디스크를 먹는다**: 인덱스는 별도 자료구조라 디스크 공간을 추가로 쓴다. 큰 테이블에 인덱스 여러 개면 인덱스 용량이 본체를 넘기기도 한다.
+3. **unique 인덱스는 기존 데이터가 깨끗해야 만들어진다**: 이미 중복 값이 있는 컬럼엔 unique 인덱스를 바로 못 건다. 중복부터 치워야 한다(아래에서 다룬다).
+</Callout>
+
+핵심은 **인덱스를 무한정 늘리면 안 된다**는 거다. "읽기가 느리면 인덱스"는 맞지만, 그렇다고 모든 컬럼에 인덱스를 바르면 쓰기가 죽는다. 인덱스는 추가할 때마다 읽기 이득과 쓰기 손해를 저울질하는 결정이지, 기계적으로 바르는 게 아니다. (그리고 안 쓰이는 인덱스는 쓰기 손해만 남기고 이득은 0이다. 이건 마지막에 따로 다룬다.)
+
+## 이렇게 한다
+
+### 1. 비고유 인덱스 — 그냥 다는 경우
+
+읽기 성능 때문에 거는 평범한 케이스다. `CustomerNumber`로 자주 조회한다면 거기에 인덱스를 단다.
+
+```sql
+-- Before: WHERE CustomerNumber = ? 가 풀스캔
+SELECT * FROM Account WHERE CustomerNumber = 'C-90210';
+
+-- After: 인덱스 추가
+CREATE INDEX idx_account_customer_number
+  ON Account (CustomerNumber);
+```
+
+인덱스 유형은 **업무 규칙으로 정한다.** 책의 예시 그대로다.
+
+- 고객번호(`CustomerNumber`)나 주민번호(SSN)처럼 **값이 유일해야 하는** 컬럼 → **unique 인덱스**
+- 전화번호(`PhoneNumber`)처럼 **중복이 허용되는**(가족이 같은 집전화를 쓸 수 있다) 컬럼 → **비고유 인덱스**
+
+값의 유일성은 인덱스가 정하는 게 아니라 도메인이 정한다. "이 컬럼은 중복이 있을 수 있나?"를 먼저 답하고, 그에 맞는 유형을 고르는 거다.
+
+### 2. unique 인덱스 — 중복부터 치우고 단다
+
+`CustomerNumber`에 unique 인덱스를 달려는데, 과거 데이터에 중복이 끼어 있을 수 있다. 그냥 `CREATE UNIQUE INDEX`를 날리면 DB가 중복을 발견하고 통째로 거부한다. 그래서 **중복 탐지 → 정리 → 인덱스** 순서로 간다.
+
+<Steps>
+<Step title="중복 탐지">
+`GROUP BY ... HAVING COUNT(*) > 1`로 어떤 값이 몇 번 중복됐는지 뽑는다.
+
+```sql
+SELECT CustomerNumber, COUNT(*) AS cnt
+FROM Account
+GROUP BY CustomerNumber
+HAVING COUNT(*) > 1
+ORDER BY cnt DESC;
+```
+</Step>
+<Step title="중복 정리 (Update Data)">
+뽑힌 중복을 어떻게 처리할지는 도메인 판단이다. 진짜 중복 입력이면 병합하거나 한쪽을 폐기하고, 사실 서로 다른 계좌인데 번호만 같았다면 새 번호를 부여한다. 자동으로 막 지우면 안 되고, 보통은 이해관계자와 확인하며 데이터를 고친다. (책에서 말하는 Update Data 단계가 이거다.)
+</Step>
+<Step title="unique 인덱스 생성">
+중복이 0이 된 걸 확인한 뒤에야 unique 인덱스를 건다.
+
+```sql
+CREATE UNIQUE INDEX uq_account_customer_number
+  ON Account (CustomerNumber);
+```
+</Step>
+</Steps>
+
+<Callout type="info" title="앱 쪽도 같이 손봐야 한다">
+unique 인덱스가 생기는 순간, 중복 값을 넣으려는 INSERT/UPDATE는 DB가 제약 위반 예외로 막는다. 전엔 조용히 들어가던 중복이 이제 예외를 던진다는 뜻이다. 접근 프로그램(애플리케이션) 코드는 이 **중복 키 예외를 잡아 처리**하도록 고쳐야 한다. "이미 존재하는 고객번호입니다" 같은 응답으로. 안 그러면 인덱스를 단 날부터 500 에러가 터진다.
+</Callout>
+
+### 3. 운영 DB에서 안전하게 — 락 없이 인덱스 만들기
+
+2006년 책은 `CREATE INDEX` 한 줄을 그냥 날린다. 데이터가 적던 시절엔 그래도 됐다. 그런데 **운영 중인 600만 행 테이블에 평범한 `CREATE INDEX`를 날리면, 인덱스를 다 만들 때까지 그 테이블에 쓰기 락이 걸린다.** 인덱스 빌드가 몇 분 걸리면, 그동안 INSERT/UPDATE가 전부 줄을 서서 장애가 된다. 현대 실무에선 여기를 반드시 비켜 간다.
+
+<Tabs defaultValue="pg">
+<TabsList>
+<TabsTrigger value="pg">PostgreSQL</TabsTrigger>
+<TabsTrigger value="mysql">MySQL / 대용량</TabsTrigger>
+</TabsList>
+<TabsContent value="pg">
+
+PostgreSQL은 `CONCURRENTLY`를 붙이면 쓰기 락 없이 인덱스를 만든다.
+
+```sql
+-- 테이블을 잠그지 않고 빌드 (운영 중 실행 가능)
+CREATE INDEX CONCURRENTLY idx_account_customer_number
+  ON Account (CustomerNumber);
+```
+
+대신 트레이드오프가 있다. 빌드가 더 오래 걸리고, **트랜잭션 블록 안에서 못 쓴다.** 그래서 Flyway/Liquibase 마이그레이션에 넣을 때는 그 마이그레이션을 트랜잭션으로 감싸지 않도록 설정해야 한다(Flyway면 `-- flyway:executeInTransaction=false`). 빌드가 중간에 실패하면 `INVALID` 상태의 인덱스가 남으니, 실패 시 `DROP INDEX` 후 재시도하는 절차도 마련해 둔다.
+
+</TabsContent>
+<TabsContent value="mysql">
+
+MySQL/InnoDB는 8.0 기준 상당수 인덱스 추가를 온라인 DDL(`ALGORITHM=INPLACE, LOCK=NONE`)로 처리한다.
+
+```sql
+ALTER TABLE Account
+  ADD INDEX idx_account_customer_number (CustomerNumber),
+  ALGORITHM=INPLACE, LOCK=NONE;
+```
+
+`LOCK=NONE`이 안 먹는 변경이거나 더 보수적으로 가야 하면, **gh-ost**나 **pt-online-schema-change** 같은 온라인 스키마 변경 도구를 쓴다. 원본을 직접 안 건드리고, 변경된 구조의 섀도 테이블을 만들어 데이터를 복사하면서 변경분을 따라잡은 뒤 마지막에 원자적으로 교체(rename)하는 방식이다. 거대한 테이블에 락 걸지 않고 인덱스를 추가하는 현장 표준이다.
+
+</TabsContent>
+</Tabs>
+
+### 4. 인덱스를 더 똑똑하게 — covering / partial
+
+평범한 인덱스에서 한 발 더 나가면, 같은 컬럼이라도 더 적게 쓰고 더 잘 듣게 만들 수 있다.
+
+**Covering index (커버링 인덱스).** 인덱스로 행을 찾은 뒤 보통은 본체 테이블에 다시 가서 나머지 컬럼을 읽는다(테이블 룩업). 그런데 쿼리가 필요로 하는 컬럼을 인덱스가 전부 들고 있으면, **본체를 안 보고 인덱스만 읽고 끝낸다.**
+
+```sql
+-- 이 쿼리만 자주 돈다면:
+SELECT Balance FROM Account WHERE CustomerNumber = 'C-90210';
+
+-- PostgreSQL: INCLUDE로 Balance를 인덱스에 얹어 본체 룩업 제거
+CREATE INDEX idx_account_custnum_incl_balance
+  ON Account (CustomerNumber) INCLUDE (Balance);
+```
+
+**Partial index (부분 인덱스).** 테이블의 일부 행만 색인한다. 예를 들어 소프트 삭제를 쓰는 `Account`에서, 살아 있는 계좌만 조회한다면 굳이 삭제된 행까지 색인할 이유가 없다.
+
+```sql
+-- 활성 계좌만 색인 → 인덱스가 작아지고, 쓰기 부담도 줄고, 디스크도 아낀다
+CREATE INDEX idx_account_active_custnum
+  ON Account (CustomerNumber)
+  WHERE IsDeleted = FALSE;
+```
+
+부분 인덱스는 "대부분의 쿼리가 전체의 일부만 본다"는 상황에서 특히 강하다. 색인 대상이 작아지니 읽기는 그대로 빠르면서 쓰기 손해와 디스크 비용은 줄어든다.
+
+### 5. 미사용 인덱스 탐지 — 손해만 남은 인덱스 걷어내기
+
+인덱스를 추가하는 리팩토링의 그림자다. **아무도 안 쓰는 인덱스는 읽기 이득은 0인데 쓰기 손해와 디스크 비용은 그대로 낸다.** "혹시 몰라서" 달아놓고 잊힌 인덱스, 쿼리가 바뀌어 더는 안 타게 된 인덱스가 테이블마다 쌓인다. 그러니 인덱스는 추가만 하는 게 아니라, 주기적으로 사용량을 보고 안 쓰이는 걸 걷어내야 한다.
+
+PostgreSQL은 `pg_stat_user_indexes`로 인덱스별 스캔 횟수를 본다.
+
+```sql
+-- idx_scan 이 0이면 한 번도 안 탄 인덱스 (PK/unique 제약 제외하고 검토 대상)
+SELECT relname AS table_name,
+       indexrelname AS index_name,
+       idx_scan AS scans,
+       pg_size_pretty(pg_relation_size(indexrelid)) AS size
+FROM pg_stat_user_indexes
+WHERE idx_scan = 0
+ORDER BY pg_relation_size(indexrelid) DESC;
+```
+
+MySQL이면 `sys.schema_unused_indexes` 뷰가 같은 일을 해준다. 통계가 충분히 쌓인 기간(재시작 이후, 그리고 월말 배치 같은 드문 쿼리까지 한 사이클 돈 뒤)을 두고 봐야 오판을 피한다. 진짜 안 쓰는 게 확인되면 `DROP INDEX`로 정리한다 — 단, PK나 FK·unique 제약을 떠받치는 인덱스는 건드리면 안 된다.
+
+## 정리
+
+Introduce Index는 리팩토링 카탈로그에서 가장 단순해 보이는 한 줄짜리 변경이다. 하지만 그 한 줄에 트레이드오프가 통째로 들어 있다.
+
+> **인덱스는 읽기 비용을 쓰기 비용으로 옮기는 거래다. 마법이 아니다.**
+
+그래서 세 가지를 기억하면 된다. 첫째, **읽기 이득과 쓰기·디스크 손해를 저울질**해서 달지 말지를 정한다 — 모든 컬럼에 바르는 게 아니다. 둘째, **unique 인덱스는 중복부터 치우고**(`GROUP BY ... HAVING COUNT > 1`) 달며, 앱은 중복 키 예외를 처리하도록 같이 고친다. 셋째, **운영 DB에선 락 없이**(`CREATE INDEX CONCURRENTLY`, 온라인 DDL, gh-ost) 만들고, covering/partial로 더 영리하게 만들고, **안 쓰는 인덱스는 주기적으로 걷어낸다.**
+
+조회가 풀스캔으로 느려지고 있다는 신호가 보이면, 그건 대개 인덱스를 하나 달아야 한다는 뜻이다. 다만 달기 전에 "이게 쓰기를 얼마나 무겁게 할까", 단 다음엔 "이게 정말 쓰이고 있나"를 같이 묻는 것 — 그게 인덱스를 양날의 검이 아니라 그냥 검으로 쓰는 법이다.

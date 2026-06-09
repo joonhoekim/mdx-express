@@ -1,0 +1,265 @@
+---
+title: "Parameterize Method: 메서드 매개변수화"
+subtitle: "GetAmericanCustomers·GetCanadianCustomers… 를 GetCustomersInCountry 하나로"
+description: "거의 같은 일을 하는 여러 저장 프로시저를 파라미터 받는 단일 메서드로 통합하는 인터페이스 변경 리팩토링. 동기, 트레이드오프, DDL/DML/접근 코드 변경을 expand-contract와 회귀 테스트로 현대화해 정리한다."
+order: 77
+tags: ["database","method-refactoring","stored-procedure","dry"]
+---
+
+import { Callout, Steps, Step, Tabs, TabsList, TabsTrigger, TabsContent, Icon } from '@/components/writing-ui';
+
+## 이게 뭔데
+
+**메서드 매개변수화(Parameterize Method)** 는 거의 똑같은 일을 하는 여러 저장 프로시저를, 그 "다른 부분"을 파라미터로 받는 단일 프로시저로 합치는 리팩토링이다.
+
+비유하자면 자판기 문제다. 콜라 자판기, 사이다 자판기, 환타 자판기를 따로따로 복도에 세워두는 회사가 있다고 치자. 음료 하나 추가할 때마다 자판기를 새로 한 대 들여놔야 하고, 동전 투입구에 버그가 생기면 자판기 전부를 뜯어고쳐야 한다. 정상적인 회사는 자판기 한 대에 버튼을 단다. 버튼이 곧 파라미터다. 음료가 늘어도 버튼만 추가하면 되고, 동전 투입구는 한 군데만 고치면 된다.
+
+DB에서 그 "자판기 한 대 + 버튼"이 바로 `GetCustomersInCountry(@country)` 하나다. 나라별로 프로시저를 우후죽순 찍어내는 대신, 나라를 파라미터로 받는다.
+
+<Callout type="info" title="한 줄 요약">
+`GetAmericanCustomers`, `GetCanadianCustomers`, `GetBritishCustomers`… 처럼 바디가 90% 똑같고 상수 한두 개만 다른 프로시저 떼거리를, 그 상수를 인자로 받는 `GetCustomersInCountry(@country)` 하나로 접는다. DRY의 DB 버전이다.
+</Callout>
+
+이건 책 분류상 **인터페이스 변경 리팩토링(Interface Changing Refactoring)** 이다. 즉 외부에 노출되는 시그니처가 바뀐다. 시그니처가 바뀐다는 건, 이 프로시저를 부르는 앱·배치·리포트가 전부 영향권이라는 뜻이고, 그래서 **전환 기간(transition period)** 이 필요하다. 이 점이 내부 리팩토링과 결정적으로 다르다. 뒤에서 다시 본다.
+
+## 언제 쓰나
+
+냄새는 명확하다. 프로시저 목록을 `SELECT name FROM sys.procedures` 같은 걸로 뽑았는데, 이름이 이렇게 생겼으면 거의 확정이다.
+
+```text
+GetAmericanCustomers
+GetCanadianCustomers
+GetBritishCustomers
+GetGermanCustomers
+GetJapaneseCustomers
+...
+```
+
+이름의 가운데 토막(`American`, `Canadian`…)만 다르고 나머지는 똑같다. 이게 바로 "메서드 이름에 데이터가 박혀 있다"는 증상이다. 본래 값(data)으로 다뤄야 할 `'US'`, `'CA'` 같은 코드가 식별자(identifier)로 승격돼 버린 상태. 값이 식별자로 올라가면 새 값이 생길 때마다 코드가 늘어난다.
+
+이걸 풀어서 옆에 펼쳐 놓고 보면 더 분명하다.
+
+```sql
+CREATE PROCEDURE GetAmericanCustomers AS
+BEGIN
+  SELECT CustomerID, Name, AccountID, Balance
+  FROM Customer
+  WHERE Country = 'US';   -- 여기만 다름
+END;
+
+CREATE PROCEDURE GetCanadianCustomers AS
+BEGIN
+  SELECT CustomerID, Name, AccountID, Balance
+  FROM Customer
+  WHERE Country = 'CA';   -- 여기만 다름
+END;
+```
+
+바디가 글자 하나까지 같고 `WHERE` 절의 상수만 다르다. 이 패턴이 보이면 메서드 매개변수화가 답이다.
+
+언제 이게 가치 있냐면:
+
+- **신규 케이스가 자주 추가될 때.** 영업이 멕시코, 브라질, 인도로 확장한다. 나라가 늘 때마다 프로시저를 새로 배포하고 권한 부여하고 테스트하는 건 미친 짓이다. 파라미터화돼 있으면 새 나라는 그냥 `'MX'`를 넘기면 끝, 배포가 0건이다.
+- **공통 로직을 자주 고칠 때.** 어느 날 "고객 목록에 `Status = 'ACTIVE'` 조건을 추가하자"가 결정된다. 프로시저가 20개면 20군데를 고친다. 그중 하나를 까먹으면 나라마다 다르게 동작하는 유령 버그가 태어난다. 하나로 합쳐져 있으면 한 군데만 고친다.
+
+<Callout type="note" title="반대 방향 리팩토링도 있다">
+같은 10장에 정반대인 **파라미터를 명시적 메서드로 대체(Replace Parameter with Explicit Methods)** 가 있다. `GetAccountValue(@accountID, @columnID)`처럼 파라미터 값으로 분기하는 너무 범용적인 프로시저를 `GetAccountBalance`, `GetAccountOpeningDate`로 쪼개는 거다. 메서드 매개변수화의 기준은 "파라미터가 **데이터**인가"다. 나라 코드는 데이터다(값이 무한히 늘 수 있다). 반면 `@columnID`로 컬럼을 고르는 건 분기 로직이지 데이터가 아니라서, 쪼개는 게 낫다. 둘을 헷갈리지 말자.
+</Callout>
+
+## 시나리오: 이런 적 있을 거임
+
+은행 운영팀에서 일한다고 치자. 처음엔 미국 고객만 있었다. `GetAmericanCustomers` 하나로 충분했다. 깔끔했다.
+
+그러다 캐나다에 진출했다. 데드라인이 코앞이라 누군가 `GetAmericanCustomers`를 복붙해서 `WHERE Country = 'US'`만 `'CA'`로 바꾼 `GetCanadianCustomers`를 만들었다. 복붙은 5분이고 추상화는 30분이니까. 합리적인 선택처럼 보였다.
+
+1년 뒤. 프로시저가 17개가 됐다. 그리고 컴플라이언스팀에서 요청이 온다. "탈퇴한 고객은 목록에서 빼주세요. `WHERE`에 `IsClosed = 0` 추가요." 17개를 연다. 16개를 고치고 하나를 놓친다. 하필 그게 독일이다. 6개월 뒤 감사에서 "왜 독일 고객 리포트에만 탈퇴 고객이 섞여 있죠?"라는 질문이 날아오고, `git blame`을 찍으면... 뭐, 익숙한 결말이다.
+
+이 모든 사달의 원인은 그때 그 복붙이 아니다. **값이어야 할 나라 코드를 프로시저 이름으로 올려버린 그 결정**이다. 메서드 매개변수화는 그걸 도로 값으로 내려놓는 작업이다.
+
+## 주의할 점
+
+이건 인터페이스를 바꾼다. 그래서 안전한 척하면 안 된다.
+
+<Callout type="warning" title="시그니처가 바뀌면 호출부가 전부 영향권">
+`GetCanadianCustomers()`를 호출하던 앱·배치·리포트·BI 대시보드가 어딘가에 흩어져 있다. 새 프로시저는 `GetCustomersInCountry('CA')`라 호출 방식이 다르다. **구버전 프로시저를 그냥 DROP하면, 그걸 부르던 모든 게 한순간에 깨진다.** 그래서 "만들고 → 바로 지우기"가 아니라, **전환 기간**을 두고 구버전이 한동안 살아있되 속으로는 신버전에 위임하게 만드는 게 정석이다.
+</Callout>
+
+그 외에 함정 몇 개:
+
+- **SQL 인젝션.** 파라미터를 받는다는 건 외부 입력이 들어온다는 거다. 받은 `@country`를 문자열로 이어붙여 동적 SQL을 만들면 그날로 인젝션 구멍이 뚫린다. 반드시 바인드 파라미터로 받아 그대로 `WHERE` 조건에 넘겨라. 절대 `'... WHERE Country = ''' + @country + ''''` 같은 짓을 하지 말 것.
+- **유효성 검증의 실종.** `GetAmericanCustomers`는 'US'가 박혀 있어서 잘못된 나라를 부를 수가 없었다. 파라미터화하면 누가 `GetCustomersInCountry('XX')`를 부를 수 있게 된다. 빈 결과를 줄지, 에러를 던질지 정책을 정해야 한다. 인터페이스가 넓어진 만큼 검증이 새로 필요해진다.
+- **권한(GRANT)의 변화.** 예전엔 "캐나다팀 계정엔 `GetCanadianCustomers`만 EXECUTE 권한"으로 나라별 접근을 권한으로 막을 수 있었다. 하나로 합치면 그 미세 통제가 사라진다. 나라별 권한 분리가 실제 보안 요구사항이었다면, 행 수준 보안(RLS)이나 별도 검증 레이어로 그 통제를 옮겨와야 한다. 무심코 보안 경계를 허무는 일이 없게.
+
+## 이렇게 한다
+
+순서대로 가자. 핵심은 **한 번에 갈아엎지 않는 것**이다. 마이그레이션 도구에서 흔히 expand-contract(또는 parallel change)라 부르는 패턴 그대로다. 늘리고(expand) → 옮기고 → 줄인다(contract).
+
+<Steps>
+<Step title="신버전 프로시저 추가 (expand)">
+파라미터 받는 새 프로시저를 만든다. 아직 아무도 안 부른다. 구버전과 공존한다.
+</Step>
+<Step title="구버전을 껍데기로 (위임)">
+기존 `GetCanadianCustomers`의 바디를 비우고, 속으로 `GetCustomersInCountry('CA')`를 호출하게 바꾼다. 호출부는 아직 구버전을 부르지만, 실제 로직은 한 군데로 모인다. 로직 중복이 이 시점에 사라진다.
+</Step>
+<Step title="호출부 이전">
+앱·배치·리포트를 하나씩 신버전 호출로 갈아탄다. 전환 기간 동안 천천히, 배포 단위로.
+</Step>
+<Step title="구버전 제거 (contract)">
+모든 호출부가 옮겨졌음을 확인하면(아래 모니터링 참고), 드롭 데이트에 구버전 껍데기들을 일괄 DROP한다.
+</Step>
+</Steps>
+
+### 스키마 변경 (DDL)
+
+신버전을 만들고, 구버전들을 위임 껍데기로 바꾼다.
+
+```sql
+-- 1) expand: 파라미터 받는 신버전 추가
+CREATE PROCEDURE GetCustomersInCountry
+  @country CHAR(2)
+AS
+BEGIN
+  -- @country는 바인드 파라미터. 문자열 이어붙이기 금지 (인젝션 방어)
+  SELECT CustomerID, Name, AccountID, Balance
+  FROM Customer
+  WHERE Country = @country
+    AND IsClosed = 0;      -- 공통 규칙이 이제 '한 곳'에만 존재
+END;
+
+-- 2) 구버전을 껍데기로: 로직 대신 위임만
+ALTER PROCEDURE GetAmericanCustomers AS
+BEGIN
+  EXEC GetCustomersInCountry 'US';
+END;
+
+ALTER PROCEDURE GetCanadianCustomers AS
+BEGIN
+  EXEC GetCustomersInCountry 'CA';
+END;
+-- ...나머지 15개도 동일하게 위임으로 전환
+```
+
+이 시점에서 이미 절반은 이긴 거다. 17개 프로시저의 본문이 전부 한 줄짜리 위임이 됐고, 진짜 로직은 `GetCustomersInCountry` 한 군데에만 산다. `IsClosed = 0` 같은 규칙을 깜빡할 데가 더 이상 없다.
+
+<Callout type="success" title="구버전을 굳이 껍데기로 살려두는 이유">
+바로 DROP하지 않고 위임 껍데기로 두는 게 전환 기간의 핵심이다. 호출부를 단번에 다 못 고치는 현실(다른 팀 배치, 외주가 짠 리포트, 야간 ETL…)에서, 껍데기는 "기존 호출은 그대로 동작하되 로직은 합쳐진" 안전지대를 만든다. 호출부 이전이 끝나면 껍데기는 그냥 통과만 하는 중개자(pass-through)가 되고, 그건 같은 10장의 **중개자 제거(Remove Middle Man)** 로 깔끔히 지워진다.
+</Callout>
+
+현대 마이그레이션 도구를 쓰면 이 단계들이 버전 매겨진 파일로 남는다.
+
+<Tabs defaultValue="flyway">
+<TabsList>
+<TabsTrigger value="flyway">Flyway / Liquibase</TabsTrigger>
+<TabsTrigger value="alembic">Alembic</TabsTrigger>
+</TabsList>
+<TabsContent value="flyway">
+
+```text
+db/migration/
+  V31__add_get_customers_in_country.sql   -- expand: 신버전 CREATE
+  V32__delegate_legacy_customer_procs.sql -- 구버전들을 위임 껍데기로 ALTER
+  -- (전환 기간 경과 후, 드롭 데이트에)
+  V40__drop_legacy_customer_procs.sql     -- contract: 껍데기 일괄 DROP
+```
+
+버전 번호가 expand와 contract를 명시적으로 갈라놓는다. V40을 한참 뒤 릴리스에 배치하는 것 자체가 전환 기간을 코드로 박제하는 셈이다.
+
+</TabsContent>
+<TabsContent value="alembic">
+
+```python
+def upgrade():
+    # expand: 신버전
+    op.execute("""
+        CREATE PROCEDURE GetCustomersInCountry @country CHAR(2) AS
+        BEGIN
+          SELECT CustomerID, Name, AccountID, Balance
+          FROM Customer WHERE Country = @country AND IsClosed = 0;
+        END;
+    """)
+    # 구버전 위임 전환
+    op.execute("ALTER PROCEDURE GetCanadianCustomers AS BEGIN EXEC GetCustomersInCountry 'CA'; END;")
+
+def downgrade():
+    op.execute("DROP PROCEDURE GetCustomersInCountry")
+    # 구버전 원복은 별도 백업 스크립트로
+```
+
+</TabsContent>
+</Tabs>
+
+### 데이터 마이그레이션 (DML)
+
+이 리팩토링은 다행히 **데이터를 건드리지 않는다.** `Customer` 테이블의 행 자체는 그대로다. 옮기는 건 "로직"이지 "데이터"가 아니다. 메서드 리팩토링이 대체로 스키마 리팩토링보다 마음 편한 이유가 이거다. 행 마이그레이션, 백필, 정합성 검증 같은 무거운 작업이 없다.
+
+딱 하나 챙길 건, 신버전이 구버전과 **결과가 비트 단위로 같은지** 확인하는 거다. 위임으로 합치는 과정에서 `IsClosed = 0` 같은 조건을 새로 넣었다면, 그건 "리팩토링"이 아니라 "동작 변경"이라 따로 합의된 변경이어야 한다. 순수 리팩토링이라면 before/after 결과 집합이 같아야 하고, 이건 쿼리로 바로 검증할 수 있다.
+
+```sql
+-- 구버전과 신버전 결과가 동일한지 차집합으로 검증 (양방향)
+-- 행이 하나라도 나오면 동작이 달라진 것
+SELECT CustomerID FROM (
+  EXEC GetAmericanCustomers
+) AS old_result
+EXCEPT
+SELECT CustomerID FROM GetCustomersInCountry('US');  -- 개념적 검증 쿼리
+```
+
+(DBMS마다 프로시저 결과를 직접 EXCEPT하긴 까다로우니, 실무에선 양쪽을 임시 테이블에 받아 `EXCEPT` 양방향으로 비교한다. 핵심은 **"합치기 전후가 같다"를 자동으로 증명**하는 거다.)
+
+### 접근 프로그램 수정 (코드)
+
+애플리케이션 쪽. 호출부를 신버전으로 갈아탄다. before는 나라마다 프로시저 이름이 갈라져 있어서, 호출하는 코드 자체에도 분기 냄새가 배어 있었을 거다.
+
+```typescript
+// Before: 나라마다 프로시저가 다르니, 코드에도 매핑이 박힌다
+const PROC_BY_COUNTRY: Record<string, string> = {
+  US: 'GetAmericanCustomers',
+  CA: 'GetCanadianCustomers',
+  GB: 'GetBritishCustomers',
+  // 나라 추가될 때마다 여기도 손봐야 함...
+};
+
+async function fetchCustomers(country: string) {
+  const proc = PROC_BY_COUNTRY[country];
+  if (!proc) throw new Error(`지원 안 하는 나라: ${country}`);
+  return db.exec(proc);   // 프로시저 이름으로 분기
+}
+```
+
+```typescript
+// After: 나라는 '값'이다. 인자로 바인딩해서 넘긴다
+async function fetchCustomers(country: string) {
+  // 매개변수 바인딩 — 절대 문자열 이어붙이기 금지 (인젝션 방어)
+  return db.exec('GetCustomersInCountry', { country });
+}
+```
+
+before에 있던 `PROC_BY_COUNTRY` 매핑 테이블이 통째로 증발한 게 핵심이다. DB에서 프로시저를 합쳤더니, 그 합침이 애플리케이션 코드의 분기까지 같이 지워버렸다. 중복은 보통 한 층에만 사는 게 아니라 DB와 앱에 쌍으로 자라기 때문이다.
+
+<Callout type="warning" title="회귀 테스트가 이 리팩토링의 전제 조건">
+인터페이스 변경 리팩토링은 "결과가 안 바뀌었다"를 증명할 수 없으면 손대면 안 된다. 그래서 합치기 **전에** 각 구버전 프로시저의 결과를 골든 데이터로 박아둔 테스트를 먼저 깔아라. 그러고 나서 위임 전환 → 신버전 호출로 옮기는 매 단계마다 테스트를 돌린다. 책이 말하는 메서드 리팩토링의 진짜 전제 조건은 "프로시저용 자동화 테스트"다. 이게 없는 팀은 인터페이스 변경 리팩토링부터 시작하면 안 되고, 테스트 깔기부터 해야 한다.
+</Callout>
+
+### 전환 기간 종료: 정말 아무도 안 부르나?
+
+구버전 껍데기를 DROP하기 전, "이제 진짜 아무도 `GetCanadianCustomers`를 안 부른다"를 어떻게 확신하나? 야간 배치나 외주 리포트가 몰래 부르고 있으면 드롭하는 순간 터진다. 2006년엔 코드를 일일이 뒤졌지만, 지금은 DB가 직접 알려준다. 사용 통계 뷰로 마지막 호출 시각을 본다.
+
+```sql
+-- SQL Server 예: 프로시저별 마지막 실행 시각
+SELECT OBJECT_NAME(object_id) AS proc_name, last_execution_time
+FROM sys.dm_exec_procedure_stats
+WHERE OBJECT_NAME(object_id) LIKE 'Get%Customers'
+ORDER BY last_execution_time;
+```
+
+위임 껍데기들의 `last_execution_time`이 드롭 데이트 한참 전부터 갱신을 멈췄다면, 안전하게 DROP해도 된다. 통계 갱신이 계속된다면 누군가 아직 부르고 있다는 뜻이니, 호출부 추적을 더 해야 한다. 통계가 못 미덥거나 더 정밀하게 봐야 하면, 껍데기 안에 가벼운 감사 로깅(누가 언제 호출했는지)을 잠깐 심었다가 빼는 것도 방법이다.
+
+## 정리
+
+메서드 매개변수화의 정체는 결국 한 문장이다.
+
+> **이름에 박힌 값을, 도로 값으로 내려놓는 것.**
+
+`American`, `Canadian`처럼 본래 데이터여야 할 것이 프로시저 이름으로 올라가면, 값이 늘 때마다 코드가 늘고, 공통 로직을 고칠 때마다 N군데를 고치다 하나를 빠뜨린다. 파라미터로 받는 단일 프로시저는 그 모든 걸 한 군데로 모은다. 신규 케이스는 인자만 바꾸면 되고, 공통 규칙은 한 군데만 고치면 된다.
+
+다만 이건 인터페이스를 바꾸는 리팩토링이라, 공짜가 아니다. 호출부 전부가 영향권이고, 그래서 한 번에 갈아엎는 대신 expand-contract로 늘리고-옮기고-줄인다. 구버전을 잠깐 위임 껍데기로 살려두는 전환 기간이 안전벨트다. 그리고 그 모든 단계의 발판은 "결과가 안 바뀌었다"를 증명하는 회귀 테스트다. 테스트가 없으면 이건 리팩토링이 아니라 도박이 된다.

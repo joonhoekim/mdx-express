@@ -1,0 +1,181 @@
+---
+title: "Migrate Method To Database: DB로 메서드 이전"
+subtitle: "앱 로직을 DB로 내린다 — 여러 기술이 공유하고, 대량 처리를 가까이서"
+description: "애플리케이션에 박혀 있던 비즈니스 로직을 저장 프로시저/함수로 DB에 옮기는 아키텍처 리팩토링. 재사용·확장성·네트워크 결과셋 축소라는 동기와 벤더 종속이라는 트레이드오프, 그리고 여러 앱의 중복 메서드를 하나로 통합하는 절차를 현대 실무 관점에서 정리한다."
+order: 72
+tags: ["database", "architecture", "stored-procedure", "business-logic"]
+---
+
+## 이게 뭔데
+
+**애플리케이션 코드에 들어있던 로직 한 덩어리를 들어다가 DB 안(저장 프로시저·함수)으로 내리는 것.** 끝이다. 방향만 바꾼 거다.
+
+비유를 하나 들어보자. 회사에 정산 규칙이 하나 있는데, 이 규칙을 각 부서가 자기 책상 서랍에 손으로 베껴서 보관한다고 치자. 영업팀 서랍에도 있고, CS팀 서랍에도 있고, 야간 배치 담당자 서랍에도 있다. 규칙이 바뀌면? 세 서랍을 다 열어서 고쳐야 한다. 한 군데 빠뜨리면 그 부서만 옛날 규칙으로 돈을 계산한다. Migrate Method To Database는 이 규칙을 **사내 공용 매뉴얼 한 권으로 만들어 자료실(DB)에 비치하는 일**이다. 누가 됐든 그 한 권만 보면 된다.
+
+좀 더 직접적으로 말하면, `for` 루프 돌면서 6백만 행을 앱 메모리로 끌어다 자바에서 계산하던 걸, **데이터 옆에서 SQL로 계산하고 결과 한 줄만 돌려받게** 만드는 거다.
+
+<Callout type="info" title="한 줄 요약">
+DB로 메서드를 내리는 이유는 셋이다. (1) 여러 기술 스택이 공유 가능, (2) 데이터 옆에서 계산해 네트워크로 오가는 결과셋 축소, (3) DB 쪽 확장. 대가는 벤더 종속 하나.
+</Callout>
+
+## 언제 쓰나
+
+핵심 신호는 두 가지 냄새다.
+
+**냄새 1 — 같은 로직이 앱마다 복붙돼 있다.** 은행 시스템을 생각해보자. "연체된 고객(defaulted customer)을 골라내는" 로직이 필요하다. 그런데 이게 한 군데가 아니다. 온라인 뱅킹 백엔드(Java)엔 `IdentifyDefaultedCustomers`라는 메서드로 있고, 야간 배치(C#)엔 `ListCustomersThatDefaulted`라는 이름으로 또 있고, 리포팅 도구가 직접 박아 쓴 SQL에도 비슷한 게 한 번 더 있다. 세 개가 **미묘하게 다르다.** "연체"의 정의(며칠 연체부터? 어느 Policy를 보나?)가 팀마다 살짝 어긋나 있어서, 같은 고객인데 어떤 화면에선 연체고 어떤 화면에선 정상으로 뜬다. 이걸 `GetDefaultedCustomers` 프로시저 **하나**로 통합해서 DB에 박으면, 세 시스템이 같은 진실을 본다.
+
+**냄새 2 — 계산하겠다고 데이터를 통째로 끌어온다.** Account의 Balance 합계를 낸다든지, 전체 Customer를 훑어 위험 등급을 매긴다든지. 앱은 이걸 하려고 `SELECT *`로 수백만 행을 네트워크 너머로 받아와서 메모리에 쌓고 루프를 돈다. 정작 필요한 건 숫자 하나인데. 이럴 때 로직을 DB로 내리면 **계산은 데이터 옆에서 일어나고, 선을 타고 넘어오는 건 결과 한 줄**이다.
+
+### 현실 시나리오 한 토막
+
+분기 마감 날. "연체 고객 전원에게 안내 발송" 배치가 도는데, 새벽 2시에 시작한 게 6시가 돼도 안 끝난다. 로그를 까보니 배치 프로세스가 `Customer`, `Account`, `Policy` 테이블을 풀스캔으로 끌어다 앱 서버 힙에 올리고, 자바 루프로 연체 판정을 한 줄 한 줄 돌리고 있었다. 데이터는 6백만 행, 네트워크는 그걸 다 실어 나르느라 헐떡이고, GC는 미쳐 돌아간다.
+
+그런데 정작 결과로 필요한 건 "연체 고객 ID 목록" 한 줌이다. 6백만 행을 옮겨놓고 그중 0.3%만 추리려고 이 짓을 한 거다. 마트에서 진열대 전체를 집에 들고 와서 우유 하나 고른 격이다. 이 판정 로직을 `GetDefaultedCustomers` 프로시저로 내리면, DB가 인덱스 타고 조인해서 ID 목록만 돌려준다. 4시간짜리가 몇 초가 된다. 이게 "성능 = 네트워크 결과셋 축소"의 정체다.
+
+## 주의할 점
+
+좋은 얘기만 했으니 칼날도 보자.
+
+<Callout type="warning" title="DB로 내리기 전에 따져볼 것">
+- **벤더 종속(이식성 저하).** 저장 프로시저 언어는 표준이 약하다. Oracle PL/SQL, SQL Server T-SQL, PostgreSQL PL/pgSQL이 서로 호환이 안 된다. 로직을 DB에 박으면 그만큼 "DB를 갈아탈" 자유를 반납한다. 단 — 이 단점은 순수주의자들이 좀 과장하는 면이 있다. 실무에서 운영 중인 DB 벤더를 통째로 바꾸는 일은 5년에 한 번 있을까 말까다. **일어나지도 않을 이사 걱정에, 매일 누리는 성능·재사용을 포기하는 게 합리적인가**는 따로 계산해야 한다.
+- **DB는 수평 확장이 어렵다.** 앱 서버는 인스턴스를 붙이면 늘어나지만, RDB 마스터는 보통 한 대다. 무거운 CPU 로직을 죄다 DB로 밀면 가장 늘리기 힘든 자원에 부하를 몰아주는 꼴이 될 수 있다. "데이터 가까이 가는 이득"과 "확장 안 되는 곳에 일 몰아주는 손해"를 저울질해라.
+- **테스트·디버깅·버전관리가 앱보다 불편하다.** 프로시저는 IDE 지원, 단위 테스트, 디버거, 코드 리뷰 도구가 앱 코드만 못하다. 이 격차를 마이그레이션 도구(아래)로 메우지 않으면 "DB 안의 손댈 수 없는 검은 상자"가 하나 생긴다.
+</Callout>
+
+그래서 모든 로직을 DB로 내리라는 게 아니다. **공유돼야 하고, 데이터 집약적이고, 자주 안 바뀌는** 로직이 후보다. UI 분기나 표현 로직, 외부 API 호출, 자주 변하는 비즈니스 규칙은 앱에 두는 게 낫다.
+
+## 이렇게 한다
+
+좋은 소식: 이 리팩토링은 **스키마 변경이 거의 없다.** 데이터 마이그레이션도 없다. 테이블 구조는 안 건드리고 "로직의 거처"만 옮기는 일이라, 데이터베이스 리팩토링 중에선 위험이 낮은 축이다. 어려운 건 DDL이 아니라 **여러 앱의 제각각인 구현을 하나로 합의하는 일**이다.
+
+<Steps>
+<Step title="흩어진 구현을 모아 진실을 합의한다">
+가장 먼저 할 일은 코드가 아니라 회의다. `IdentifyDefaultedCustomers`(Java), `ListCustomersThatDefaulted`(C#), 리포트의 인라인 SQL — 셋을 나란히 놓고 **"연체란 무엇인가"의 정의를 하나로 못 박는다.** 여기서 구현이 갈리는 이유가 단순 중복이면 합치면 되고, 요건 변화나 국가별 규칙 차이처럼 **진짜로 달라야 하는** 거면 억지로 합치면 안 된다. 그땐 그대로 두기 / 기존 메서드 수정 / 올바른 버전을 새 프로시저로 작성 중 골라야 한다. 통합이 목적이지, 통합이 종교는 아니다.
+</Step>
+
+<Step title="프로시저/함수를 작성하고 테스트한다">
+합의된 정의로 DB 메서드를 만든다. 조회·판정이면 프로시저, 값 하나를 돌려주는 계산이면 함수가 자연스럽다. 작성과 동시에 회귀 테스트를 깐다 — 기존 세 구현이 같은 입력에 같은(혹은 의도적으로 다른) 결과를 내는지 비교 검증한다.
+</Step>
+
+<Step title="앱의 호출부를 교체한다">
+앱에 하드코딩돼 있던 SQL/로직을 프로시저 호출로 바꾼다. 한 번에 다 바꾸지 말고 expand-contract로 — 새 프로시저를 먼저 배포해 두고(expand), 앱들을 하나씩 호출부로 갈아 끼우고, 모두 옮겨간 뒤 옛 인라인 로직을 제거한다(contract).
+</Step>
+</Steps>
+
+### Before — 앱이 데이터를 끌어다 직접 판정
+
+연체 판정을 앱에서 하는 모습. `Account`와 `Policy`를 다 받아와서 자바가 루프를 돈다.
+
+```sql
+-- 앱이 날리는 쿼리: 판정에 필요한 원천 데이터를 통째로
+SELECT a.customer_id, a.balance, p.due_date, p.min_payment
+FROM   account a
+JOIN   policy  p ON p.account_id = a.id;
+-- → 수백만 행이 네트워크를 타고 앱으로 넘어온다
+```
+
+```typescript
+// 앱 메모리에서 한 줄 한 줄 연체 판정 — 그리고 이 로직이
+// 온라인 백엔드/배치/리포트에 조금씩 다르게 복붙돼 있다
+const rows = await db.query(`SELECT ... FROM account a JOIN policy p ...`);
+
+const defaulted = new Set<number>();
+for (const r of rows) {
+  const overdueDays = daysBetween(r.due_date, today());
+  if (overdueDays > 30 && r.balance < r.min_payment) {
+    defaulted.add(r.customer_id); // 6백만 행 중 0.3%만 살아남음
+  }
+}
+```
+
+### After — 판정을 DB로 내리고 결과만 받는다
+
+세 곳의 정의를 합의한 뒤, 하나의 프로시저로 통합한다. 네트워크엔 ID 목록만 흐른다.
+
+```sql
+-- 여러 앱의 IdentifyDefaultedCustomers / ListCustomersThatDefaulted 를
+-- GetDefaultedCustomers 하나로 통합 (PostgreSQL 예시)
+CREATE OR REPLACE FUNCTION get_defaulted_customers()
+RETURNS TABLE (customer_id BIGINT) AS $$
+  SELECT DISTINCT a.customer_id
+  FROM   account a
+  JOIN   policy  p ON p.account_id = a.id
+  WHERE  p.due_date < CURRENT_DATE - INTERVAL '30 days'
+    AND  a.balance < p.min_payment;
+$$ LANGUAGE sql STABLE;
+```
+
+```typescript
+// 앱은 이제 판정 로직을 모른다. 결과만 받는다.
+// 온라인/배치/리포트 셋 다 이 한 줄을 부른다 — 진실이 하나다
+const defaulted = await db.query('SELECT customer_id FROM get_defaulted_customers()');
+// 넘어오는 건 ID 목록 한 줌. 6백만 행은 DB 안에 머문다.
+```
+
+### 현대 도구 접목
+
+2006년 책은 프로시저를 손으로 작성하고 번호 매긴 SQL로 관리했다. 골격은 같되, 지금은 이렇게 한다.
+
+<Tabs defaultValue="vcs">
+<TabsList>
+<TabsTrigger value="vcs">버전관리·배포</TabsTrigger>
+<TabsTrigger value="mv">계산이면 MV도</TabsTrigger>
+<TabsTrigger value="own">소유권 경계</TabsTrigger>
+</TabsList>
+
+<TabsContent value="vcs">
+
+DB로 내린 로직이 "검은 상자"가 되지 않게 하는 핵심이 여기 있다. 프로시저 정의를 **마이그레이션 파일로 형상관리**하면 앱 코드와 똑같이 리뷰·이력·롤백이 된다.
+
+```sql
+-- db/migration/V72__add_get_defaulted_customers.sql  (Flyway)
+CREATE OR REPLACE FUNCTION get_defaulted_customers()
+RETURNS TABLE (customer_id BIGINT) AS $$
+  SELECT DISTINCT a.customer_id
+  FROM account a JOIN policy p ON p.account_id = a.id
+  WHERE p.due_date < CURRENT_DATE - INTERVAL '30 days'
+    AND a.balance < p.min_payment;
+$$ LANGUAGE sql STABLE;
+```
+
+Flyway/Liquibase/Alembic(앱이 ORM 마이그레이션을 쓴다면 그 안의 raw SQL 단계) 어느 쪽이든 좋다. 핵심은 프로시저가 Git에 텍스트로 살아서, "DB 안에만 있고 아무도 기원을 모르는 함수"가 안 생기게 하는 것. `CREATE OR REPLACE`라서 재실행·롤백 설계도 깔끔하다.
+
+</TabsContent>
+
+<TabsContent value="mv">
+
+내리려는 게 "조회/판정"이 아니라 **무거운 집계 계산**이고 실시간성이 약간 양보 가능하면, 프로시저 대신(또는 함께) materialized view가 답일 수 있다. 계산 결과를 물리적으로 저장해두고 주기적으로 갱신한다.
+
+```sql
+CREATE MATERIALIZED VIEW defaulted_customers AS
+  SELECT DISTINCT a.customer_id
+  FROM account a JOIN policy p ON p.account_id = a.id
+  WHERE p.due_date < CURRENT_DATE - INTERVAL '30 days'
+    AND a.balance < p.min_payment;
+
+-- 야간 배치로 갱신 (동시성 필요하면 CONCURRENTLY)
+REFRESH MATERIALIZED VIEW CONCURRENTLY defaulted_customers;
+```
+
+"데이터 가까이서 계산"의 극단적 형태다. 조회 시점엔 계산조차 안 하고 저장된 결과를 읽는다. 대신 staleness(갱신 주기만큼 오래된 데이터)를 받아들여야 한다. 실시간 정확성이 필수면 프로시저, 분기 마감 리포트처럼 약간 늦어도 되면 MV.
+
+</TabsContent>
+
+<TabsContent value="own">
+
+비즈니스 로직을 어디 둘 것이냐 — 이건 21세기에도 안 끝난 논쟁이다. "로직은 앱 계층에, DB는 멍청하게(dumb)" vs "데이터 옆에서 처리하라"가 영원히 싸운다. 마이크로서비스 시대엔 여기에 변수가 하나 더 붙는다. **데이터 소유권.**
+
+여러 서비스가 한 DB를 공유하던 시절엔, 공용 프로시저가 "중복 제거"의 정답이었다. 그런데 각 서비스가 자기 DB를 소유하는 구조라면, 그 DB에 박은 프로시저는 **그 서비스만의 것**이다. 옆 서비스가 그 프로시저를 직접 부르면 그 순간 DB 결합이 부활하고 경계가 무너진다. 그래서 현대적 결론은: **로직을 DB로 내리되, 그 DB를 소유한 서비스의 경계 안에서만 그렇게 한다.** 서비스 간에는 프로시저 공유가 아니라 API/이벤트로 소통하고, 정 데이터를 흘려보내야 하면 CDC(Debezium)나 outbox 패턴으로 변경을 전파한다. "공유 DB 프로시저로 중복 제거"가 통하는 건 그 DB가 정말 공유 자산일 때뿐이다.
+
+</TabsContent>
+</Tabs>
+
+## 정리
+
+Migrate Method To Database는 방향을 바꾸는 리팩토링이다 — 앱에 있던 로직을 데이터 옆으로 내린다.
+
+> **공유돼야 하고, 데이터 집약적이고, 안정적인 로직이면 DB로 내려라. 표현·분기·자주 바뀌는 규칙이면 앱에 둬라.**
+
+얻는 건 셋이다. 여러 기술 스택이 같은 진실을 공유하고, 흩어진 중복(`IdentifyDefaultedCustomers` / `ListCustomersThatDefaulted` 같은)이 하나로 통합되고, 6백만 행을 끌어오는 대신 결과 한 줄만 받아 네트워크가 가벼워진다. 대가는 벤더 종속 하나인데, 실제로 DB를 갈아타는 일이 드물다는 걸 감안하면 종종 과장된 공포다.
+
+진짜 어려운 부분은 DDL이 아니라 합의다. 여러 앱이 같은 일을 조금씩 다르게 하고 있을 때, "무엇이 옳은 정의인가"를 정하는 일. 그걸 못 박고 나면, 나머지는 프로시저 하나 작성해서 마이그레이션으로 형상관리하고 호출부를 갈아 끼우는, 의외로 차분한 작업이다.

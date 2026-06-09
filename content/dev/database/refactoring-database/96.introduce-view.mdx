@@ -1,0 +1,211 @@
+---
+title: "Introduce View: 뷰 도입"
+subtitle: "요약·캡슐화·보안·SQL 중복 감소 — 뷰 하나로 여러 마리 토끼"
+description: "기존 테이블들 위에 뷰를 도입해 보고용 요약, 중복 읽기 대체, 데이터 보안, 테이블 접근 캡슐화, SQL 중복 감소를 한 번에 해결하는 변환을 다룬다. 조인 성능과 결합도 증가라는 트레이드오프, 그리고 materialized view·ActiveCustomer 뷰 같은 현대 실무 적용까지 정리한다. Refactoring Databases 11장 변환 시리즈."
+order: 96
+tags: ["database", "transformation", "view", "encapsulation"]
+---
+
+import { Callout, Steps, Step, Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/writing-ui';
+
+## 이게 뭔데
+
+뷰 도입(Introduce View)은 한 문장으로 이렇다. **기존 테이블 여러 개를 묶어서 만든 "저장된 SELECT문"에 이름을 붙여, 마치 테이블인 것처럼 쓰는 것**이다.
+
+비유하자면 즐겨찾기다. 매번 고객 테이블, 계좌 테이블, 보험 테이블을 손으로 조인하고 합계를 내는 똑같은 쿼리를, 여기저기서 복붙해 쓰고 있다고 치자. 이걸 한 번 잘 짜서 `CustomerPortfolio`라는 이름으로 저장해두면, 그다음부터는 `SELECT * FROM CustomerPortfolio`만 치면 된다. 즐겨찾기를 등록해두면 긴 URL을 매번 안 쳐도 되는 것처럼.
+
+중요한 건, 뷰는 데이터를 복사해서 따로 들고 있는 게 아니라는 점이다. 그냥 **쿼리를 저장한 별명**일 뿐이다. 호출하는 순간 그 안의 SELECT가 실행되고, 항상 원본 테이블의 최신 데이터를 비춘다. 그래서 마이그레이션할 데이터가 없다. `CREATE VIEW` 한 줄이면 끝이고, 원본 행은 단 한 개도 안 건드린다.
+
+<Callout type="info" title="변환인데 의미를 안 바꾸는 변환">
+11장의 다른 변환들(새 컬럼/테이블 도입, 데이터 삽입·갱신)은 스키마에 진짜 뭔가를 더한다. 그런데 뷰 도입은 새 데이터를 만들지 않는다. 기존 테이블을 다른 각도로 비추는 "렌즈"를 하나 끼우는 것에 가깝다. 그래서 적용 비용이 변환들 중 제일 싸고, 롤백도 `DROP VIEW` 한 줄이면 된다.
+</Callout>
+
+## 언제 쓰나
+
+뷰가 답이 되는 상황은 의외로 많다. 책은 다섯 가지 동기를 든다. 하나씩 보면 "아 이거 내 얘긴데" 싶은 게 분명 하나는 있을 거다.
+
+**1. 보고용 데이터 요약.** 리포트는 거의 항상 원본 그대로가 아니라 "합쳐서 요약한" 숫자를 원한다. 고객별 총 잔고, 보험 총 납입액 같은 거. 이걸 뷰로 한 번 정의해두면 리포트 도구는 그냥 테이블처럼 읽어가면 된다.
+
+**2. 중복 읽기 대체.** 여러 앱이나 저장 프로시저가 **똑같은 조회 쿼리를 각자 구현**하고 있을 때. 같은 조인, 같은 `WHERE`를 다섯 군데서 복붙해 쓰고 있다면, 그건 버그 다섯 개를 동시에 키우는 거다. 한 곳을 고치면 나머지 네 곳을 잊어버린다. 공통 읽기 전용 뷰로 추출하면 진실의 원천이 하나가 된다.
+
+**3. 데이터 보안.** 원본 테이블에는 민감 컬럼이 섞여 있는데, 외부 사용자한테는 일부만 읽기 권한으로 노출하고 싶을 때. 뷰에 필요한 컬럼만 골라 담고, 사용자에게는 원본 테이블이 아니라 **뷰에만 `SELECT` 권한**을 준다. 갱신 권한은 아예 안 준다.
+
+**4. 테이블 접근 캡슐화.** 이게 책에서 가장 강조하는, 그리고 실무에서 가장 강력한 용도다. 외부 프로그램이 원본 테이블을 직접 때리는 대신 뷰를 거치게 만들면, 뷰가 일종의 방화벽이 된다. 나중에 `Rename Column`이나 `Rename Table` 같은 리팩토링을 할 때, **뷰 정의만 고치면 앱은 아무것도 모른 채 그대로 돌아간다.** 결합을 끊는 계층이 생기는 거다.
+
+**5. SQL 중복 감소.** 복잡한 SQL의 일부 조각(예: "활성 고객을 가려내는 조건")이 쿼리마다 반복될 때, 그 조각을 뷰로 추출해 빼낸다. DRY 원칙의 데이터베이스 버전.
+
+### 현실 시나리오 한 토막
+
+은행 백오피스다. "이번 분기에 신규 보험 가입한 고객 목록 뽑아주세요"라는 요청이 분기마다 들어온다. 처음엔 누군가 이런 쿼리를 짰다.
+
+```sql
+SELECT c.CustomerID, c.Name, c.PhoneNumber
+FROM Customer c
+JOIN Insurance i ON i.CustomerID = c.CustomerID
+WHERE c.Status = 'A'              -- 활성 고객만
+  AND c.ClosedDate IS NULL        -- 해지 안 됨
+  AND i.StartDate >= '2026-04-01';
+```
+
+`c.Status = 'A' AND c.ClosedDate IS NULL` — 이 "활성 고객" 조건이 문제의 씨앗이다. 잘 짠 쿼리라 다들 복붙해 쓰기 시작한다. 마케팅 팀 대시보드에도, 야간 정산 배치에도, CS 화면에도. 어느 날 정책이 바뀐다. "30일 이상 거래 없는 휴면 고객도 활성에서 빼주세요." 이제 `AND c.LastTxnDate >= ...` 조건을 **추가해야 할 곳이 일곱 군데**다. 여섯 군데는 고쳤는데 한 군데를 못 찾았다. 그 한 군데가 정산 배치였고, 휴면 고객한테 안내 문자가 나갔다. 사고가 터지고 나서야 git에서 `Status = 'A'`를 grep해 흩어진 복붙들을 추적한다.
+
+이게 바로 뷰가 막아주는 상황이다. "활성 고객"의 정의가 코드 곳곳에 흩어지면, 그 정의는 결국 서로 어긋난다.
+
+## 주의할 점
+
+뷰가 만능은 아니다. 두 가지를 머리에 새겨두자.
+
+<Callout type="warning" title="뷰는 공짜 추상화가 아니다">
+- **성능은 뷰 안의 쿼리 그대로다.** 뷰는 데이터를 미리 계산해두지 않는다(일반 뷰 기준). `SELECT * FROM CustomerPortfolio` 한 줄이 깔끔해 보여도, 호출할 때마다 안에 든 3-way 조인과 `SUM` 집계가 통째로 다시 돈다. 뷰로 감쌌다고 느린 쿼리가 빨라지지 않는다. 오히려 "테이블처럼 보여서" 사람들이 부담 없이 막 호출하다가, 안에 무거운 조인이 든 줄 모르고 성능 사고를 친다. 조인이 사용자 응답 시간에 안 맞으면, 뷰가 아니라 Introduce Read-Only Table(materialized view) 쪽을 봐야 한다.
+- **결합도가 올라간다.** 뷰 정의는 기반 테이블의 컬럼·구조에 묶여 있다. 즉 의존성이 하나 더 늘어난다. 원본 테이블 구조를 바꾸면 뷰도 같이 고쳐야 한다. (단, 이건 캡슐화의 대가이기도 하다. 결합 지점을 앱 수십 곳에서 뷰 한 곳으로 **모으는** 거니까, 총량으로 보면 오히려 관리가 쉬워진다.)
+</Callout>
+
+뷰를 너무 겹쳐 쌓는 것도 조심하자. 뷰 위에 뷰, 그 위에 또 뷰를 올리면, 호출 한 번에 옵티마이저가 5단 중첩 쿼리를 펼쳐야 한다. EXPLAIN을 떴을 때 뭐가 뭔지 알 수 없는 괴물 실행 계획이 나온다면, 뷰 중첩이 범인인 경우가 많다.
+
+## 이렇게 한다
+
+은행 도메인 그대로 가자. 고객(`Customer`), 계좌(`Account`), 보험(`Insurance`) 세 테이블을 묶어 고객별 포트폴리오 요약 뷰를 만든다. 그리고 "활성 고객" 정의를 캡슐화하는 `ActiveCustomer` 뷰도 함께.
+
+<Steps>
+
+<Step title="스키마 변경 — CREATE VIEW">
+
+마이그레이션할 데이터가 없으니 DDL 한 방이다. 먼저 보고용 요약 뷰.
+
+```sql
+-- 고객 포트폴리오 요약 뷰: 고객 + 계좌 총잔고 + 보험 총납입/총가치
+CREATE VIEW CustomerPortfolio (
+  CustomerID, Name, PhoneNumber,
+  AccountsTotalBalance, InsuranceTotalPayment, InsuranceTotalValue
+) AS
+SELECT
+  c.CustomerID, c.Name, c.PhoneNumber,
+  COALESCE(SUM(a.Balance), 0),
+  COALESCE(SUM(i.Payment), 0),
+  COALESCE(SUM(i.Value), 0)
+FROM Customer c
+LEFT JOIN Account   a ON a.CustomerID = c.CustomerID
+LEFT JOIN Insurance i ON i.CustomerID = c.CustomerID
+GROUP BY c.CustomerID, c.Name, c.PhoneNumber;
+```
+
+<Callout type="note" title="2006년 책과 살짝 다르게 쓴 이유">
+원서 예제는 `FROM Customer, Account, Insurance WHERE ...` 식의 옛날 콤마 조인에 `SUM`만 걸려 있다. 이걸 그대로 두면 두 함정이 있다. (1) 계좌나 보험이 없는 고객은 결과에서 통째로 사라진다(INNER JOIN이라). (2) 계좌가 2개·보험이 3개인 고객은 카테시안 곱으로 행이 6배 부풀어 `SUM`이 뻥튀기된다. 현대식으론 `LEFT JOIN` + 명시적 `GROUP BY`로 쓰고, 곱 부풀림이 걱정되면 각 집계를 서브쿼리로 따로 묶는 게 안전하다. "뷰니까 대충 짜도 되겠지"가 제일 위험하다 — 뷰 안의 SQL이 곧 모두가 믿게 될 진실이니까.
+</Callout>
+
+다음은 SQL 중복을 잡는 캡슐화 뷰. 아까 일곱 군데 흩어졌던 "활성 고객" 정의를 한 곳에 못 박는다.
+
+```sql
+-- 활성 고객의 정의를 한 곳에 캡슐화
+CREATE VIEW ActiveCustomer AS
+SELECT *
+FROM Customer
+WHERE Status = 'A'
+  AND ClosedDate IS NULL;
+```
+
+</Step>
+
+<Step title="데이터 마이그레이션 — 없음">
+
+진짜 없다. 뷰는 쿼리지 데이터가 아니다. 원본 테이블에서 옮길 행도, 채워 넣을 컬럼도 없다. 이게 뷰 도입이 변환들 중 제일 싸고 안전한 이유다. 운영 중 무중단으로 적용할 수 있고, 잘못되면 `DROP VIEW` 한 줄로 흔적 없이 되돌린다.
+
+</Step>
+
+<Step title="접근 프로그램 수정 — 흩어진 SQL을 뷰로 모은다">
+
+이제 일곱 군데에 복붙됐던 활성 고객 조건을 뷰 호출로 갈아끼운다. 분기별 신규 보험 가입자 쿼리는 이렇게 짧아진다.
+
+```sql
+-- Before: 활성 고객 조건이 쿼리마다 복붙됨
+SELECT c.CustomerID, c.Name, c.PhoneNumber
+FROM Customer c
+JOIN Insurance i ON i.CustomerID = c.CustomerID
+WHERE c.Status = 'A'
+  AND c.ClosedDate IS NULL          -- 이 두 줄이 일곱 군데에 흩어져 있었다
+  AND i.StartDate >= '2026-04-01';
+
+-- After: 활성 고객의 정의는 ActiveCustomer 뷰에만 산다
+SELECT c.CustomerID, c.Name, c.PhoneNumber
+FROM ActiveCustomer c
+JOIN Insurance i ON i.CustomerID = c.CustomerID
+WHERE i.StartDate >= '2026-04-01';
+```
+
+이제 "휴면 고객도 활성에서 빼주세요"가 와도, 고칠 곳은 `ActiveCustomer` 뷰 **한 곳**이다. `ALTER VIEW`로 `AND LastTxnDate >= ...` 한 줄만 추가하면, 그 뷰를 쓰는 일곱 군데가 동시에 갱신된다. 정산 배치를 못 찾아서 문자 잘못 나가는 사고가 원천 봉쇄된다.
+
+</Step>
+
+</Steps>
+
+뷰를 쓰는 프로그램 입장에선, 뷰가 그냥 **읽기 전용 테이블 하나**로 보인다. 코드가 `FROM Customer`에서 `FROM ActiveCustomer`로 바뀌는 것 외에 신경 쓸 게 없다. ORM에서도 마찬가지라, 뷰를 읽기 전용 엔티티로 매핑해두면 일반 테이블 다루듯 쓴다.
+
+### 현대 실무로 강화하기
+
+2006년 책은 `CREATE VIEW`를 손으로 치고 끝이지만, 지금은 이 변환에 얹을 도구가 훨씬 많다.
+
+<Tabs defaultValue="migration">
+<TabsList>
+<TabsTrigger value="migration">마이그레이션 도구</TabsTrigger>
+<TabsTrigger value="matview">Materialized View</TabsTrigger>
+<TabsTrigger value="ownership">데이터 소유권</TabsTrigger>
+</TabsList>
+
+<TabsContent value="migration">
+
+뷰도 스키마 변경이다. 손으로 `CREATE VIEW`를 운영 DB에 직접 치는 대신, **Flyway / Liquibase / Alembic** 같은 마이그레이션 도구의 버전 관리 스크립트로 넣는다. 뷰는 데이터가 없어서 특히 다루기 좋다.
+
+```sql
+-- V96__introduce_active_customer_view.sql (Flyway)
+CREATE OR REPLACE VIEW ActiveCustomer AS
+SELECT *
+FROM Customer
+WHERE Status = 'A'
+  AND ClosedDate IS NULL;
+```
+
+`CREATE OR REPLACE VIEW`를 쓰면 뷰 정의 변경이 멱등(idempotent)해서, 정의가 바뀔 때마다 새 버전 파일로 안전하게 교체할 수 있다. 데이터 백필이 없으니 롤백 스크립트도 `DROP VIEW ActiveCustomer;` 한 줄이면 끝이다.
+
+</TabsContent>
+
+<TabsContent value="matview">
+
+트레이드오프에서 본 "뷰는 호출할 때마다 안의 쿼리가 다시 돈다" 문제. 무거운 집계 뷰(예: `CustomerPortfolio`)를 리포트가 수시로 때린다면, 일반 뷰 대신 **materialized view**로 결과를 미리 계산해 저장해둔다. 책의 Introduce Read-Only Table 리팩토링이 현대 DB에선 이거다.
+
+```sql
+-- PostgreSQL: 집계 결과를 물리적으로 저장
+CREATE MATERIALIZED VIEW CustomerPortfolio_MV AS
+SELECT
+  c.CustomerID, c.Name,
+  COALESCE(SUM(a.Balance), 0) AS AccountsTotalBalance
+FROM Customer c
+LEFT JOIN Account a ON a.CustomerID = c.CustomerID
+GROUP BY c.CustomerID, c.Name;
+
+-- 조회 성능을 위해 인덱스도 걸 수 있다 (일반 뷰엔 못 거는 것)
+CREATE UNIQUE INDEX ON CustomerPortfolio_MV (CustomerID);
+
+-- 데이터는 자동 갱신 안 됨 — 주기적으로 새로고침
+REFRESH MATERIALIZED VIEW CONCURRENTLY CustomerPortfolio_MV;
+```
+
+대신 대가가 있다. materialized view는 **데이터가 실시간이 아니다.** `REFRESH`를 돌리기 전까지는 마지막 갱신 시점의 스냅샷이다. 그러니 "약간 오래된 데이터여도 괜찮은" 리포트·대시보드용이지, 1원 단위로 최신이어야 하는 잔고 조회에는 부적합하다. 실시간성이 필요하면서 빠르기까지 해야 한다면, CDC(Debezium 등)로 변경분을 흘려 별도 집계 테이블을 점진적으로 갱신하는 식으로 더 나가게 된다.
+
+</TabsContent>
+
+<TabsContent value="ownership">
+
+캡슐화 동기는 마이크로서비스에서도 그대로 빛난다. 어떤 서비스가 다른 팀 소유 DB의 테이블을 직접 읽으면, 그 테이블 구조에 발이 묶인다. 대신 소유 팀이 **읽기 전용 뷰를 공개 계약(published interface)으로 노출**하면, 내부 테이블은 자유롭게 리팩토링하면서 뷰의 컬럼 시그니처만 유지하면 된다. 뷰가 서비스 경계의 안정적인 읽기 API 역할을 하는 셈이다.
+
+이건 책의 4번 동기(테이블 접근 캡슐화)를 조직 경계까지 확장한 버전이다. 캡슐화 계층이 "앱과 테이블 사이"에서 "팀과 팀 사이"로 올라간다. 단, 뷰로 데이터를 공유하는 건 강한 결합이기도 하니, 진짜 독립이 필요하면 뷰 공유보다 이벤트(outbox/CDC) 기반 복제로 가는 게 정석이다.
+
+</TabsContent>
+</Tabs>
+
+## 정리
+
+뷰 도입은 변환 중에서 가장 싸고, 가장 다재다능하다. 데이터를 안 옮기니 적용도 롤백도 한 줄이고, 그러면서 요약·중복 제거·보안·캡슐화를 동시에 해결한다.
+
+> **뷰는 "테이블을 다르게 비추는 렌즈"다 — 데이터를 복사하지 않고, 진실의 정의를 한 곳에 모은다.**
+
+기억할 두 가지. 뷰는 안의 쿼리를 빠르게 만들어주지 않으니, 무거운 집계라면 materialized view를 떠올려라. 그리고 뷰의 진짜 힘은 성능이 아니라 **캡슐화**에 있다 — 흩어진 "활성 고객" 같은 정의를 한 곳에 못 박아, 정책이 바뀌어도 일곱 군데를 헤매지 않게 만드는 것. 같은 SQL 조각을 두 군데 이상에서 복붙하고 있다면, 그건 대개 뷰로 추출하라는 신호다.

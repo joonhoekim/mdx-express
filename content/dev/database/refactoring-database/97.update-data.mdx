@@ -1,0 +1,261 @@
+---
+title: "Update Data: 데이터 갱신"
+subtitle: "정확히 올바른 행만, 그리고 올바른 행 전부를 고친다"
+description: "기존 테이블의 데이터를 갱신하는 변환(Update Data)의 동기와 트레이드오프, 그리고 WHERE 절·검증·뷰까지 함께 손봐야 하는 이유를 다룬다. 멱등 갱신, 청크 배치, dry-run, ETL 등 현대 실무로 강화한 Refactoring Databases 카탈로그 한 편."
+order: 97
+tags: ["database", "transformation", "data-migration", "etl"]
+---
+
+import { Callout, Steps, Step, Tabs, TabsList, TabsTrigger, TabsContent, Icon } from '@/components/writing-ui';
+
+## 이게 뭔데
+
+데이터 갱신(Update Data). 정의는 허무할 만큼 단순하다. **기존 테이블 안에 이미 들어 있는 값을, 다른 값으로 바꾸는 변환**이다. 스키마는 안 건드린다. 컬럼을 추가하지도, 테이블을 쪼개지도 않는다. 그냥 `UPDATE` 한 방. 끝.
+
+이게 뭐 대단한 거라고 카탈로그에 한 자리를 차지하나 싶을 거다. 근데 비유를 하나 들어보자. 명단에서 이름 하나 고치는 일이다. 쉽잖아? 근데 그 명단이 종이가 아니라 운영 DB의 600만 행짜리 테이블이고, 네가 들고 있는 건 지우개가 아니라 `WHERE` 절이라면 얘기가 다르다. **지우개로 너무 많이 지우면(WHERE를 헐겁게 걸면) 멀쩡한 행까지 날아가고, 너무 적게 지우면(WHERE를 빡세게 걸면) 고쳐야 할 행이 남는다.** 게다가 지우는 중에 정전이 나면(배포 중 커넥션이 끊기면) 절반만 고쳐진 채로 멈춘다.
+
+그래서 이 변환의 본질은 "값을 바꾸는 것"이 아니라 **"어느 행을 바꿀지 정확히 조준하는 것"**이다. subtitle에 박아둔 그 한 문장이 이 글 전체다. 정확히 올바른 행만, 그리고 올바른 행 전부를.
+
+<Callout type="info" title="리팩토링이 아니라 변환임">
+이 카탈로그에서 "리팩토링"은 동작·정보 의미를 **둘 다 보존**하는 변경이고, "변환"은 의미를 **바꿀 수도 있는** 변경이다. 데이터 갱신은 값의 의미를 바꿀 수 있으니 변환에 속한다. 다만 Rename Column이나 Split Table 같은 리팩토링이 내부 단계에서 데이터 재배치를 위해 이 Update Data를 불러 쓴다. 그래서 이건 "리팩토링의 빌딩블록"이면서 동시에 "순수한 데이터 정정 수단"이기도 하다.
+</Callout>
+
+## 언제 쓰나
+
+데이터를 갱신해야 하는 상황은 의외로 자주 온다. 책이 정리한 동기를 현장 말투로 풀면 대략 다섯 갈래다.
+
+- **테이블 재구성의 뒤처리.** Rename Column으로 `Cust_Name`을 `CustomerName`으로 바꿨다 치자. 컬럼 이름만 바뀌고 끝이 아니다. Split Table, Move Column, Merge Columns 다 마찬가지로 **데이터를 새 위치로 옮겨 채워 넣는** 단계가 따라온다. 그 채워 넣기가 결국 Update(혹은 Insert+Update)다.
+- **없던 컬럼에 값 채우기.** `Address` 테이블에 `Country` 컬럼을 새로 추가했다. 컬럼은 비어 있다(전부 NULL). 기존 600만 행에 "그래서 이 주소들이 어느 나라냐"를 채워 넣어야 한다. 이게 Introduce New Column 뒤에 거의 항상 따라붙는 Update다.
+- **참조 데이터 변경.** 업무 규칙이 바뀌면 lookup 테이블의 값을 갈아야 한다. 마케팅이 "이제 'Private' 말고 'Private Banking'으로 부르자"고 하면 `AccountType.Name`을 통째로 바꿔야 한다.
+- **표준화 지원.** `Apply Standard Codes` 같은 리팩토링이 값 통일을 요구한다. 나라 코드가 `"US"`, `"USA"`, `"U.S."`로 제각각이면 `"USA"` 하나로 모은다. `Apply Standard Types`로 숫자를 문자로 옮길 때도 값 갱신이 동반된다.
+- **트랜잭션 데이터 정정(fix transactional data).** 가장 등 떠밀려서 하게 되는 케이스. 배포한 앱이나 배치에 버그가 있어서 **잘못된 값이 운영 데이터에 새겨졌다.** 이자율 계산이 틀려서 `Account.InterestRate`에 0.35가 들어가야 할 자리에 35가 들어갔다든가. 이건 설계 개선이 아니라 소방 작업이다.
+
+### 현실 시나리오: 35%짜리 적금
+
+금요일 저녁. 신규 적금 상품 이자율을 세팅하는 배치가 돌았다. 월요일 아침, CS팀에서 슬랙이 온다. "고객님이 적금 이자율이 35%로 찍혀 있다는데요?" 35%. 사채도 아니고 적금이.
+
+코드를 까보니 누가 퍼센트를 소수로 안 바꾸고 `InterestRate = rate`로 넣었다. 0.035가 들어가야 할 자리에 3.5가, 어떤 행엔 35가 박혔다. 다행히 아직 이자 정산은 안 돌았다. 그럼 우리가 할 일은? **잘못 박힌 행만 찾아서 올바른 값으로 되돌리는 것.** 스키마는 멀쩡하다. 컬럼 추가도 필요 없다. 순수하게 Update Data다.
+
+근데 여기서 손이 떨리기 시작한다. 잘못된 행이 정확히 어떤 행이지? 금요일 배치가 건드린 것만? 그 전부터 이상했던 건? `WHERE InterestRate > 1` 로 거르면 충분한가, 아니면 정상적으로 1보다 큰 값(예전엔 퍼센트 단위로 저장하던 레거시 행)이 섞여서 멀쩡한 걸 망가뜨리나? **이 질문에 자신 있게 답하기 전엔 `UPDATE`를 치면 안 된다.**
+
+## 주의할 점
+
+<Callout type="warning" title="UPDATE는 SELECT가 아니다 — 되돌릴 버튼이 없다">
+`SELECT`는 틀려도 결과만 이상할 뿐 데이터는 안 다친다. `UPDATE`는 다르다. 한 번 덮어쓰면 **이전 값이 사라진다.** WHERE를 헐겁게 걸어 멀쩡한 행 50만 개를 덮어쓴 순간, 그 50만 개의 원래 값은 어디에도 없다(백업 빼고). 그래서 운영 UPDATE의 황금률은 단 하나다.
+
+**같은 WHERE로 `SELECT COUNT(*)`와 `SELECT *`를 먼저 돌려서, 영향받을 행이 "정확히 그 행들"인지 눈으로 확인하기 전엔 UPDATE를 실행하지 않는다.**
+</Callout>
+
+참조 데이터를 갱신할 땐 특히 까다롭다. `Account`가 `AccountType`을 참조하는 구조에서 `AccountType.Name`을 'Private'에서 'Private Banking'으로 바꾼다고 하자. 이때 갱신하는 값은 **이미 그 타입을 물고 있는 `Account` 행들과 앞뒤가 맞아야** 한다. 외래키가 `AccountTypeID`(숫자)로 걸려 있다면 `Name`만 바꿔도 참조는 안 깨지니 다행이다. 근데 누군가 `WHERE AccountType = 'Private'` 처럼 **이름 문자열로 조인하거나 필터링하는 코드/뷰**를 짜놨다면, 그 코드들이 일제히 빈손으로 돌아온다. 값을 바꾸는 순간, 그 값을 알아보던 모든 코드가 못 알아보게 된다.
+
+그리고 한 가지 더. **UPDATE는 멱등하지 않을 수 있다.** `SET balance = balance * 1.05`를 두 번 돌리면 5%가 두 번 곱해진다. 배포 중 끊겨서 "절반은 됐나? 안 됐나? 몰라, 그냥 다시 돌리자" 했다가 데이터가 두 배로 망가지는 게 이 패턴이다. 갱신 스크립트는 **여러 번 돌려도 결과가 같도록(idempotent)** 설계하는 게 안전하다. 뒤에서 다룬다.
+
+## 이렇게 한다
+
+크게 세 가지를 같이 손봐야 한다. (1) 갱신 자체(DML), (2) 그걸 안전하게 돌리는 방법, (3) 그 값을 보던 접근 프로그램·뷰. 순서대로 보자.
+
+### 1단계 — 참조 데이터 갱신: 작고 명시적으로
+
+`AccountType` 같은 lookup 테이블은 행이 몇 개 안 된다. 이런 건 ETL이고 청크고 필요 없다. 그냥 **각 행을 명시적으로, PK로 콕 집어서** 바꾸는 게 제일 안전하고 제일 명확하다.
+
+```sql
+-- Before: AccountTypeID=3의 Name이 'Private'
+-- After:  'Private Banking'으로
+
+UPDATE AccountType SET Name = 'Chequing'        WHERE AccountTypeID = 1;
+UPDATE AccountType SET Name = 'Private Banking' WHERE AccountTypeID = 3;
+```
+
+`WHERE AccountTypeID = 3` 처럼 **PK로 거는 게 핵심**이다. `WHERE Name = 'Private'`로 걸지 마라. 이름은 바로 지금 우리가 바꾸려는 그 불안정한 값이고, PK는 변하지 않는 닻이다. 닻으로 조준해라.
+
+이걸 손으로 운영 DB에 붙어서 치지는 말자. **마이그레이션 도구로 버전 관리**하는 게 2006년 책과 가장 크게 갈라지는 지점이다. Flyway면 `V42__rename_private_to_private_banking.sql` 같은 파일로, Liquibase면 changeSet으로, Alembic이면 리비전으로 남긴다. 그래야 "이 값이 언제, 왜, 누구 손에 바뀌었나"가 git 히스토리에 남고, 스테이징에서 똑같이 재현된다.
+
+<Tabs defaultValue="flyway">
+<TabsList>
+<TabsTrigger value="flyway">Flyway</TabsTrigger>
+<TabsTrigger value="liquibase">Liquibase</TabsTrigger>
+<TabsTrigger value="alembic">Alembic</TabsTrigger>
+</TabsList>
+
+<TabsContent value="flyway">
+
+```sql
+-- V42__rename_private_to_private_banking.sql
+UPDATE AccountType SET Name = 'Private Banking'
+WHERE AccountTypeID = 3 AND Name = 'Private';
+-- ^ Name 조건을 같이 걸면: 이미 바뀐 상태로 또 돌려도 0 rows.
+--   즉 멱등하다. 재실행해도 안전.
+```
+
+</TabsContent>
+
+<TabsContent value="liquibase">
+
+```sql
+--changeset jh:42-rename-account-type
+--validCheckSum: ANY
+UPDATE AccountType SET Name = 'Private Banking'
+WHERE AccountTypeID = 3 AND Name = 'Private';
+--rollback UPDATE AccountType SET Name = 'Private' WHERE AccountTypeID = 3;
+```
+
+Liquibase는 `--rollback`을 명시해두면 되돌리기 스크립트까지 형상으로 남는다. UPDATE는 되돌리기 어려우니 이게 특히 고맙다.
+
+</TabsContent>
+
+<TabsContent value="alembic">
+
+```python
+# revision: 42_rename_account_type
+def upgrade():
+    op.execute(
+        "UPDATE AccountType SET Name = 'Private Banking' "
+        "WHERE AccountTypeID = 3 AND Name = 'Private'"
+    )
+
+def downgrade():
+    op.execute(
+        "UPDATE AccountType SET Name = 'Private' "
+        "WHERE AccountTypeID = 3 AND Name = 'Private Banking'"
+    )
+```
+
+</TabsContent>
+</Tabs>
+
+위 예제들에서 공통으로 한 짓이 하나 있다. `WHERE`에 **`AND Name = 'Private'`을 같이 걸었다.** 이거 별거 아닌 것 같은데 중요하다. 이미 바뀐 행은 이 조건에 안 걸리니 두 번 돌려도 0행만 손댄다. **멱등(idempotent)**이 공짜로 따라온다.
+
+### 2단계 — 트랜잭션 데이터 정정: dry-run부터
+
+아까 그 35% 적금 사건. 이건 lookup 두어 줄짜리가 아니라 운영 트랜잭션 데이터를 손대는 거라 훨씬 조심해야 한다. 순서는 이렇다.
+
+<Steps>
+<Step title="조준선 정렬 — 먼저 SELECT로 센다 (dry-run)">
+
+UPDATE의 WHERE 절을 그대로 `SELECT COUNT(*)`에 붙여서 **몇 행이 다칠지** 먼저 본다. 그다음 `SELECT *`로 **샘플을 눈으로** 확인한다. 숫자가 예상과 다르면 거기서 멈춘다.
+
+```sql
+-- dry-run 1: 몇 행인가?
+SELECT COUNT(*) FROM Account WHERE InterestRate > 1;
+
+-- dry-run 2: 그 행들이 진짜 '잘못된' 행 맞나? 정상적으로 1 넘는 레거시는 없나?
+SELECT AccountID, InterestRate, ProductCode, UpdatedAt
+FROM Account WHERE InterestRate > 1
+ORDER BY UpdatedAt DESC LIMIT 50;
+```
+
+여기서 "어, 예전 상품은 원래 퍼센트 단위로 저장돼서 5.0 이렇게 들어 있네?" 같은 게 보이면, WHERE를 더 좁혀야 한다는 신호다. 예를 들어 `AND UpdatedAt >= '금요일 배치 시각'` 으로 **사고 친 배치가 건드린 행만** 조준한다.
+
+</Step>
+<Step title="멱등하게, 보수적으로 작성한다">
+
+`SET InterestRate = InterestRate / 100` 같은 **현재값 기반 산술은 위험하다.** 두 번 돌면 10000으로 나뉜다. 가능하면 "결정적인 올바른 값"으로 덮어쓰거나, 멱등 가드를 건다.
+
+```sql
+-- 나쁜 예: 재실행하면 또 나뉜다 (비멱등)
+UPDATE Account SET InterestRate = InterestRate / 100
+WHERE InterestRate > 1;
+
+-- 나은 예: 정상 범위는 이미 제외되도록 WHERE가 가드 역할.
+-- 한 번 고쳐진 행(<=1)은 다음 실행에서 안 걸림 → 멱등에 가깝다.
+UPDATE Account SET InterestRate = InterestRate / 100
+WHERE InterestRate > 1
+  AND UpdatedAt >= '2026-06-05 18:00:00';   -- 사고 배치 윈도로 한정
+```
+
+진짜 결정적이고 싶으면, 정답을 따로 계산해 임시 테이블/스테이징에 담고 그걸 `JOIN`해서 덮어쓰는 방식이 가장 안전하다. 그럼 몇 번을 돌려도 같은 결과가 나온다.
+
+</Step>
+<Step title="트랜잭션으로 감싸고, 영향 행 수를 확인한다">
+
+```sql
+BEGIN;
+UPDATE Account SET InterestRate = InterestRate / 100
+WHERE InterestRate > 1 AND UpdatedAt >= '2026-06-05 18:00:00';
+-- 영향받은 행 수가 dry-run COUNT와 일치하는가? 다르면 ROLLBACK.
+-- 일치하면:
+COMMIT;
+```
+
+dry-run에서 센 숫자와 실제 영향 행 수가 **딱 맞는지** 확인하는 게 마지막 안전핀이다. 안 맞으면 그 자리에서 `ROLLBACK`.
+
+</Step>
+</Steps>
+
+<Callout type="success" title="현재값 산술 대신 '정답 테이블 JOIN'이 최고">
+재실행 안전성을 정말 보장하고 싶으면, 바꿀 값을 미리 계산해 스테이징 테이블에 넣고 거기서 끌어와 덮어써라. `UPDATE Account a SET InterestRate = c.CorrectRate FROM correction_staging c WHERE a.AccountID = c.AccountID;` — 이건 몇 번을 돌려도 결과가 동일하다(완전 멱등). 산술식은 횟수에 의존하지만, "정답을 가져와 덮어쓰기"는 횟수에 무관하다.
+</Callout>
+
+### 3단계 — 대량이면 청크 배치 + ETL
+
+행이 수백만이면 단일 `UPDATE` 한 방은 위험하다. 거대한 트랜잭션 하나가 **언두/롤백 로그를 폭발**시키고, 잠금이 오래 잡혀 운영 쿼리가 뒤에서 줄을 선다. MySQL이면 복제 지연(replication lag)이 치솟고, PostgreSQL이면 테이블이 부풀고 autovacuum이 헐떡인다. 그래서 **쪼개서** 돌린다.
+
+```sql
+-- 청크 배치: PK 범위로 잘라 한 번에 일정량씩만 갱신
+-- (의사 루프 — 도구/언어로 감싸 반복 실행)
+UPDATE Address
+SET Country = 'USA'
+WHERE Country IS NULL
+  AND AddressID BETWEEN :lo AND :lo + 5000;   -- 5천 행씩
+-- :lo 를 5000씩 올리며 더 이상 갱신할 행이 없을 때까지 반복
+-- 각 청크 사이에 짧게 쉬어 복제 지연·잠금 부담을 흡수
+```
+
+핵심은 **`Country IS NULL`** 같은 조건을 같이 걸어 **이미 채운 행은 다음 패스에서 건너뛰게** 만드는 거다. 그럼 중간에 끊겨도 다시 처음부터 돌리면 되고(이미 채운 건 스킵), 이게 또 멱등이다.
+
+진짜 무거운 변환 — 값이 단순 치환이 아니라 **복잡한 알고리즘으로 파생**되는 경우(여러 테이블을 조인하고, 외부 기준 데이터를 참조하고, 규칙을 적용해 새 값을 계산) — 는 SQL 스크립트로 우기지 말고 **ETL 도구**를 쓰는 게 책의 권고다. extract(원천 추출) → transform(규칙 적용해 변환) → load(대상에 적재). 이때 따져볼 것:
+
+- **원천이 뭔가** — 기존 테이블인가, 아니면 업무 사용자가 엑셀로 준 값인가.
+- **그 값이 승인됐나** — 누가 "이게 맞다"고 사인했나. 트랜잭션 데이터 정정은 특히 승인 없이 돌리면 안 된다.
+- **어느 행·어느 컬럼인가** — 조준 범위.
+- **의존성이 뭔가** — 이 값이 바뀌면 같이 흔들리는 다른 데이터/코드.
+
+<Callout type="note" title="요즘 도구로 한 발 더">
+2006년엔 ETL 한 번 돌리고 끝이었지만, 지금은 더 점진적으로 할 수 있다. (1) <strong>expand-contract(parallel change)</strong>: 새 값을 새 컬럼/필드에 먼저 채워 두 값을 잠깐 공존시키고, 검증 후 옛 값을 버린다. (2) <strong>CDC(Debezium 등)</strong>: 갱신을 한 번에 때리는 대신 변경 스트림으로 흘려 하위 시스템·검색 인덱스·캐시까지 일관되게 전파한다. (3) <strong>materialized view</strong>: 파생 값이 "원본에서 계산되는 것"이라면 아예 갱신하지 말고 mat view로 두고 `REFRESH` 하는 게 멱등성도 일관성도 공짜로 준다. 갱신을 "한 번의 사건"이 아니라 "재현 가능한 파이프라인"으로 보는 게 핵심이다.
+</Callout>
+
+### 4단계 — WHERE 절·검증·뷰 같이 고치기 (가장 잘 까먹는 단계)
+
+값만 바꾸고 끝내면 절반만 한 거다. **그 값을 알아보던 모든 코드를 같이 고쳐야** 한다. 'Private' → 'Private Banking' 케이스로 보자.
+
+```sql
+-- 1) 데이터를 바꿨으면
+UPDATE AccountType SET Name = 'Private Banking' WHERE AccountTypeID = 3;
+
+-- 2) 그 값을 문자열로 필터하던 뷰도 같이 바꿔야 한다
+-- Before
+CREATE VIEW PrivateAccounts AS
+  SELECT * FROM Account a JOIN AccountType t ON a.AccountTypeID = t.AccountTypeID
+  WHERE t.Name = 'Private';
+-- After
+CREATE OR REPLACE VIEW PrivateAccounts AS
+  SELECT * FROM Account a JOIN AccountType t ON a.AccountTypeID = t.AccountTypeID
+  WHERE t.Name = 'Private Banking';
+```
+
+```typescript
+// 3) 애플리케이션의 WHERE 값과 검증 로직도 같이 — 이게 진짜 자주 새는 구멍
+// Before
+const VALID_TYPES = ['Chequing', 'Savings', 'Private'];
+const isPrivate = (t: string) => t === 'Private';
+
+// After
+const VALID_TYPES = ['Chequing', 'Savings', 'Private Banking'];
+const isPrivate = (t: string) => t === 'Private Banking';
+```
+
+이래서 **이름 문자열에 의존하는 코드가 애초에 안티패턴**이다. 가능하면 `AccountTypeID`(불변 PK)로 비교하게 만들어 두면, 표시 이름이 바뀌어도 로직이 안 흔들린다. 화면에 보일 이름과 코드가 분기하는 키는 분리해라. 그게 이런 갱신 사고를 구조적으로 줄인다.
+
+<Callout type="error" title="흔한 사고: 값은 바꿨는데 뷰·검증이 옛 값을 본다">
+데이터는 'Private Banking'이 됐는데, 어디 구석의 뷰나 enum 검증이 아직 'Private'를 찾고 있으면 그 경로는 조용히 0행을 돌려주거나 "유효하지 않은 타입"으로 막아버린다. compileMDX처럼 빌드에서 안 잡힌다. **값을 참조하는 곳 전수 grep**(소스 + 뷰 정의 + 저장 프로시저)이 이 변환의 진짜 작업량이다.
+</Callout>
+
+## 정리
+
+Update Data는 카탈로그에서 제일 단순해 보이는 변환이다. `UPDATE` 한 줄이니까. 근데 진짜 난이도는 SQL 문법이 아니라 **조준**에 있다.
+
+> **값을 바꾸는 건 쉽다. 어려운 건 "정확히 올바른 행만, 그리고 올바른 행 전부"를 바꾸는 거다.**
+
+그래서 운영에서 데이터를 갱신할 땐 늘 같은 절차를 밟는 게 좋다. WHERE를 같은 조건의 `SELECT`로 먼저 세서 조준선을 맞추고(dry-run), 두 번 돌려도 안전하게 멱등으로 짜고, 대량이면 청크로 쪼개고, 마이그레이션 도구로 형상에 남기고, 마지막으로 그 값을 보던 뷰·검증·`WHERE` 절을 전수로 같이 고친다. 이 다섯 개를 습관으로 만들면, 35% 적금 같은 사고에 손이 덜 떨린다.
+
+그리고 한 가지만 기억하자. `SELECT`는 틀려도 데이터가 안 다치지만, `UPDATE`는 틀리면 원래 값이 사라진다. **세기 전엔 치지 마라.**

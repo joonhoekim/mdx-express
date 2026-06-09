@@ -1,0 +1,237 @@
+---
+title: "Drop View: 뷰 삭제"
+subtitle: "아무도 안 보는 뷰를 내린다 — 리포트가 거기 의존하지 않는다면"
+description: "더 이상 필요 없는 데이터베이스 뷰를 안전하게 제거하는 구조 리팩토링. 뷰가 보안 접근 제어(SAC)를 구현하던 경우의 대체 전략, 의존성 추적, 리포팅 도구 영향까지 현대 실무로 정리한다."
+order: 29
+tags: ["database", "structural-refactoring", "drop-view", "view"]
+---
+
+import { Callout, Steps, Step, Tabs, TabsList, TabsTrigger, TabsContent, Icon } from '@/components/writing-ui';
+
+## 이게 뭔데
+
+Drop View는 이름 그대로다. **더 이상 안 쓰는 뷰를 데이터베이스에서 내리는 것.** `DROP VIEW AccountDetails;` 한 줄이면 끝난다. 카탈로그를 통틀어 가장 짧은 리팩토링 축에 든다.
+
+비유를 하나 들자면, 회사 복도에 붙어 있는 게시판이다. 예전엔 누가 부지런히 공지를 붙이고 다들 그걸 보고 다녔는데, 어느새 사내 메신저로 다 옮겨가서 게시판엔 3년 전 회식 사진만 누렇게 붙어 있다. 떼어내면 깔끔해진다. 근데 떼기 전에 한 번은 확인해야 한다. **"진짜 아무도 안 보나? 저 게시판만 보는 사람 하나라도 있나?"** 이거 확인 안 하고 떼면, 게시판 하나만 믿고 출근하던 누군가가 다음날 길을 잃는다.
+
+뷰 삭제도 똑같다. SQL은 한 줄인데, 진짜 일은 **"이 뷰를 누가 보고 있나"를 찾아내는 것**이다.
+
+<Callout type="info" title="뷰가 뭐였는지 30초 복습">
+뷰(View)는 저장된 `SELECT` 문이다. 테이블이 아니라 "이 쿼리를 테이블처럼 쓸 수 있게 이름 붙여둔 것". 그래서 뷰를 지워도 **밑에 깔린 데이터(Customer, Account 테이블)는 멀쩡하다.** 사라지는 건 데이터가 아니라 "그 데이터를 보는 창문" 하나다. 이게 Drop Table과 결정적으로 다른 점이다.
+</Callout>
+
+## 언제 쓰나
+
+뷰를 내려야 할 신호는 대개 이렇다.
+
+뷰가 **다른 데이터 소스로 대체됐을 때.** 예를 들어 `CustomerAccountSummary`라는 뷰가 매번 Customer와 Account를 조인해서 보여주고 있었는데, 성능 때문에 `TotalAccountBalance` 계산 컬럼을 Customer 테이블에 박아넣었다 치자. 이제 앱은 그 컬럼만 읽으면 되니까 뷰는 할 일이 없어진다. 남겨두면 "이거 아직 쓰나?" 헷갈리게 만드는 잔재일 뿐이다.
+
+또는 뷰가 **그냥 더는 필요 없을 때.** 특정 화면을 위해 만들었던 뷰인데 그 화면이 사라졌다든가, 마이그레이션 중간 단계로 만들어둔 임시 뷰가 역할을 다했다든가. 데이터베이스 스키마도 코드처럼 죽은 코드(dead code)가 쌓인다. 안 쓰는 뷰는 스키마판 주석 처리된 코드다. 보일 때 치워야 한다.
+
+핵심 동기는 **인지 부하 제거**다. 스키마를 처음 보는 사람한테 안 쓰는 뷰 열 개는 전부 "이거 중요한가?" 하고 멈춰서 확인해야 할 함정이다. 진짜 쓰는 것만 남겨두면 스키마가 곧 문서가 된다.
+
+### 현실 시나리오
+
+은행 시스템을 인계받았다. 스키마를 훑는데 `AccountDetails`라는 뷰가 보인다. 정의를 까보니 이렇다.
+
+```sql
+CREATE VIEW AccountDetails AS
+SELECT a.AccountID,
+       a.Balance,
+       c.CustomerName,
+       c.CustomerNumber
+FROM Account a
+JOIN Customer c ON c.CustomerID = a.CustomerID;
+```
+
+Customer랑 Account를 조인해서 한 번에 보여주는 평범한 뷰다. 코드베이스를 `grep AccountDetails` 해보니 애플리케이션 코드 어디에도 안 나온다. "아, 죽은 뷰네" 하고 호기롭게 `DROP VIEW AccountDetails;`를 날린다.
+
+다음 날 아침, 회계팀에서 전화가 온다. **"월말 정산 리포트가 안 돌아가요."** 알고 보니 그 뷰는 애플리케이션이 아니라 **사내 BI 도구(Tableau, Power BI, Metabase 같은 거)가 직접 물고 있었다.** 코드베이스엔 흔적이 없으니 `grep`으로는 절대 안 잡힌다. 리포트 담당자가 몇 년 전에 DB에 직접 연결해서 만들어둔 거고, 그 사람은 이미 퇴사했다.
+
+이게 뷰 삭제의 진짜 함정이다. **뷰의 소비자는 코드 안에만 있는 게 아니다.**
+
+## 주의할 점
+
+<Callout type="warning" title="삭제 전에 반드시 확인할 것">
+- **데이터는 안 지워지지만, 뷰에 의존하던 외부 프로그램은 즉시 접근 불가가 된다.** 특히 리포트 도구가 위험하다. 코드 저장소엔 안 잡히고 운영에서만 터진다.
+- **뷰가 보안 접근 제어(SAC)를 구현하고 있었다면, 절대 그냥 내리면 안 된다.** 대체 SAC 전략을 *먼저* 배포한 다음에 뷰를 내려야 한다. 순서를 거꾸로 하면 데이터가 통째로 노출되거나, 반대로 정당한 접근이 막힌다.
+- **다른 뷰가 이 뷰를 참조하고 있을 수 있다.** 뷰는 뷰 위에 쌓인다. `AccountDetails` 위에 `PremiumAccountReport`가 얹혀 있으면, 밑을 빼는 순간 위가 깨진다.
+</Callout>
+
+세 번째 위험인 SAC를 조금 더 풀어보자. 옛날 DB 보안 패턴 중에 이런 게 있다. 일반 직원한테는 테이블 직접 접근 권한을 안 주고, **민감한 컬럼을 가린 뷰에만 권한을 준다.** 예를 들어 고객 주민번호나 잔액 같은 걸 빼고 보여주는 뷰를 만들어서, 콜센터 직원은 그 뷰로만 조회하게 하는 식이다.
+
+```sql
+-- 콜센터용: 잔액 같은 민감 정보를 가린 뷰
+CREATE VIEW CustomerPublicInfo AS
+SELECT CustomerID, CustomerName, CustomerNumber  -- Balance, SSN 제외
+FROM Customer;
+
+GRANT SELECT ON CustomerPublicInfo TO call_center_role;
+-- Customer 테이블 자체엔 권한 없음
+```
+
+여기서 `CustomerPublicInfo`를 그냥 드롭하면 콜센터 직원들이 고객 조회를 아예 못 하게 된다. 반대로 "권한 정리한다"면서 콜센터한테 Customer 테이블 직접 권한을 줘버리면, 이번엔 가려뒀던 잔액까지 다 보인다. 그래서 SAC 뷰는 **대체 전략(컬럼 단위 권한, Row-Level Security, 마스킹 뷰 등)을 깐 다음에** 내려야 한다.
+
+<Callout type="note" title="요즘은 SAC를 뷰로 안 한다">
+2006년식 "권한 가린 뷰" 패턴은 지금도 동작하지만, 모던 DB는 더 좋은 도구를 준다. PostgreSQL의 Row-Level Security(`CREATE POLICY`), 컬럼 단위 `GRANT`, 동적 데이터 마스킹(SQL Server, Snowflake) 등이다. 그러니 SAC 뷰를 내리는 김에 "뷰로 흉내 내던 보안"을 진짜 보안 기능으로 옮기는 게 정석이다. 뷰 삭제가 보안 현대화의 트리거가 되는 셈이다.
+</Callout>
+
+## 이렇게 한다
+
+순서가 전부다. **삭제는 마지막에 한 줄로 하고, 그 앞의 "확인"과 "전환"에 시간을 쓴다.**
+
+<Steps>
+<Step title="의존성 추적 — 누가 이 뷰를 보나">
+코드 `grep`만으로는 부족하다는 게 핵심이다. 두 군데를 다 봐야 한다.
+
+**(1) DB 내부 의존성.** 다른 뷰/프로시저/트리거가 이 뷰를 참조하는지 카탈로그에서 직접 조회한다.
+
+```sql
+-- PostgreSQL: AccountDetails에 의존하는 객체 찾기
+SELECT dependent.relname AS dependent_object
+FROM pg_depend d
+JOIN pg_rewrite r       ON r.oid = d.objid
+JOIN pg_class dependent ON dependent.oid = r.ev_class
+JOIN pg_class source    ON source.oid = d.refobjid
+WHERE source.relname = 'accountdetails'
+  AND dependent.relname <> 'accountdetails';
+```
+
+```sql
+-- 어디서든 통하는 막무가내 검색: 정의 텍스트에 이름이 박힌 객체
+SELECT routine_name, routine_type
+FROM information_schema.routines
+WHERE routine_definition LIKE '%AccountDetails%';
+```
+
+**(2) DB 외부 의존성.** 여기가 진짜 어려운 데다. 코드 저장소엔 안 나오는 소비자들이다.
+
+- BI/리포팅 도구(Tableau, Power BI, Metabase, Superset) — 도구 자체의 데이터소스 목록을 뒤져야 한다.
+- 임시 스크립트, 크론잡, 협력사 배치.
+- 가장 확실한 방법은 **DB가 직접 알려주게 하는 것**이다. 운영 DB에서 그 뷰에 들어오는 쿼리를 일정 기간 로깅한다.
+
+```sql
+-- PostgreSQL: pg_stat_statements로 이 뷰를 건드린 쿼리 추적
+SELECT query, calls, max_exec_time
+FROM pg_stat_statements
+WHERE query ILIKE '%AccountDetails%'
+ORDER BY calls DESC;
+```
+
+"몇 주 동안 호출 0회"가 확인되면 그제서야 죽은 뷰라고 부를 자격이 생긴다.
+</Step>
+
+<Step title="대체 전략 배포 (SAC 뷰라면 필수)">
+뷰가 보안을 담당했다면, 내리기 *전에* 대체재를 먼저 깐다. expand 단계다 — 새 길을 먼저 열어두고, 옛 길은 나중에 닫는다.
+
+```sql
+-- 콜센터에 컬럼 단위 권한으로 같은 효과를 만든다 (뷰 없이)
+GRANT SELECT (CustomerID, CustomerName, CustomerNumber)
+ON Customer TO call_center_role;
+
+-- 또는 Row-Level Security로 더 정교하게
+ALTER TABLE Customer ENABLE ROW LEVEL SECURITY;
+CREATE POLICY call_center_policy ON Customer
+  FOR SELECT TO call_center_role
+  USING (region = current_setting('app.user_region'));
+```
+
+대체 권한이 실제로 동작하는지 콜센터 역할로 직접 로그인해서 확인할 때까지는, 옛 뷰를 절대 안 내린다.
+</Step>
+
+<Step title="접근 프로그램 수정 — 뷰를 기반 테이블 직접 접근으로">
+뷰를 쓰던 SQL을 기반 테이블 조인으로 바꾼다. 책의 핵심 예시가 바로 이거다.
+
+```sql
+-- Before: 뷰에 의존
+SELECT AccountID, Balance, CustomerName
+FROM AccountDetails
+WHERE Balance > 10000;
+
+-- After: 기반 테이블 직접 조인
+SELECT a.AccountID, a.Balance, c.CustomerName
+FROM Account a
+JOIN Customer c ON c.CustomerID = a.CustomerID
+WHERE a.Balance > 10000;
+```
+
+리포팅 도구 쪽이라면, 도구 안의 데이터소스 정의를 "뷰 참조"에서 "커스텀 SQL" 또는 "테이블 조인"으로 바꿔주면 된다. 이걸 빠뜨리면 리포트가 죽는다는 걸 1단계에서 이미 봤다.
+</Step>
+
+<Step title="전환 기간을 둔다">
+다중 애플리케이션 환경이라면 뷰에 **드롭 예정일(drop date)을 못 박고** 모든 소비자한테 공지한다. "이 뷰는 다음 분기 말에 내려갑니다, 그 전에 옮기세요." 외부 프로그램 수정에 필요한 시간을 반드시 감안한다. 작은 단일 SI 프로젝트라면 "슬랙 공지 + PR 리뷰" 수준으로도 충분하지만, 협력사·배치·리포팅이 같은 DB를 공유하면 명시적 데드라인이 안전판이 된다.
+</Step>
+
+<Step title="드롭 — 드디어 한 줄">
+모든 소비자가 옮겨갔고, 로깅상 호출이 0이고, 대체 SAC가 동작한다. 이제 마이그레이션 파일에 한 줄을 적는다.
+
+```sql
+-- V42__drop_account_details_view.sql
+DROP VIEW AccountDetails;
+```
+
+데이터 마이그레이션은 없다. **옮길 데이터가 애초에 없으니까** — 뷰는 데이터를 안 들고 있었다. 이게 뷰 삭제가 테이블 삭제보다 훨씬 가벼운 이유다.
+</Step>
+</Steps>
+
+### 마이그레이션 도구로 굴리기
+
+2006년 책은 이걸 번호 매긴 SQL로 손코딩했지만, 지금은 마이그레이션 도구에 넣는다. 롤백을 같이 적어두는 게 포인트다 — 드롭은 비가역처럼 보이지만, 뷰 정의는 텍스트라서 되살리기 쉽다.
+
+<Tabs defaultValue="flyway">
+<TabsList>
+<TabsTrigger value="flyway">Flyway</TabsTrigger>
+<TabsTrigger value="liquibase">Liquibase</TabsTrigger>
+<TabsTrigger value="alembic">Alembic</TabsTrigger>
+</TabsList>
+
+<TabsContent value="flyway">
+```sql
+-- V42__drop_account_details_view.sql
+DROP VIEW IF EXISTS AccountDetails;
+
+-- Flyway Teams의 undo 마이그레이션 (U42)에 정의를 되살릴 SQL을 넣어둔다
+-- U42__drop_account_details_view.sql
+-- CREATE VIEW AccountDetails AS SELECT ...;
+```
+</TabsContent>
+
+<TabsContent value="liquibase">
+```sql
+--changeset jh:drop-account-details-view
+--rollback CREATE VIEW AccountDetails AS SELECT a.AccountID, a.Balance, c.CustomerName FROM Account a JOIN Customer c ON c.CustomerID = a.CustomerID;
+DROP VIEW AccountDetails;
+```
+Liquibase는 `--rollback`에 적은 SQL로 자동 복구해준다. 뷰 정의를 통째로 적어두면 `liquibase rollback` 한 방에 되살아난다.
+</TabsContent>
+
+<TabsContent value="alembic">
+```python
+def upgrade():
+    op.execute("DROP VIEW account_details")
+
+def downgrade():
+    op.execute("""
+        CREATE VIEW account_details AS
+        SELECT a.account_id, a.balance, c.customer_name
+        FROM account a
+        JOIN customer c ON c.customer_id = a.customer_id
+    """)
+```
+`downgrade()`에 원래 정의를 박아두면 다운그레이드 시 뷰가 그대로 복원된다.
+</TabsContent>
+</Tabs>
+
+<Callout type="success" title="롤백 안전망의 묘미">
+뷰 삭제가 마음 편한 리팩토링인 이유가 여기 있다. 테이블을 드롭하면 데이터가 날아가서 백업 복원이 필요하지만, **뷰는 정의(텍스트)만 마이그레이션 롤백에 넣어두면 1초 만에 되살아난다.** 그러니 "확실친 않은데 일단 내려보자"의 비용이 낮다. 단, 1단계 의존성 추적을 건너뛰면 "되살리기 전까지 리포트가 죽어 있는" 시간이 생기니, 싸다고 막 하란 얘긴 아니다.
+</Callout>
+
+## 정리
+
+Drop View는 SQL로는 한 줄, 일로는 의존성 추적이 전부인 리팩토링이다.
+
+> **뷰를 내리는 위험은 데이터가 아니라 "소비자"에 있다.**
+
+데이터는 기반 테이블에 그대로 있으니 안 날아간다. 진짜 사라지는 건 그 데이터를 보던 창문 하나고, 그 창문 앞에 서 있던 게 코드가 아니라 **리포팅 도구나 퇴사자가 만든 배치**일 때 사고가 난다. 그래서 `grep`만 믿지 말고 DB가 직접 "최근 누가 이 뷰를 봤는지" 말하게 만들어라(`pg_stat_statements`, 쿼리 로깅).
+
+그리고 뷰가 보안을 흉내 내고 있었다면 — 권한 가린 SAC 뷰였다면 — **대체재를 먼저 깔고 나중에 내린다.** 순서가 뒤집히면 데이터가 노출되거나 정당한 접근이 막힌다. 모던 DB의 Row-Level Security나 컬럼 단위 권한으로 옮겨가는 좋은 기회로 삼으면, 죽은 뷰 하나 치우면서 보안까지 한 단계 올라간다.

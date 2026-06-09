@@ -1,0 +1,283 @@
+---
+title: "Extract Method: 메서드 추출"
+subtitle: "거대 프로시저에서 코드 조각을 이름이 설명하는 메서드로 떼낸다"
+description: "한 화면을 넘기는 저장 프로시저를 의미 단위로 잘라 잘 명명된 작은 메서드로 추출하는 내부 리팩토링. 인터페이스를 바꾸지 않아 외부 영향 없이 안전하게 적용하는 법과 PL/SQL before/after, 현대 도구를 정리한다."
+order: 84
+tags: ["database", "method-refactoring", "stored-procedure", "clean-code"]
+---
+
+import { Callout, Steps, Step, Tabs, TabsList, TabsTrigger, TabsContent, Icon } from '@/components/writing-ui';
+
+## 이게 뭔데
+
+메서드 추출(Extract Method). 정의는 한 줄이다. **하나로 묶을 수 있는 코드 조각을, 그 동작을 이름으로 설명하는 별도 메서드로 떼내는 것.** 그리고 원래 자리엔 그 메서드를 호출하는 한 줄만 남긴다.
+
+비유를 하나 들자. 라면 끓이는 법을 누가 물어봤다고 치자. 정상적인 사람은 이렇게 말한다. "물 끓이고, 면 넣고, 스프 넣고, 3분 기다려." 근데 거대 프로시저는 이렇게 말한다. "냄비를 싱크대로 가져가서 수도꼭지 왼쪽 손잡이를 시계 반대 방향으로 30도 돌리고 550ml가 찰 때까지 기다린 다음 손잡이를 원위치로 돌리고 냄비를 인덕션 3번 화구에 올리고 전원 버튼을 누르고 출력을 7단으로 맞추고 기포가 표면에 올라오기 시작하면..." 한 문장 안에 모든 게 다 들어 있다. 듣는 사람은 중간에 정신을 놓는다.
+
+`물끓이기()`, `면넣기()`, `스프넣기()` 같은 이름으로 토막을 떼내면, 상위 레시피는 다시 사람이 읽는 글이 된다. 이게 메서드 추출이다. **상위 프로시저가 잘 주석된 코드처럼, 거의 말로 읽히게 만드는 작업.**
+
+<Callout type="info" title="한 줄 요약">
+긴 코드 안의 의미 있는 토막을 이름이 동작을 설명하는 메서드로 떼내라. 그러면 상위 프로시저는 구현이 아니라 "무엇을 하는지"의 목록이 되고, 떼낸 조각은 재사용·테스트가 쉬워진다.
+</Callout>
+
+이건 책에서 "내부 리팩토링(Internal Refactoring)"으로 분류된다. 무슨 뜻이냐면 — **프로시저의 시그니처(이름·파라미터)는 손도 안 댄다.** `ProcessAccountClosure(accountID)`는 리팩토링 전이나 후나 똑같이 `ProcessAccountClosure(accountID)`다. 호출하는 앱, 배치, 리포트는 자기가 부르던 게 안에서 갈기갈기 쪼개졌다는 걸 알 필요도 없고, 알 수도 없다. 바뀐 건 껍데기 안쪽 살림뿐이다. 이게 핵심이고, 뒤에서 다시 강조할 거다.
+
+## 언제 쓰나
+
+증상은 익숙할 거다. **한 화면에 안 들어가는 저장 프로시저.** 스크롤을 내리고 내리고 또 내려도 `END`가 안 나온다. SI 현장에서 굴러다니는 PL/SQL 프로시저가 800줄, 1200줄, 심하면 한 파일이 3000줄짜리인 거, 본 사람은 봤을 거다.
+
+이런 프로시저엔 공통 냄새가 있다.
+
+- **주석이 단락 구분자 역할을 한다.** `-- 잔액 검증` `-- 미결제 이자 정산` `-- 계좌 폐쇄 처리` 같은 주석이 코드 사이사이에 박혀 있다. 이 주석들이 바로 "여기부터 여기까지가 한 덩어리"라고 외치고 있는 거다. 추출해 달라는 신호다.
+- **같은 코드 조각이 두세 군데 복붙돼 있다.** 잔액을 환율로 환산하는 8줄짜리 계산이 프로시저 안에 세 번 나온다. 하나 고치면 나머지 둘을 깜빡한다. 그래서 버그가 "고쳤는데 또 나네?" 하고 좀비처럼 살아 돌아온다.
+- **로컬 변수가 30개쯤 떠다닌다.** 어떤 변수가 어디서 살아 있고 어디서 죽는지 아무도 모른다. 머릿속에 다 담아야 한 줄을 고칠 수 있다.
+
+이 셋 중 하나라도 보이면 메서드 추출이 답이다. 특히 첫 번째 — **"주석으로 단락을 나눠 놓은 긴 코드"** — 가 교과서적인 추출 대상이다. 주석이 알려주는 그 단락 하나가 곧 메서드 하나거든.
+
+### 현실 시나리오: 이런 적 있을 거임
+
+은행 코어 시스템. `ProcessAccountClosure`라는 프로시저가 있다. 계좌를 닫는 일을 한다. 그런데 닫는 일이 단순하지가 않다. 잔액이 0인지 확인하고, 미결제 이자를 정산하고, 연결된 보험(Insurance) 정책이 있으면 해지 처리하고, 고객(Customer) 등급을 재계산하고, 감사 로그를 남긴다. 이게 다 한 프로시저 안에 일렬로 들어 있다. 600줄.
+
+어느 날 "계좌 폐쇄할 때 미결제 이자 계산 로직이 바뀌었다"는 요구가 들어온다. 너는 600줄짜리를 열고, 스크롤을 내리며 `-- 이자 정산` 주석을 찾는다. 찾았다. 한 80줄쯤 된다. 근데 이 80줄이 위쪽의 잔액 검증에서 만든 로컬 변수 `v_balance`, `v_currency`, `v_rate`를 쓴다. 이걸 건드리면 아래쪽 보험 해지에서 또 그 변수들을 쓰는지 확인해야 한다. 한 줄 고치려고 600줄 전체를 머리에 올려야 한다.
+
+PR을 올리면 리뷰어가 "여기 영향 범위가 어디까지예요?"라고 묻고, 너는 "음... 아마 이자 부분만요? 아마?"라고 답한다. **아마.** 이 "아마"가 운영 사고의 씨앗이다.
+
+만약 이 프로시저가 진작에 `CalculateOutstandingInterest`, `CancelLinkedInsurance`, `RecalculateCustomerTier` 같은 메서드로 쪼개져 있었다면? 너는 `CalculateOutstandingInterest`만 열고, 그 안의 입력·출력만 보고, 그것만 고치면 됐다. 영향 범위가 함수 경계로 딱 잘린다. "아마"가 "여기만요"가 된다.
+
+## 주의할 점
+
+좋아 보이지만 함정이 몇 개 있다. 무지성으로 자르면 다친다.
+
+<Callout type="warning" title="추출하기 전에 자동화 테스트부터">
+메서드 추출의 대전제는 **"동작은 100% 그대로, 구조만 바꾼다"** 다. 리팩토링이 동작을 바꾸지 않았다는 걸 어떻게 보장하나? 테스트다. 프로시저용 자동화 테스트(utPLSQL, pgTAP, tSQLt 등)가 없으면 추출은 "고쳤는데 됐는지 모르겠는" 도박이 된다. 테스트가 부실한 팀일수록, 추출 전에 **현재 동작을 박제하는 특성화 테스트(characterization test)** 부터 깔아라. 입력 몇 케이스 → 출력/부수효과를 캡처해 두고, 추출 후 같은 결과가 나오는지 비교하는 식이다.
+</Callout>
+
+두 번째 함정은 **로컬 변수 의존성**이다. 떼내려는 80줄이 바깥 변수 `v_balance`, `v_rate`를 읽고, 동시에 `v_interest`를 계산해 바깥에 돌려준다면, 그건 그냥 잘라낸다고 끝이 아니다. 읽는 변수는 **파라미터(IN)** 로, 돌려주는 변수는 **반환값이나 OUT 파라미터** 로 명시적으로 통과시켜야 한다. 이 작업을 대충 하면 "추출했는데 결과가 미묘하게 달라지는" 가장 짜증나는 부류의 버그가 생긴다. 그래서 추출 전에 **변수 도입(Introduce Variable)** 으로 식을 정리하거나, 너무 많은 변수가 얽혀 있으면 **임시 변수 분리(Split Temporary Variable)** 로 한 변수의 용도를 하나로 묶어두면 추출이 훨씬 깔끔해진다.
+
+세 번째는 **과유불급**이다. 3줄짜리를 굳이 메서드로 빼면 오히려 호출을 따라다니느라 더 읽기 힘들어진다. 추출의 기준은 "줄 수"가 아니라 **"이름을 붙일 만한 의미 단위인가"** 다. 이름이 안 떠오르면, 그건 아직 의미가 한 덩어리로 안 잡힌 거다. 자르지 마라.
+
+<Callout type="error" title="오버헤드는 진짜인가">
+"프로시저를 잘게 쪼개면 호출 오버헤드 때문에 느려지는 거 아니냐"는 걱정. 일리는 있다. PL/SQL에서 서브프로그램 호출은 공짜가 아니고, 타이트한 루프 안에서 수백만 번 호출되는 조각이라면 측정해 볼 가치가 있다. 다만 (1) 같은 패키지 안의 로컬 서브프로그램 호출은 보통 무시할 수준이고, (2) 정 문제면 Oracle은 `PRAGMA INLINE`으로 인라인을 강제할 수도 있다. **추측으로 추출을 포기하지 말고, 의심되면 측정해라.** 대부분의 폐쇄·정산류 프로시저는 호출 빈도가 낮아서 오버헤드가 잡음 수준이다.
+</Callout>
+
+## 이렇게 한다
+
+은행 도메인으로 가자. `ProcessAccountClosure` 프로시저의 한 토막 — 미결제 이자를 정산하는 부분 — 을 추출해 본다.
+
+### Before: 다 들어 있는 한 덩어리
+
+```sql
+-- Before: 모든 게 한 프로시저 안에 일렬로
+CREATE OR REPLACE PROCEDURE ProcessAccountClosure(p_account_id IN NUMBER) AS
+  v_balance       NUMBER;
+  v_currency      VARCHAR2(3);
+  v_rate          NUMBER;
+  v_accrued_days  NUMBER;
+  v_interest      NUMBER;
+  v_customer_id   NUMBER;
+BEGIN
+  -- 잔액/통화 조회
+  SELECT balance, currency, customer_id
+    INTO v_balance, v_currency, v_customer_id
+    FROM Account
+   WHERE account_id = p_account_id;
+
+  -- ... (검증 로직 60줄 생략) ...
+
+  -- 미결제 이자 정산
+  SELECT interest_rate INTO v_rate
+    FROM Policy
+   WHERE currency = v_currency
+     AND policy_type = 'SAVINGS';
+
+  v_accrued_days := TRUNC(SYSDATE) -
+    (SELECT last_interest_date FROM Account WHERE account_id = p_account_id);
+
+  v_interest := ROUND(v_balance * v_rate / 365 * v_accrued_days, 2);
+
+  UPDATE Account
+     SET balance = balance + v_interest,
+         last_interest_date = TRUNC(SYSDATE)
+   WHERE account_id = p_account_id;
+
+  INSERT INTO InterestLedger(account_id, amount, posted_at)
+  VALUES (p_account_id, v_interest, SYSTIMESTAMP);
+
+  -- ... (보험 해지 120줄 생략) ...
+  -- ... (고객 등급 재계산 90줄 생략) ...
+  -- ... (감사 로그 40줄 생략) ...
+
+  COMMIT;
+END ProcessAccountClosure;
+/
+```
+
+문제가 보이나. "미결제 이자 정산"이라는 단락이 통째로 상위 흐름에 박혀 있다. 이 로직만 단위 테스트하고 싶어도 방법이 없다. `ProcessAccountClosure` 전체를 호출하지 않고는 이자 계산만 따로 검증할 수가 없다.
+
+### After: 이름이 동작을 설명하는 메서드로
+
+이자 정산 토막을 `SettleOutstandingInterest`라는 패키지 함수로 떼낸다. 읽던 변수 `v_balance`, `v_currency`는 IN 파라미터로 넘기고, 계산된 이자는 반환값으로 돌려받는다.
+
+```sql
+-- After: 의미 단위로 추출
+CREATE OR REPLACE PACKAGE BODY AccountClosure AS
+
+  -- 추출된 메서드: 이름이 곧 주석
+  FUNCTION SettleOutstandingInterest(
+    p_account_id IN NUMBER,
+    p_balance    IN NUMBER,
+    p_currency   IN VARCHAR2
+  ) RETURN NUMBER AS
+    v_rate         NUMBER;
+    v_accrued_days NUMBER;
+    v_interest     NUMBER;
+  BEGIN
+    SELECT interest_rate INTO v_rate
+      FROM Policy
+     WHERE currency = p_currency
+       AND policy_type = 'SAVINGS';
+
+    v_accrued_days := TRUNC(SYSDATE) -
+      (SELECT last_interest_date FROM Account WHERE account_id = p_account_id);
+
+    v_interest := ROUND(p_balance * v_rate / 365 * v_accrued_days, 2);
+
+    UPDATE Account
+       SET balance = balance + v_interest,
+           last_interest_date = TRUNC(SYSDATE)
+     WHERE account_id = p_account_id;
+
+    INSERT INTO InterestLedger(account_id, amount, posted_at)
+    VALUES (p_account_id, v_interest, SYSTIMESTAMP);
+
+    RETURN v_interest;
+  END SettleOutstandingInterest;
+
+
+  PROCEDURE ProcessAccountClosure(p_account_id IN NUMBER) AS
+    v_balance     NUMBER;
+    v_currency    VARCHAR2(3);
+    v_customer_id NUMBER;
+    v_interest    NUMBER;
+  BEGIN
+    SELECT balance, currency, customer_id
+      INTO v_balance, v_currency, v_customer_id
+      FROM Account
+     WHERE account_id = p_account_id;
+
+    ValidateClosureEligibility(p_account_id, v_balance);
+    v_interest := SettleOutstandingInterest(p_account_id, v_balance, v_currency);
+    CancelLinkedInsurance(p_account_id);
+    RecalculateCustomerTier(v_customer_id);
+    WriteClosureAuditLog(p_account_id, v_interest);
+
+    COMMIT;
+  END ProcessAccountClosure;
+
+END AccountClosure;
+/
+```
+
+`ProcessAccountClosure`의 본문을 다시 봐라. 600줄이 다섯 줄이 됐다.
+
+```text
+잔액/통화/고객 조회
+ValidateClosureEligibility   -- 폐쇄 가능한지 검증
+SettleOutstandingInterest    -- 미결제 이자 정산
+CancelLinkedInsurance        -- 연결 보험 해지
+RecalculateCustomerTier      -- 고객 등급 재계산
+WriteClosureAuditLog         -- 감사 로그
+```
+
+이게 핵심이다. **상위 프로시저가 코드가 아니라 목차로 읽힌다.** 신입이 와서 "계좌 폐쇄가 뭘 하나요?"라고 물으면, 이 다섯 줄을 보여주면 끝난다. 그리고 "이자 계산이 바뀌었다"는 요구가 오면? `SettleOutstandingInterest`만 열면 된다. 영향 범위가 함수 경계로 딱 잘린다.
+
+### 추출 절차
+
+기계적으로 따라 할 수 있는 순서가 있다. 한 번에 한 토막씩.
+
+<Steps>
+<Step title="현재 동작을 테스트로 박제한다">
+추출 전에 입력 몇 케이스 → 출력·부수효과를 캡처하는 특성화 테스트를 깐다. utPLSQL이면 `expect`로, 결과 잔액·`InterestLedger` 행을 검증하는 식. 이게 "동작 안 바뀜"의 안전망이다.
+</Step>
+<Step title="떼낼 토막의 경계를 정한다">
+주석이 알려준다. `-- 미결제 이자 정산`부터 다음 주석 직전까지. 그 토막이 읽는 외부 변수(`v_balance`, `v_currency`)와 바깥에 돌려주는 변수(`v_interest`)를 적어 둔다. 이게 추출 함수의 시그니처가 된다.
+</Step>
+<Step title="새 메서드로 복사하고 변수를 파라미터로 연결한다">
+읽는 변수 → IN 파라미터, 돌려주는 변수 → RETURN(하나면) 또는 OUT 파라미터(여럿이면). 이름은 동작을 설명하게: `SettleOutstandingInterest`. `GetData`, `DoStuff` 같은 거 말고.
+</Step>
+<Step title="원래 자리를 호출 한 줄로 바꾼다">
+80줄을 지우고 `v_interest := SettleOutstandingInterest(...)` 한 줄로 대체한다.
+</Step>
+<Step title="테스트를 돌려 동작 동일성을 확인한다">
+1단계에서 깐 테스트가 그대로 통과하면 추출 성공. 깨지면 변수 통과(IN/OUT)를 잘못 연결한 거다. 거의 항상 여기서 잡힌다.
+</Step>
+<Step title="다음 토막으로 반복한다">
+한 번에 하나. 보험 해지, 등급 재계산, 감사 로그를 차례로 같은 방식으로 떼낸다. 한 토막 추출 → 커밋 → 다음 토막. 작은 커밋이 되돌리기를 쉽게 한다.
+</Step>
+</Steps>
+
+### 현대 실무로: 수천 줄 프로시저 길들이기
+
+2006년 책은 이걸 손으로 PL/SQL 짜서 보여준다. 골격은 지금도 똑같다. 다만 현대엔 추출을 **안전하고 가시적으로** 만드는 도구들이 붙는다.
+
+<Tabs defaultValue="migration">
+<TabsList>
+<TabsTrigger value="migration">마이그레이션 도구</TabsTrigger>
+<TabsTrigger value="test">프로시저 테스트</TabsTrigger>
+<TabsTrigger value="strategy">전략</TabsTrigger>
+</TabsList>
+
+<TabsContent value="migration">
+
+추출도 결국 DDL 변경이다(`CREATE OR REPLACE`). 손으로 SQL*Plus에 붙여넣지 말고 버전 관리되는 마이그레이션으로 굴려라.
+
+- **Flyway / Liquibase**: 추출 단계마다 `V84__extract_settle_interest.sql` 식으로 번호 매긴 마이그레이션을 만든다. 한 토막 추출 = 한 마이그레이션 파일이면 리뷰도, 롤백도 단위로 깔끔하다.
+- 프로시저 본문은 멱등한 `CREATE OR REPLACE`라 재실행에 안전하다. 패키지를 쓰면 스펙/바디를 나눠 관리할 수 있어 추출된 내부 함수를 패키지 바디에만 숨기고(스펙에 노출 안 함) 외부 인터페이스는 그대로 유지하기 좋다.
+
+```text
+db/migration/
+  V84__extract_settle_interest.sql      -- 이자 정산 추출
+  V85__extract_cancel_insurance.sql     -- 보험 해지 추출
+  V86__extract_recalc_customer_tier.sql -- 등급 재계산 추출
+```
+
+작은 단위로 쪼개 두면, 어느 추출에서 회귀가 났는지 마이그레이션 번호로 바로 짚힌다.
+
+</TabsContent>
+
+<TabsContent value="test">
+
+추출의 전제는 테스트라고 계속 말했다. 그 테스트를 짜는 현대 도구들이다.
+
+- **utPLSQL** (Oracle): `%suite`, `%test` 애너테이션으로 패키지 단위 테스트. 추출한 `SettleOutstandingInterest`를 독립적으로 호출해 반환 이자·`InterestLedger` 행을 검증.
+- **pgTAP** (PostgreSQL): TAP 출력으로 함수 결과를 단언. CI에 물리기 좋다.
+- **tSQLt** (SQL Server): `FakeTable`로 의존 테이블을 격리하고 프로시저를 단위 테스트.
+
+추출의 진짜 보상이 여기서 나온다. **떼내기 전엔 600줄 프로시저 전체를 호출해야만 이자 로직을 건드릴 수 있었는데, 떼낸 뒤엔 `SettleOutstandingInterest`만 콕 집어 단위 테스트할 수 있다.** 추출이 테스트 가능성을 만든다.
+
+</TabsContent>
+
+<TabsContent value="strategy">
+
+수천 줄짜리를 한 PR에 다 쪼개려 들지 마라. 죽는다.
+
+- **스트랭글러 식으로**: 한 번에 한 토막만 추출하고, 동작 동일성 확인하고, 커밋. 다음 토막. 큰 리팩토링을 작은 안전한 스텝의 연속으로 분해한다.
+- **냄새 강한 곳부터**: 복붙으로 중복된 조각, 버그가 자주 나는 단락, 곧 요구사항이 바뀔 부분을 먼저 떼낸다. 안 건드릴 평화로운 코드는 굳이 손대지 마라.
+- **인터페이스는 절대 안 건드린다**: 추출은 내부 리팩토링이다. `ProcessAccountClosure`의 시그니처가 그대로면 호출하는 앱·배치·리포트는 무사하다. 이 경계를 지키는 한, 추출은 외부 영향 없이 안전하게 굴릴 수 있는 몇 안 되는 DB 리팩토링이다.
+
+</TabsContent>
+</Tabs>
+
+<Callout type="note" title="추출은 다른 리팩토링의 발판이다">
+메서드 추출은 혼자 오는 일이 드물다. 보통 다른 정리 작업의 입구다. 복잡한 IF를 추출 가능하게 정리하는 <b>조건식 통합(Consolidate Conditional Expression)</b>이 먼저 오고, 추출 뒤엔 떼낸 메서드 안에서 매직 넘버를 테이블 룩업으로 바꾸거나(<b>Replace Literal with Table Lookup</b>), 알고리즘을 통째로 갈아끼우기(<b>Substitute Algorithm</b>)가 쉬워진다. 큰 알고리즘은 일단 추출로 조각내 단순해진 뒤라야 안전하게 치환할 수 있다. 추출은 거대 코드를 "손댈 수 있는 상태"로 만드는 준비 작업인 셈이다.
+</Callout>
+
+## 정리
+
+메서드 추출은 화려하지 않다. 새 인덱스도 안 만들고, 쿼리도 안 빨라진다. 바뀌는 건 오직 하나, **사람이 코드를 읽고 고칠 수 있게 되느냐**다.
+
+> **거대 프로시저를 잘 명명된 작은 메서드로 떼내면, 상위 흐름은 구현이 아니라 목차가 된다.**
+
+600줄을 머리에 다 올려야 한 줄을 고치던 게, 함수 하나만 열면 되는 일로 바뀐다. 영향 범위가 함수 경계로 잘리고, "아마"가 "여기만요"가 된다. 떼낸 조각은 단위 테스트가 가능해지고, 중복은 한 곳으로 모인다.
+
+전제는 딱 하나다. **추출 전에 현재 동작을 테스트로 박제할 것.** 그 안전망 위에서 한 번에 한 토막씩, 작은 커밋으로 떼내라. 인터페이스만 안 건드리면, 이건 외부에 아무 피해 없이 굴릴 수 있는 가장 안전한 정리 작업이다. 주석으로 단락을 나눠 놓은 긴 프로시저를 만났다면 — 그 주석들이 이미 어디를 잘라야 할지 알려주고 있는 거다.

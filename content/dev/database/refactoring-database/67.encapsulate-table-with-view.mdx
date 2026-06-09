@@ -1,0 +1,219 @@
+---
+title: "Encapsulate Table With View: 뷰로 테이블 캡슐화"
+subtitle: "테이블 앞에 뷰 파사드를 세워, 나중에 맘 편히 리팩토링한다"
+description: "테이블을 뷰로 감싸 외부 프로그램과의 직접 결합을 끊는 아키텍처 리팩토링. Rename/Drop Column 같은 위험한 변경 전에 파사드를 세우는 절차와, 갱신 가능 뷰·expand-contract·온라인 스키마 변경 같은 현대 실무 접목까지 정리한다."
+order: 67
+tags: ["database", "architecture", "view", "encapsulation"]
+---
+
+import { Callout, CodeBlock, Tabs, TabsList, TabsTrigger, TabsContent, Icon, Steps, Step } from '@/components/writing-ui';
+
+## 이게 뭔데
+
+뷰로 테이블 캡슐화. 이름 길어 보이는데 한 문장이다. **테이블을 직접 쓰게 두지 말고, 그 앞에 뷰(View)를 하나 세워서 다들 뷰를 보게 만드는 것**이다.
+
+비유하자면 가게 간판이다. 손님은 "스타벅스"라는 간판을 보고 들어온다. 안에서 원두 공급처를 바꾸든, 주방 동선을 갈아엎든, 에스프레소 머신을 통째로 교체하든 손님은 모른다. 간판만 그대로면 손님 입장에선 어제랑 똑같은 가게다. 뷰가 바로 그 간판이다. 뒤에서 테이블을 개명하든 컬럼을 쪼개든, 간판(뷰) 이름이랑 모양만 유지하면 밖에서 쓰는 앱은 아무것도 모른다.
+
+`Customer` 테이블을 직접 SELECT 하던 앱이 다섯 개 있다고 치자. 이걸 손대고 싶은데, 다섯 군데가 죄다 `Customer`를 직빵으로 물고 있으면 못 건드린다. 그래서 먼저 한다. `Customer` 테이블을 `TCustomer`로 슬쩍 개명하고, `Customer`라는 이름으로 **뷰**를 만든다. 앱 다섯 개는 여전히 `SELECT * FROM Customer` 하면 되고, 정작 그 `Customer`는 이제 테이블이 아니라 뷰다. 본체는 `TCustomer`라는 이름 뒤로 숨었다.
+
+<Callout type="info" title="한 줄 요약">
+테이블 앞에 같은 이름의 뷰를 세우면, 외부 프로그램은 뷰만 보게 된다. 그러면 뒤에 있는 진짜 테이블을 개명하든 쪼개든, 뷰만 유지해서 변경을 흡수할 수 있다. 리팩토링하기 전에 깔아두는 안전매트 같은 거다.
+</Callout>
+
+## 언제 쓰나
+
+핵심 동기는 하나다. **결합(coupling)을 끊는 것.**
+
+스키마를 손대고 싶은데 못 손대는 상황이 있다. 컬럼 이름이 `cust_nm` 같은 끔찍한 약자라 `customer_name`으로 바꾸고 싶다. 안 쓰는 `fax_number` 컬럼을 드디어 지우고 싶다. 그런데 이 테이블을 직접 물고 있는 앱이 한둘이 아니다. 사내 시스템 셋, 배치 잡 둘, 어디 박혀 있는지 모를 리포트 쿼리 한 무더기. 컬럼 하나 잘못 건드리면 어디서 뭐가 깨질지 모른다. 이게 **직접 결합**이다. 모두가 테이블 구조에 직접 묶여 있어서, 테이블이 사슬에 발이 묶인 거다.
+
+이럴 때 `Rename Column`이나 `Drop Column` 같은 진짜 리팩토링을 바로 하면 위험하다. 그 전에 **파사드부터 깐다.** 테이블을 뷰로 감싸두면, 이제 외부는 뷰를 보고, 너는 뒤에서 테이블을 주무를 자유를 얻는다. 즉 이 리팩토링 자체가 목적이 아니라, **다음에 올 위험한 리팩토링의 발판**인 경우가 많다.
+
+두 번째 동기는 **보안 접근 제어(SAC)**다. 원본 테이블에 대한 직접 접근은 거의 다 막아버리고, 역할별로 뷰를 여러 개 판다. 고객센터 직원한테는 주민번호 컬럼을 가린 `CustomerForCS` 뷰만 열어주고, 마케팅한테는 연락처만 보이는 뷰를 주는 식이다. 테이블 권한 하나로 전부 다 보여주거나 전부 다 막는 것보다 훨씬 결이 곱다.
+
+### 현실 시나리오 한 토막
+
+은행 시스템. `Customer` 테이블에 `acct_bal`이라는 컬럼이 있다. 옛날에 누가 잔액 캐시해두려고 박은 컬럼인데, 지금은 `Account` 테이블에서 계산하는 게 맞고 이 컬럼은 자꾸 안 맞는다. 지우고 싶다.
+
+근데 `git grep`을 해보니 `acct_bal`을 읽는 코드가... 사내 포털, 콜센터 앱, 야간 정산 배치, 그리고 누가 만들었는지 모를 엑셀 연동 매크로까지 줄줄이 나온다. 여기서 그냥 `ALTER TABLE Customer DROP COLUMN acct_bal` 때리면? 다음 날 새벽 정산 배치가 `ORA-00904: invalid identifier`를 뱉으며 죽고, 당직 전화가 울린다.
+
+그래서 순서를 바꾼다. 먼저 `Customer`를 뷰로 캡슐화한다. 본체는 `TCustomer`로 숨기고, `Customer` 뷰는 당분간 `acct_bal`을 **계산해서** 채워준다. 외부 앱들은 변화를 못 느낀다. 그동안 앱들을 하나씩 잡아서 "잔액은 `Account`에서 가져와라"로 고친다. 다 고치고 나서야, 조용히 뷰에서 `acct_bal`을 뺀다. 정산 배치는 멀쩡히 돌아간다. 당직 전화도 안 울린다.
+
+## 주의할 점
+
+공짜 점심은 없다. 뷰로 감싸는 데에는 전제가 깔려 있다.
+
+<Callout type="warning" title="갱신 가능 뷰가 발목을 잡는다">
+**읽기는 쉽지만 쓰기가 문제다.** 외부 프로그램이 `Customer`를 SELECT만 하면 뷰로 감싸는 게 거의 공짜다. 그런데 `INSERT`/`UPDATE`/`DELETE`도 한다면? 뷰가 **갱신 가능 뷰(updatable view)**여야 한다.
+
+`SELECT * FROM TCustomer` 같은 단순 뷰는 대부분 DB에서 갱신이 된다. 하지만 조인이 들어가거나, `GROUP BY`/집계가 끼거나, `DISTINCT`/`UNION`이 붙거나, 위에서 본 `acct_bal`처럼 **계산 컬럼**이 들어가면 그 컬럼은 갱신이 안 되거나 뷰 자체가 읽기 전용이 된다. 이때는 두 갈래다.
+
+- **`INSTEAD OF` 트리거**로 뷰에 대한 쓰기를 받아 진짜 테이블로 흘려보낸다(PostgreSQL/Oracle/SQL Server 다 지원).
+- 그것도 부담이면 책의 권고대로 **`Add CRUD Methods`**(저장 프로시저로 접근 캡슐화)를 대신 쓴다.
+
+그리고 당연한 얘기지만, DB가 **뷰에도 테이블과 동등한 권한 부여(GRANT)를 지원**해야 이 모든 게 성립한다. 요즘 RDBMS는 다 되지만, 권한을 테이블에만 걸어둔 레거시 설정이 있으면 뷰 GRANT를 따로 챙겨야 한다.
+</Callout>
+
+또 하나, 뷰가 **공짜는 아니다.** 단순 뷰는 옵티마이저가 인라인으로 펼쳐서(view merging) 성능 손해가 거의 없다. 하지만 뷰 위에 뷰를 쌓고, 그 위에 또 뷰를 쌓는 식으로 파사드가 3겹 4겹 되면 실행계획이 꼬이기 시작한다. 캡슐화는 한 겹이면 충분하다. 뷰로 추상화의 탑을 쌓지 말자.
+
+## 이렇게 한다
+
+핵심 동작은 단순하다. **테이블을 개명하고, 원래 이름으로 뷰를 만든다.** 외부에서 보면 아무 일도 안 일어난 것처럼 보이는 게 포인트다.
+
+<Steps>
+
+<Step title="기존 테이블을 개명한다">
+`Customer`를 `TCustomer`로 바꾼다. (접두사 `T`는 table을 뜻하는 흔한 관례. 뭐가 됐든 일관되게.) 이 순간 외부 앱들은 잠깐 `Customer`를 못 찾게 되므로, **개명과 뷰 생성은 한 트랜잭션/배포 안에서 붙여서** 한다.
+</Step>
+
+<Step title="원래 이름으로 뷰를 만든다">
+이제 `Customer`라는 이름으로 뷰를 만들어 `TCustomer`를 가리키게 한다. 외부 프로그램 입장에선 어제랑 똑같이 `Customer`가 있다.
+</Step>
+
+<Step title="권한을 옮긴다">
+테이블에 걸려 있던 `GRANT`를 뷰로 옮긴다. 외부 앱들이 쓰던 계정이 `Customer`(이제 뷰)에 접근할 수 있어야 한다.
+</Step>
+
+<Step title="(쓰기가 있으면) 갱신 가능성을 확보한다">
+단순 뷰면 그대로 갱신되지만, 계산 컬럼 등이 끼면 `INSTEAD OF` 트리거를 단다.
+</Step>
+
+</Steps>
+
+가장 단순한 형태는 이렇다. 마이그레이션할 데이터도, 고칠 앱 코드도 없다. 그게 이 리팩토링의 매력이다.
+
+```sql
+-- 1) 본체를 숨긴다
+ALTER TABLE Customer RENAME TO TCustomer;
+
+-- 2) 원래 이름으로 간판(뷰)을 세운다
+CREATE VIEW Customer AS
+SELECT * FROM TCustomer;
+
+-- 3) 권한을 뷰로 옮긴다
+GRANT SELECT, INSERT, UPDATE, DELETE ON Customer TO app_role;
+```
+
+외부에서 `SELECT customer_id, first_name FROM Customer` 하던 코드는 글자 하나 안 바꾸고 계속 돈다. 이제 너는 `TCustomer`를 자유롭게 주무를 수 있다.
+
+### 계산 컬럼을 끼워 변경을 흡수하기
+
+아까 은행 시나리오의 `acct_bal`을 보자. 본체에선 이 컬럼을 빼고 싶지만, 외부 앱들은 아직 이걸 읽는다. 뷰가 중간에서 **계산해서 채워주면** 외부는 변화를 못 느낀다.
+
+```sql
+ALTER TABLE Customer RENAME TO TCustomer;
+ALTER TABLE TCustomer DROP COLUMN acct_bal;   -- 본체에선 이미 제거
+
+-- 뷰가 잔액을 Account에서 계산해 메꿔준다
+CREATE VIEW Customer AS
+SELECT
+  c.customer_id,
+  c.first_name,
+  c.last_name,
+  (SELECT COALESCE(SUM(a.balance), 0)
+     FROM Account a
+    WHERE a.customer_id = c.customer_id) AS acct_bal
+FROM TCustomer c;
+```
+
+이러면 외부 앱은 여전히 `Customer.acct_bal`을 읽지만, 값은 실시간 계산이라 항상 맞다. 앱들을 하나씩 `Account`로 옮기는 작업이 끝나면, 그때 뷰에서 `acct_bal` 줄을 지운다.
+
+### 쓰기가 있으면 INSTEAD OF 트리거
+
+뷰에 계산 컬럼이 끼면 그 뷰는 보통 갱신 불가가 된다. 외부 앱이 `Customer`를 `UPDATE`/`INSERT` 한다면 `INSTEAD OF` 트리거로 받아서 본체 `TCustomer`로 흘려보낸다.
+
+<Tabs defaultValue="pg">
+<TabsList>
+<TabsTrigger value="pg">PostgreSQL</TabsTrigger>
+<TabsTrigger value="ora">Oracle</TabsTrigger>
+</TabsList>
+
+<TabsContent value="pg">
+
+```sql
+CREATE OR REPLACE FUNCTION customer_view_update()
+RETURNS trigger AS $$
+BEGIN
+  UPDATE TCustomer
+     SET first_name = NEW.first_name,
+         last_name  = NEW.last_name
+   WHERE customer_id = NEW.customer_id;
+  -- acct_bal은 계산 컬럼이라 무시(쓰지 않음)
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER customer_view_update_trg
+INSTEAD OF UPDATE ON Customer
+FOR EACH ROW EXECUTE FUNCTION customer_view_update();
+```
+
+</TabsContent>
+
+<TabsContent value="ora">
+
+```sql
+CREATE OR REPLACE TRIGGER customer_view_update_trg
+INSTEAD OF UPDATE ON Customer
+FOR EACH ROW
+BEGIN
+  UPDATE TCustomer
+     SET first_name = :NEW.first_name,
+         last_name  = :NEW.last_name
+   WHERE customer_id = :NEW.customer_id;
+  -- acct_bal(계산 컬럼)은 손대지 않음
+END;
+```
+
+</TabsContent>
+</Tabs>
+
+이제 외부 앱은 `UPDATE Customer SET first_name = 'Kim' WHERE ...`를 그대로 날려도, 트리거가 받아서 본체에 적용한다. 외부는 여전히 아무것도 모른다.
+
+### 현대 실무: 이게 사실 expand-contract의 한 수다
+
+2006년 책은 이걸 손코딩 SQL로 설명한다. 골격은 지금도 똑같지만, 요즘 실무에선 이 리팩토링을 **더 큰 안전 패턴의 부품**으로 본다.
+
+**1. 마이그레이션 도구로 버전 박제.** `ALTER TABLE RENAME` + `CREATE VIEW`를 손으로 콘솔에서 때리지 말고, Flyway/Liquibase/Alembic 같은 마이그레이션 스크립트로 박는다. 그래야 "언제, 무슨 순서로, 어느 환경에" 적용됐는지가 버전 관리에 남고, 롤백 스크립트도 짝으로 만들 수 있다.
+
+```sql
+-- V12__encapsulate_customer_with_view.sql  (Flyway)
+ALTER TABLE Customer RENAME TO TCustomer;
+CREATE VIEW Customer AS SELECT * FROM TCustomer;
+GRANT SELECT, INSERT, UPDATE, DELETE ON Customer TO app_role;
+```
+
+**2. 이게 곧 expand-contract(parallel change)다.** 뷰로 감싸 외부 인터페이스를 고정해두는 것 = "안정적인 표면 뒤에서 내부를 바꾼다"는 expand-contract의 핵심 그 자체다.
+
+<Steps>
+
+<Step title="Expand (확장)">
+뷰를 세워 외부가 기댈 안정적 표면을 만든다. 본체 테이블은 이제 자유.
+</Step>
+
+<Step title="Migrate (이전)">
+뷰가 옛 모양을 유지하는 동안, 외부 소비자들을 하나씩 새 구조로 옮긴다. 컬럼이 옮겨갔으면 뷰가 옛 컬럼을 계산/조인으로 메꿔준다.
+</Step>
+
+<Step title="Contract (수축)">
+모든 소비자가 옮겨간 게 확인되면, 뷰에서 옛 컬럼/호환 레이어를 걷어낸다. 다 끝나면 뷰 자체를 걷거나 진짜 모양으로 정리.
+</Step>
+
+</Steps>
+
+**3. RENAME은 짧지만 메타데이터 락이 있다.** `ALTER TABLE ... RENAME`은 데이터를 복사하지 않아서 보통 순식간이지만, 그 순간 DDL 락이 잡힌다. 트래픽이 빡센 테이블이면, 큰 스키마 변경은 gh-ost나 pt-osc(MySQL) 같은 온라인 스키마 변경 도구로 무중단 처리하고, 인터페이스 고정은 뷰로 받치는 식으로 역할을 나눈다. PostgreSQL이라면 컬럼 추가 흡수는 `GENERATED` 컬럼이나 뷰의 계산식으로 대체할 수 있어서, 뷰는 "읽기 호환 레이어" 역할에 집중시키는 게 깔끔하다.
+
+**4. 마이크로서비스 경계에서.** 한 DB를 여러 서비스가 공유하던 시절, 어느 서비스가 소유한 테이블을 다른 서비스가 직접 물고 있으면 떼어내기가 지옥이다. 그 테이블을 뷰로 감싸 "공개 계약(published contract)"으로 못 박아두면, 소유 서비스는 뒤에서 스키마를 자유롭게 진화시키고 외부 서비스는 뷰라는 계약만 본다. 결합을 끊는다는 책의 동기가 서비스 경계에서 그대로 반복된다.
+
+<Callout type="success" title="가장 큰 이점은 따로 있다">
+이 리팩토링의 진짜 가치는 "뷰를 만든다"가 아니라, **위험한 변경을 시간 위에 펼쳐서 작게 쪼갤 수 있게 된다**는 점이다. `Drop Column` 한 방의 빅뱅이, "뷰 세우기 → 앱 하나씩 이전 → 뷰에서 컬럼 빼기"라는 되돌리기 쉬운 작은 걸음들로 분해된다. 데이터베이스 리팩토링이 무서운 이유의 절반은 "한 번 때리면 끝, 롤백 어려움"인데, 파사드는 바로 그 빅뱅을 해체한다.
+</Callout>
+
+## 정리
+
+뷰로 테이블 캡슐화는, 정작 뷰 자체가 목적인 경우는 드물다. 거의 항상 **다음에 올 진짜 리팩토링을 위한 발판**이다.
+
+> **테이블을 직접 물게 두는 한, 그 테이블은 영원히 못 바꾼다. 뷰라는 간판을 끼우는 순간, 뒤에서 본체를 주무를 자유가 생긴다.**
+
+핵심은 세 줄이다. 테이블을 개명하고(`TCustomer`), 원래 이름으로 뷰를 만들고(`Customer`), 권한을 옮긴다. 외부 앱은 아무것도 모른다. 쓰기가 있으면 `INSTEAD OF` 트리거나 `Add CRUD Methods`로 갱신 가능성을 확보하고, 변경은 expand-contract로 시간 위에 펼쳐서 되돌리기 쉬운 작은 걸음으로 만든다.
+
+결합을 끊고 싶을 때, 그리고 곧 위험한 변경을 할 작정일 때 — 그게 이 파사드를 깔 시점이다.

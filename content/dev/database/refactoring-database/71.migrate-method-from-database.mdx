@@ -1,0 +1,233 @@
+---
+title: "Migrate Method From Database: DB에서 메서드 이전"
+subtitle: "저장 프로시저를 앱으로 끌어올린다 — 앱마다 로직이 달라졌다면"
+description: "저장 프로시저·함수·트리거를 애플리케이션 계층으로 옮기는 아키텍처 리팩토링. 동기(가변성·이식성·확장성·유지보수)와 트레이드오프(재사용성·전송 성능), 그리고 expand-contract 기반 전환 기간으로 안전하게 옮기는 절차를 현대 서비스 계층 관점에서 정리한다."
+order: 71
+tags: ["database", "architecture", "stored-procedure", "business-logic"]
+---
+
+## 이게 뭔데
+
+`Migrate Method From Database`는 한 문장으로 끝난다. **DB 안에 살던 로직(저장 프로시저·함수·트리거)을 그걸 호출하던 앱 쪽으로 끌어올리는 것**이다. 책 용어로는 재배치(Rehost)다.
+
+비유를 하나 들자. 회사 공용 탕비실에 "전설의 라면 끓이는 기계"가 한 대 있다고 치자. 처음엔 다들 만족했다. 버튼 한 번이면 똑같은 라면이 나오니까. 근데 시간이 지나면서 개발팀은 좀 맵게, 디자인팀은 계란 추가, 영업팀은 면 적게를 원하기 시작한다. 그런데 기계는 한 대고, 레시피는 펌웨어에 박혀 있다. 누가 레시피를 손대면 전 부서 라면이 동시에 바뀐다. 결국 팀마다 "내 입맛대로 끓이게 재료만 달라"고 외치게 된다. 그 순간이 바로 기계를 해체하고 **레시피를 각 팀 주방으로 가져가는** 타이밍이다. DB에서 메서드를 빼내는 게 정확히 이거다.
+
+<Callout type="info" title="한 줄 요약">
+DB 프로시저는 "모두에게 똑같은 정답"을 줄 때 강력하다. 그런데 앱마다 정답이 달라지기 시작하면, 그 공유야말로 족쇄가 된다. 이럴 때 로직을 앱(서비스 계층)으로 끌어올린다.
+</Callout>
+
+방향이 정반대인 형제 리팩토링도 있다는 것만 짚어두자. 앱에 흩어진 로직을 DB로 내려보내는 `Migrate Method To Database`. 둘은 같은 저울의 양쪽이고, 어느 쪽이 옳다기보다 **지금 이 로직이 "공유돼야 하는가, 갈라져야 하는가"**로 갈린다.
+
+## 언제 쓰나
+
+이 리팩토링을 부르는 냄새는 대체로 이렇다.
+
+**가변성(Variability) — 앱마다 로직이 달라졌다.** 처음엔 `CalculateLateFee`라는 프로시저 하나로 모든 채널이 연체료를 계산했다. 그런데 모바일 앱은 첫 연체 1회 면제 프로모션을 붙이고, 내부 관리 콘솔은 VIP 등급별로 감면율이 다르고, 해외 지점은 환율과 현지 규정까지 얹는다. 프로시저 하나에 `IF channel = 'MOBILE' THEN ... ELSIF ...`가 줄줄이 늘어나기 시작한다. 이건 공유 로직이 아니라 **공유라는 이름의 충돌 지점**이 된 거다.
+
+**이식성(Portability) — DB를 옮기고 싶다.** 로직이 DB 안에 박혀 있으면 그 DB는 못 갈아탄다. Oracle PL/SQL로 짠 5,000줄짜리 패키지가 있는 한, "PostgreSQL로 이관하자"는 회의는 매번 그 한마디에 끝난다. 로직을 앱(또는 공유 컴포넌트·웹 서비스)으로 빼두면 DB는 데이터 보관에만 집중하게 되고, 이전이 훨씬 수월해진다.
+
+**확장성(Scalability) — 부하를 옆으로 늘리고 싶다.** DB는 보통 수직 확장(더 큰 장비)이고, 함부로 여러 대로 쪼개기 어렵다. 반면 애플리케이션 서버는 옆으로 한 대 더 붙이면 그만이다. 무거운 계산을 앱 계층으로 옮기면 비싼 DB 자원을 아끼고, 트래픽이 늘 때 싼 앱 인스턴스로 흡수할 수 있다.
+
+**유지보수성(Maintainability).** 솔직히 말하자. SQL 방언으로 짠 비즈니스 로직은 디버깅·테스트·버전관리가 다 불편하다. 단위 테스트 붙이기 어렵고, 코드 리뷰 도구도 빈약하고, IDE 지원도 약하다. Java/C#/TypeScript 쪽 도구 생태계가 압도적으로 좋다. 게다가 팀이 "앱 언어 하나"로 단일화되면 인력 요건도 단순해진다. "이거 PL/SQL 만질 줄 아는 사람?" 하고 슬랙에 묻는 일이 사라진다.
+
+### 시나리오: 이런 적 있을 거임
+
+은행 시스템에 `GetCustomerStatus`라는 저장 프로시저가 있다. `Customer`, `Account`, `Balance`, `Policy`를 조인해서 "이 고객이 우량인지 연체 위험인지" 등급을 매긴다. 도입할 땐 완벽했다. 모든 채널이 같은 등급 기준을 쓰니 일관됐으니까.
+
+그런데 1년 뒤 풍경이 이렇게 변한다. 신용카드팀이 와서 "우리는 보험(Insurance) 가입 여부도 등급에 반영해야 해요"라고 한다. 너는 프로시저에 `IF p_channel = 'CARD'` 분기를 하나 더 판다. 다음 달엔 대출팀이 "우리는 최근 6개월 거래만 봐야 한다"고 한다. 또 분기를 판다. 어느새 이 프로시저는 600줄이 됐고, 어느 채널이 어느 분기를 타는지 아무도 모른다. 누가 카드팀 로직을 고치다 대출팀 등급을 깨뜨리고, 장애 회의에서 "왜 한 프로시저에 전 채널 로직이 다 들어있냐"는 질문이 나온다.
+
+여기서 깨닫는다. 이건 **공유돼야 할 로직이 아니었다.** 채널마다 등급 기준이 갈라진 순간, 강제 공유는 버그 공장이 된다. 답은 명확하다. 등급 계산 로직을 각 서비스(채널)의 앱 계층으로 끌어올려서, **각자 자기 규칙을 자기 코드에서 책임지게** 하는 거다.
+
+## 주의할 점
+
+좋은 일만 있으면 그게 리팩토링이겠나. 옮기면 잃는 것도 있다.
+
+<Callout type="warning" title="옮기기 전에 따져볼 트레이드오프">
+- **재사용성(Reusability) 하락.** DB는 최소공통분모(Lowest Common Denominator) 기술이다. 어떤 언어·어떤 앱이든 커넥션만 맺으면 그 프로시저를 호출할 수 있다. 로직을 특정 앱 언어로 끌어올리는 순간, 다른 기술 스택의 앱·배치·리포트 도구는 그 로직을 못 쓰게 된다. 진짜로 여러 이질적 시스템이 같은 로직을 공유 중이라면, 옮기기 전에 다시 생각하라.
+- **전송 성능 저하 가능.** 프로시저의 강점 하나는 "데이터 근처에서 계산"이다. 수백만 행을 훑어 합계 하나를 내는 로직을 앱으로 끌어올리면, 그 수백만 행을 네트워크로 전부 끌어와야 한다. 결과만 받던 게 원본 전체를 받는 걸로 바뀌면 오히려 느려진다. **계산 입력이 큰데 출력이 작은 로직은 DB에 두는 게 맞을 수 있다.**
+</Callout>
+
+그래서 판단 기준은 단순하게 정리된다. **"로직이 갈라지고 있는가"**와 **"입출력 데이터 양의 비율"** 두 가지를 본다. 로직이 앱마다 달라지고 있고, 가공할 데이터를 앱으로 끌어와도 부담이 작다면 옮긴다. 반대로 모두가 똑같은 답을 원하고, 대량 집계가 핵심이라면 DB에 그냥 두는 게 낫다.
+
+## 이렇게 한다
+
+핵심부터 말하면 이 리팩토링은 **스키마 변경이 거의 없다.** 새 테이블을 만들 일도, 데이터를 옮길 일도 없다. 진짜 일은 두 군데다. (1) DB 메서드를 안전하게 폐기하는 것, (2) 그 로직을 앱 코드로 옮기는 것. 그리고 그 사이를 **전환 기간(Transition Period)**으로 잇는다.
+
+여기서 현대 실무의 핵심 도구가 들어온다. 바로 **expand-contract(parallel change)** 패턴이다. 옛것과 새것을 한동안 **공존**시키고, 트래픽을 천천히 새것으로 넘긴 뒤, 확신이 서면 옛것을 지운다. 한 번에 "프로시저 DROP하고 앱 코드로 교체!"를 배포하는 게 가장 위험하다. 롤백이 어렵고, 한 군데라도 호출부를 놓치면 바로 장애다.
+
+<Steps>
+
+<Step title="옮길 메서드와 모든 호출부를 찾는다">
+먼저 대상 프로시저(`GetCustomerStatus`)를 호출하는 곳을 **전부** 찾는다. 앱 서비스 코드, 배치 잡, 리포트 쿼리, 다른 프로시저 안에서의 호출까지. 여기서 하나라도 놓치면 나중에 DROP할 때 터진다. 코드 검색(`grep -r "GetCustomerStatus"`), DB의 의존성 뷰(`ALL_DEPENDENCIES` 같은), APM의 실제 호출 통계를 교차로 확인하라. "코드엔 없는데 운영에선 호출되는" 유령 호출자가 제일 무섭다.
+</Step>
+
+<Step title="로직을 앱의 서비스 계층으로 옮긴다">
+프로시저의 SQL을 앱 코드로 재구성한다. 단순 복붙이 아니라, **비즈니스 로직은 서비스 계층으로, 데이터 접근은 리포지토리로** 분리하는 게 핵심이다. 프로시저 안에 뭉쳐 있던 "조회 + 계산 + 분기"를 풀어서, 조회는 리포지토리가, 등급 판정 규칙은 서비스가 맡게 한다. 이래야 채널마다 다른 규칙을 각자 서비스에서 갈라 쓸 수 있다(애초에 이게 목적이었다).
+</Step>
+
+<Step title="전환 기간 동안 둘을 공존시킨다">
+프로시저를 바로 지우지 않는다. 새 앱 로직을 배포하되, 일부 트래픽만(또는 일부 채널만) 새 경로로 보내고 나머지는 기존 프로시저를 계속 탄다. 두 결과를 **비교 로깅(shadow comparison)**해서 새 로직이 기존과 같은 등급을 내는지 검증한다. 같다는 확신이 충분히 쌓이면 트래픽을 100% 새 경로로 넘긴다.
+</Step>
+
+<Step title="메서드를 폐기 예정으로 표시한다">
+프로시저는 아직 지우지 말고 "폐기 예정(drop date)"으로 못박는다. 주석으로 `-- DEPRECATED: 2026-09-01 폐기 예정. 호출 시 알림` 같은 표식을 남기고, 가능하면 호출되면 경고 로그를 남기게 해서 **남은 유령 호출자**를 색출한다. 전환 기간은 모든 호출자가 안전하게 넘어올 시간을 주는 완충 구간이다.
+</Step>
+
+<Step title="기간이 끝나면 물리적으로 제거한다">
+drop date까지 아무도 호출하지 않는 게 확인되면 `DROP PROCEDURE`로 실제 삭제한다. 이 삭제 자체도 마이그레이션 도구(Flyway/Liquibase/Alembic)의 버전 스크립트로 관리해서, 언제·왜 지웠는지 이력에 남긴다.
+</Step>
+
+</Steps>
+
+### Before: DB 안에 박힌 로직
+
+은행 도메인으로 보자. 등급 판정이 프로시저 한 덩어리에 들어 있고, 채널 분기가 안에서 번식하는 모습이다.
+
+```sql
+-- Before: 모든 채널이 이 프로시저 하나를 공유. 채널 분기가 안에서 증식 중.
+CREATE OR REPLACE PROCEDURE GetCustomerStatus(
+  p_customer_id IN  NUMBER,
+  p_channel     IN  VARCHAR2,
+  o_status      OUT VARCHAR2
+) AS
+  v_total_balance NUMBER;
+  v_has_insurance NUMBER;
+BEGIN
+  SELECT SUM(b.amount) INTO v_total_balance
+  FROM Account a
+  JOIN Balance b ON b.account_id = a.account_id
+  WHERE a.customer_id = p_customer_id;
+
+  -- 카드팀만 보험 가입 여부를 반영 (나중에 추가된 분기)
+  IF p_channel = 'CARD' THEN
+    SELECT COUNT(*) INTO v_has_insurance
+    FROM Insurance i WHERE i.customer_id = p_customer_id;
+  END IF;
+
+  -- 등급 기준도 채널마다 갈라지기 시작 (여기가 점점 길어진다)
+  IF p_channel = 'CARD' AND v_has_insurance > 0 THEN
+    o_status := 'PRIME';
+  ELSIF v_total_balance > 100000 THEN
+    o_status := 'PRIME';
+  ELSIF v_total_balance < 0 THEN
+    o_status := 'AT_RISK';
+  ELSE
+    o_status := 'STANDARD';
+  END IF;
+END;
+```
+
+앱은 그냥 이걸 호출만 한다.
+
+```typescript
+// Before: 로직은 DB에 있고, 앱은 호출만. 채널 규칙을 바꾸려면 프로시저를 건드려야 한다.
+async function getCustomerStatus(customerId: number, channel: string): Promise<string> {
+  const result = await db.query(
+    'BEGIN GetCustomerStatus(:id, :channel, :status); END;',
+    { id: customerId, channel, status: { dir: 'out' } },
+  );
+  return result.outBinds.status;
+}
+```
+
+### After: 서비스 계층으로 끌어올림
+
+로직을 앱으로 옮기되, **데이터 접근(리포지토리)과 판정 규칙(서비스)을 분리**한다. 그래야 채널마다 다른 규칙을 깔끔히 갈라 쓸 수 있다.
+
+```typescript
+// After 1) 리포지토리 — 데이터 조회만 책임진다. SQL은 여기 한 곳에.
+class CustomerRepository {
+  async getTotalBalance(customerId: number): Promise<number> {
+    const rows = await db.query(
+      `SELECT COALESCE(SUM(b.amount), 0) AS total
+       FROM Account a
+       JOIN Balance b ON b.account_id = a.account_id
+       WHERE a.customer_id = $1`,
+      [customerId],
+    );
+    return rows[0].total;
+  }
+
+  async hasInsurance(customerId: number): Promise<boolean> {
+    const rows = await db.query(
+      'SELECT 1 FROM Insurance WHERE customer_id = $1 LIMIT 1',
+      [customerId],
+    );
+    return rows.length > 0;
+  }
+}
+```
+
+```typescript
+// After 2) 서비스 — 판정 규칙을 채널별로 갈라 쓴다. 더 이상 한 프로시저에 뭉치지 않는다.
+type CustomerStatus = 'PRIME' | 'STANDARD' | 'AT_RISK';
+
+// 기본(공통) 등급 규칙
+function baseStatus(totalBalance: number): CustomerStatus {
+  if (totalBalance > 100000) return 'PRIME';
+  if (totalBalance < 0) return 'AT_RISK';
+  return 'STANDARD';
+}
+
+// 카드 채널 서비스 — 자기 규칙은 자기가 책임진다
+class CardCustomerService {
+  constructor(private readonly repo: CustomerRepository) {}
+
+  async getStatus(customerId: number): Promise<CustomerStatus> {
+    const balance = await this.repo.getTotalBalance(customerId);
+    // 카드팀 고유 규칙: 보험 가입 우량 고객은 PRIME
+    if (await this.repo.hasInsurance(customerId)) return 'PRIME';
+    return baseStatus(balance);
+  }
+}
+
+// 대출 채널 서비스 — 같은 데이터, 다른 규칙. 카드팀을 깨뜨릴 일이 없다.
+class LoanCustomerService {
+  constructor(private readonly repo: CustomerRepository) {}
+
+  async getStatus(customerId: number): Promise<CustomerStatus> {
+    const balance = await this.repo.getTotalBalance(customerId);
+    return baseStatus(balance); // 대출팀은 보험을 안 본다
+  }
+}
+```
+
+보이는가. 카드팀 규칙을 바꿔도 대출팀 코드는 한 글자도 안 건드린다. 프로시저 안에서 `IF channel` 분기가 서로 충돌하던 문제가, 별개의 서비스 클래스로 물리적으로 갈라지면서 사라진다. 이게 가변성을 위해 메서드를 끌어올리는 진짜 이득이다.
+
+### 전환 기간: shadow comparison
+
+Before에서 After로 한 방에 갈아엎지 말라고 했다. 전환 기간엔 둘을 **동시에 돌려 결과를 비교**한다. 신뢰가 쌓이면 그때 프로시저를 폐기한다.
+
+```typescript
+// 전환 기간: 새 경로를 정답으로 쓰되, 기존 프로시저 결과와 비교 로깅한다.
+async function getStatusDuringTransition(customerId: number, channel: string) {
+  const fresh = await cardCustomerService.getStatus(customerId); // 새 로직
+  const legacy = await getCustomerStatusViaProc(customerId, channel); // 기존 프로시저
+
+  if (fresh !== legacy) {
+    // 불일치는 곧 새 로직의 버그이거나, 기존 로직의 숨은 분기다. 둘 다 알아야 한다.
+    logger.warn('status mismatch', { customerId, channel, fresh, legacy });
+  }
+  return fresh; // 사용자에겐 새 결과를 반환
+}
+```
+
+불일치 로그가 충분히 오래 0에 수렴하면, 새 로직이 기존을 정확히 대체했다는 증거다. 그때 프로시저에 drop date를 박고 폐기 절차로 넘어간다.
+
+### 트리거를 옮길 땐 한 단계 더
+
+옮기려는 게 프로시저가 아니라 **트리거**라면 주의할 점이 하나 더 있다. 트리거는 "DB가 데이터 변경 시 자동으로" 실행되므로, 앱으로 끌어올리면 **"앱이 빠뜨리면 그냥 안 도는"** 로직이 된다. 어느 한 앱이라도 트리거가 하던 처리를 까먹으면 데이터 정합성이 깨진다. 이럴 땐 로직을 앱에 흩뿌리는 대신, **변경 이벤트를 한 곳에서 잡는** 현대적 대안을 고려하라. CDC(Debezium 등)로 DB 변경 로그를 구독하거나, outbox 패턴으로 "데이터 변경 + 이벤트 발행"을 한 트랜잭션에 묶는 식이다. 트리거가 하던 "변경에 반응하는" 일을, DB 밖에서도 누락 없이 받게 만드는 거다.
+
+<Callout type="note" title="마이크로서비스라면 이건 사실 데이터 소유권 문제다">
+여러 서비스가 한 프로시저를 공유한다는 건, 곧 여러 서비스가 같은 비즈니스 로직과 데이터를 공유한다는 뜻이다. 마이크로서비스 관점에선 이게 경계 위반이다. 이 리팩토링은 자연스럽게 "이 등급 판정 로직과 데이터는 누구 소유인가"를 다시 묻게 만든다. 옮기는 김에, 그 로직을 명확한 한 서비스의 소유로 정하고 나머지는 그 서비스의 API를 통해 쓰게 만들면 — 단순한 코드 이전이 아니라 경계 정리가 된다.
+</Callout>
+
+## 정리
+
+`Migrate Method From Database`는 "DB 프로시저를 앱으로 끌어올린다"는 단순한 동작이지만, 그 밑엔 묵직한 판단이 깔려 있다.
+
+> **공유돼야 할 로직인가, 갈라져야 할 로직인가.**
+
+DB 프로시저의 미덕은 "모두에게 똑같은 답"이다. 그런데 앱마다 답이 달라지기 시작하면, 그 공유는 미덕에서 족쇄로 바뀐다. 그 신호가 보이면 — 한 프로시저에 `IF channel` 분기가 번식하고, DB를 못 갈아타고, 무거운 계산이 DB를 잡아먹고 있다면 — 로직을 서비스 계층으로 끌어올릴 때다.
+
+대신 잃는 것도 기억하자. 재사용성(이젠 그 언어의 앱만 쓴다)과, 입력 데이터가 클 때의 전송 비용. 그래서 옮기는 방식이 중요하다. 한 방에 DROP하지 말고, **expand-contract로 공존시키고, shadow comparison으로 검증하고, drop date를 박아 천천히 폐기**한다. 스키마는 거의 안 바뀌지만, 안전하게 옮기는 절차가 이 리팩토링의 진짜 본체다.

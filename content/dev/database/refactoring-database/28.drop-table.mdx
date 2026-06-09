@@ -1,0 +1,238 @@
+---
+title: "Drop Table: 테이블 삭제"
+subtitle: "대체됐거나 더 이상 필요 없는 테이블을 치운다"
+description: "더 이상 쓰이지 않거나 다른 테이블로 대체된 테이블을 안전하게 제거하는 구조 리팩토링. FK 무결성을 먼저 정리하고, 곧바로 DROP하는 대신 이름을 바꿔 아카이브한 뒤 관찰 기간을 두고 떨어뜨리는 soft-deprecate 전략을 현대 도구와 함께 다룬다."
+order: 28
+tags: ["database", "structural-refactoring", "drop-table", "schema"]
+---
+
+## 이게 뭔데
+
+`Drop Table`은 말 그대로 **테이블 하나를 데이터베이스에서 치우는 일**이다. 정의는 이게 끝이다. `DROP TABLE Customer;` 한 줄. 초등학생도 칠 수 있다.
+
+근데 이 한 줄이 무서운 거다. 비유를 하나 들어보자. 회사 창고에 박스가 하나 있다. 라벨엔 "2019 회계자료(폐기예정)"이라고 적혀 있고, 3년째 아무도 안 건드렸다. 치우고 싶다. 그런데 그 박스를 들어내는 순간 알게 된다 — **그 위에 다른 박스 다섯 개가 쌓여 있었다는 걸.** 밑에 깔린 박스를 그냥 빼면 위에 있던 게 와르르 쏟아진다.
+
+테이블도 똑같다. `Customer` 테이블엔 `Account`가 FK로 매달려 있고, `Policy`도 매달려 있고, 어딘가의 리포트 쿼리가 `FROM Customer`로 참조하고 있다. 그래서 `Drop Table`은 "지우는 기술"이 아니라 **"안전하게 떼어내는 기술"**이다. 무엇이 이 테이블에 매달려 있는지 다 떼어낸 다음, 마지막에 떨어뜨린다.
+
+<Callout type="info" title="한 줄 요약">
+Drop Table의 90%는 DROP 문이 아니라, 그 테이블에 매달린 FK 제약과 참조 코드를 먼저 정리하는 일이다. DROP은 마지막 1줄일 뿐이다.
+</Callout>
+
+## 언제 쓰나
+
+책의 동기는 단순하다. **테이블이 다른 테이블이나 뷰로 대체됐거나, 그냥 더 이상 필요 없을 때.** 현실에서 마주치는 냄새는 보통 이렇다.
+
+- **정규화/통합의 잔해.** `Customer`를 `Customer` + `CustomerAddress`로 쪼갰는데, 옛날 `CustomerLegacy` 테이블이 데이터를 다 옮긴 채로 빈 껍데기처럼 남아 있다. 이미 새 테이블에 같은 데이터가 다 있다.
+- **죽은 기능의 무덤.** 2년 전에 접은 "포인트 적립 이벤트" 기능이 쓰던 `EventPointLog` 테이블. 기능은 죽었는데 테이블은 좀비처럼 살아 있다.
+- **임시 테이블의 영생.** 일회성 마이그레이션 때 만든 `Account_tmp`, `Account_backup_20231101`. "나중에 지워야지" 하고 1년이 지났다.
+- **마이크로서비스 분리의 흔적.** 결제 도메인을 별도 서비스로 떼어내면서 데이터 소유권이 넘어갔는데, 모노리스 DB에 옛 `Payment` 테이블이 그대로 남아 동기화 지옥을 만들고 있다.
+
+공통점은 하나다. **"이거 아직 쓰나?"라는 질문에 아무도 자신 있게 "아니"라고 답하지 못한다는 것.** 이 불확실성이 Drop Table을 위험하게 만드는 진짜 이유다. 테이블을 지우는 기술적 난이도는 0인데, **그게 진짜 안 쓰인다는 걸 증명하는 게** 어렵다.
+
+### 시나리오: 이런 적 있을 거임
+
+은행 시스템을 운영한다고 치자. 작년에 보험 상품 관리를 리뉴얼하면서 `Insurance` 테이블의 데이터를 새로 만든 `Policy` 테이블로 다 옮겼다. 코드도 다 `Policy`를 보도록 고쳤다. `Insurance`는 이제 아무도 안 쓴다... **아마도.**
+
+어느 날 디스크 정리하다가 `Insurance` 테이블이 눈에 띈다. "아 이거 작년에 옮긴 거잖아. 이제 안 쓰는데 왜 아직 있어?" 호기롭게 친다.
+
+```sql
+DROP TABLE Insurance;
+```
+
+성공. 깔끔하다. 디스크도 좀 비었다. 뿌듯하게 퇴근한다.
+
+그리고 **월말이 된다.** 회계팀이 돌리는 월말 정산 배치가 죽는다. 알고 보니 그 배치는 1년에 12번, 월말에만 도는데, 옛날 그대로 `Insurance` 테이블을 직접 읽고 있었다. 평소엔 안 돌아서 아무도 몰랐던 거다. 슬랙에 불이 나고, 백업에서 `Insurance` 테이블만 복원하느라 새벽까지 깨어 있게 된다. `git blame`은... 굳이 안 봐도 안다.
+
+문제는 `DROP TABLE`이 너무 빠르고 너무 조용하다는 거다. **틀렸을 때 알려주질 않는다.** 컴파일 에러도, 경고도 없다. 그냥 어디선가 한 달 뒤에 조용히 터진다.
+
+## 주의할 점
+
+<Callout type="warning" title="DROP은 되돌릴 수 없다 (사실상)">
+`DROP TABLE`은 데이터를 통째로 날린다. 트랜잭션으로 감싸도 일부 DB(MySQL의 DDL)는 암묵적 커밋이라 롤백이 안 된다. PostgreSQL은 트랜잭션 안의 DROP을 롤백할 수 있지만, 이미 커밋된 DROP은 백업 복원 외엔 방법이 없다. 그래서 Drop Table의 진짜 안전장치는 "DROP을 늦추는 것"이다.
+</Callout>
+
+책이 짚는 트레이드오프는 두 가지다.
+
+**첫째, 데이터가 사라진다.** 당연한 소리 같지만 핵심이다. 그 테이블에 아직 누군가에게 가치 있는 데이터가 들어 있을 수 있다. 일부만이라도 보존이 필요한지 먼저 따져야 한다. 정규화 과정에서 데이터가 **이미 다른 테이블에 존재**한다면 이야기가 쉬워진다 — 원본 테이블 대신 뷰나 쿼리로 같은 모양을 만들어줄 수 있다. 다만 그 경우 **읽기는 되지만 쓰기는 안 된다.** 뷰에 INSERT하던 코드가 있었다면 거기서 깨진다.
+
+**둘째, 매달린 것들이 같이 깨진다.** 다른 테이블의 FK 제약이 이 테이블을 가리키고 있으면 DROP 자체가 막히거나(RESTRICT), 강제로 밀면(CASCADE) 연쇄적으로 다른 데이터·제약까지 같이 날아간다. CASCADE는 편해 보이지만 **무엇이 같이 날아가는지 모르는 채로 쓰면 재앙**이다.
+
+## 이렇게 한다
+
+책의 핵심 통찰은 이거다. **곧바로 DROP하지 마라. 먼저 이름을 바꿔라.**
+
+`DROP TABLE Insurance` 대신 `RENAME TABLE Insurance TO InsuranceRemoved`를 한다. 데이터는 그대로 남아 있지만, 이제 그 이름으로는 아무도 못 읽는다. 만약 어딘가에서 `Insurance`를 쓰고 있었다면 **즉시 "테이블 없음" 에러로 터진다.** 한 달 뒤가 아니라 지금. 그리고 진짜로 아무것도 안 터지면, 며칠~몇 주 관찰한 뒤 `InsuranceRemoved`를 실제로 떨어뜨린다.
+
+이게 현대 실무에서 말하는 **soft-deprecate**다. "지운다"를 "안 보이게 한다 → 관찰한다 → 진짜 지운다" 세 박자로 쪼개는 것. expand-contract 패턴에서 마지막 contract 단계가 정확히 이 모양이다. 순서로 보면 이렇다.
+
+<Steps>
+<Step title="의존성 전수조사 (지우기 전에 떼어낼 것 찾기)">
+이 테이블을 누가 참조하는지 다 찾는다. (1) 다른 테이블의 FK 제약, (2) 이 테이블을 참조하는 뷰·트리거·저장 프로시저, (3) 애플리케이션 코드의 쿼리. 코드는 grep으로, DB 메타데이터는 카탈로그 쿼리로 훑는다.
+</Step>
+<Step title="FK 무결성 정리 (데이터 무결성 먼저)">
+이 테이블을 가리키는 FK 제약을 제거하거나, 살아남는 다른 테이블로 재지정한다. 이게 안 되면 DROP은 시작도 못 한다.
+</Step>
+<Step title="아카이브 + 이름 변경 (RENAME ...Removed)">
+필요하면 데이터를 백업 테이블로 복사하고, 원본은 `...Removed`로 이름을 바꿔 보이지 않게 한다. 데이터는 아직 살아 있다.
+</Step>
+<Step title="관찰 기간 (전환 기간)">
+며칠~몇 주. 정기 배치(월말 정산 같은 것)가 한 바퀴 돌 만큼 충분히 기다린다. 모니터링·에러 로그를 본다. 안 터지면 진짜 안 쓰는 거다.
+</Step>
+<Step title="실제 DROP">
+관찰 기간 동안 조용했으면 `DROP TABLE ...Removed`로 마무리한다. 여기서야 비로소 데이터가 사라진다.
+</Step>
+</Steps>
+
+### 1. 의존성 전수조사
+
+지우기 전에, 무엇이 매달려 있는지부터 본다. 카탈로그로 FK를 찾는다.
+
+```sql
+-- PostgreSQL: Insurance를 참조하는 FK 제약 찾기
+SELECT
+  tc.table_name      AS child_table,
+  tc.constraint_name,
+  kcu.column_name    AS child_column
+FROM information_schema.table_constraints tc
+JOIN information_schema.constraint_column_usage ccu
+  ON tc.constraint_name = ccu.constraint_name
+JOIN information_schema.key_column_usage kcu
+  ON tc.constraint_name = kcu.constraint_name
+WHERE tc.constraint_type = 'FOREIGN KEY'
+  AND ccu.table_name = 'insurance';
+```
+
+코드 쪽은 단순하게 grep으로 훑는다. 테이블명을 직접 박은 raw SQL, ORM 엔티티, 마이그레이션 파일까지.
+
+```text
+$ grep -rin "insurance" --include=*.ts --include=*.sql ./src
+src/batch/monthly-settlement.ts:42:  const rows = await db.query('SELECT * FROM Insurance ...')
+```
+
+이 grep 한 방이 위 시나리오의 월말 배치 사고를 미리 잡아줬을 거다. **지우기 전에 한 번만 훑었어도.**
+
+### 2. FK 무결성부터 정리
+
+`Account`가 `Insurance`를 FK로 참조한다고 하자. 이 제약이 살아 있는 한 `Insurance`는 못 지운다. 제약을 먼저 떼어낸다.
+
+```sql
+-- Before: Account.insurance_id 가 Insurance(id) 를 가리킴
+-- 이 상태로 DROP TABLE Insurance 하면 막힌다 (RESTRICT)
+
+-- After: 의존하는 FK 제약을 먼저 제거
+ALTER TABLE Account DROP CONSTRAINT fk_account_insurance;
+```
+
+`CASCADE`로 한 방에 밀어버리고 싶은 유혹이 들 거다. 참아라.
+
+<Callout type="error" title="DROP TABLE ... CASCADE 의 함정">
+`DROP TABLE Insurance CASCADE;` 는 Insurance를 가리키는 FK 제약을 **알아서 다 떼어내고** 지운다. 편해 보이지만, 무엇이 같이 떨어져 나가는지 화면에 안 보인다. 어떤 테이블의 어떤 제약이 사라졌는지 모른 채 운영에 나가면, 나중에 무결성이 조용히 깨진 걸 발견하게 된다. CASCADE는 "내가 떨어질 것 목록을 이미 다 안다"는 확신이 있을 때만 쓴다. 그게 아니면 위처럼 명시적으로 하나씩 떼라 — 코드 리뷰에서 보이고, 마이그레이션 기록에 남는다.
+</Callout>
+
+### 3. 아카이브 + 이름 변경
+
+데이터를 살려둬야 한다면 별도 테이블로 복사부터 한다.
+
+```sql
+-- 아카이브: 원본을 통째로 백업 테이블에 보존
+CREATE TABLE InsuranceRemoved AS SELECT * FROM Insurance;
+```
+
+`CREATE TABLE ... AS SELECT`는 데이터만 복사하고 인덱스·제약은 안 가져온다. 어차피 아카이브용이니 보통은 충분하다. 그런 다음 원본은 RENAME으로 "안 보이게" 한다.
+
+```sql
+-- 곧바로 DROP하는 대신, 이름을 바꿔 사용처를 즉시 노출시킨다
+ALTER TABLE Insurance RENAME TO InsuranceDeprecated;
+```
+
+이제 어딘가 살아남은 `SELECT ... FROM Insurance`가 있다면 **그 순간 터진다.** 한 달 뒤 월말이 아니라 배포 직후에. 이게 RENAME의 핵심 가치다 — 실패를 **지금으로 당겨오는 것.** 그리고 데이터는 `InsuranceDeprecated`에 멀쩡히 살아 있으니, 뭔가 터지면 `RENAME ... TO Insurance`로 1초 만에 되돌린다.
+
+### 4. 마이그레이션 도구로 절차화하기
+
+2006년 책은 이 단계들을 번호 매긴 SQL 스크립트로 손코딩한다. 현대엔 Flyway·Liquibase·Alembic 같은 마이그레이션 도구가 이 순서와 롤백을 관리한다. soft-deprecate를 두 개의 별도 마이그레이션으로 쪼개는 게 핵심이다 — 하나는 RENAME, 한참 뒤 다른 하나가 DROP.
+
+<Tabs defaultValue="flyway">
+<TabsList>
+<TabsTrigger value="flyway">Flyway (SQL)</TabsTrigger>
+<TabsTrigger value="alembic">Alembic (Python)</TabsTrigger>
+</TabsList>
+<TabsContent value="flyway">
+
+```sql
+-- V42__deprecate_insurance_table.sql  (이번 릴리스)
+ALTER TABLE Account DROP CONSTRAINT fk_account_insurance;
+ALTER TABLE Insurance RENAME TO InsuranceDeprecated;
+
+-- V57__drop_insurance_table.sql  (2~4주 뒤, 관찰 끝나고 별도 릴리스)
+DROP TABLE InsuranceDeprecated;
+```
+
+</TabsContent>
+<TabsContent value="alembic">
+
+```python
+# revision 42: 이름 변경으로 deprecate
+def upgrade():
+    op.drop_constraint("fk_account_insurance", "account", type_="foreignkey")
+    op.rename_table("insurance", "insurance_deprecated")
+
+def downgrade():
+    op.rename_table("insurance_deprecated", "insurance")
+    op.create_foreign_key(
+        "fk_account_insurance", "account", "insurance",
+        ["insurance_id"], ["id"],
+    )
+
+# revision 57 (별도 릴리스): 관찰 끝나고 실제 DROP
+def upgrade():
+    op.drop_table("insurance_deprecated")
+```
+
+</TabsContent>
+</Tabs>
+
+RENAME 마이그레이션의 `downgrade`가 1초 롤백을 보장한다. DROP 마이그레이션엔 사실상 의미 있는 downgrade가 없다 — 그래서 그걸 **늦추는 것**이다. 두 릴리스 사이의 간격이 곧 책이 말하는 전환 기간이다.
+
+### 5. 접근 프로그램 수정 — 데이터가 다른 데 있다면 뷰로
+
+정규화로 데이터가 이미 다른 테이블에 있는 경우, 책은 영리한 우회로를 준다. 테이블을 지우되 **같은 이름의 뷰로 대체**해서, 옛 읽기 코드가 안 깨지게 하는 것이다. 가령 옛 `Insurance`의 데이터가 이제 `Policy`와 `Customer`에 흩어져 있다면.
+
+```sql
+-- 옛 코드가 SELECT ... FROM Insurance 를 그대로 쓸 수 있게,
+-- 같은 모양의 읽기 전용 뷰로 대체
+CREATE VIEW Insurance AS
+SELECT
+  p.id            AS id,
+  c.id            AS customer_id,
+  p.coverage      AS coverage_amount,
+  p.premium       AS monthly_premium
+FROM Policy p
+JOIN Customer c ON c.id = p.customer_id
+WHERE p.product_type = 'insurance';
+```
+
+이러면 `SELECT ... FROM Insurance`는 멀쩡히 돈다. **단, 쓰기는 안 된다.** 이 조인 뷰에 `INSERT`나 `UPDATE`하던 코드가 있었다면 거기서 깨진다 — 그건 어차피 새 테이블(`Policy`)에 직접 쓰도록 고쳐야 할 코드다. 뷰는 어디까지나 읽기 코드를 위한 임시 다리이지, 영구 대안은 아니다.
+
+<Callout type="warning" title="대안이 없으면 지우지 마라">
+책이 못 박는 마지막 원칙. 참조하는 프로그램에 줄 대체 데이터 소스가 없고 그 데이터가 여전히 필요하다면, 대안이 생길 때까지 그냥 지우지 마라. "디스크가 아까워서" 같은 이유로 살아 있는 의존성을 끊는 건 리팩토링이 아니라 사고다. Drop Table은 의존성이 0이 됐다는 걸 확인한 다음에 시작하는 거다.
+</Callout>
+
+### 어떻게 "정말 안 쓰인다"를 증명하나
+
+soft-deprecate의 관찰 기간을 "감으로" 넘기지 않는 현대적 방법들도 있다.
+
+- **PostgreSQL 통계.** `pg_stat_user_tables`의 `seq_scan` + `idx_scan`을 보면 그 테이블이 마지막으로 읽힌 흔적이 있는지 알 수 있다. RENAME 전에 한동안 0이었다면 강한 신호다.
+- **감사 로그·쿼리 로그.** `pg_stat_statements`나 슬로우 쿼리 로그에서 테이블명을 검색해 최근 호출 이력을 확인한다.
+- **CDC(Debezium).** 테이블에 변경 데이터 캡처를 걸어두면, 누가 그 테이블에 쓰기를 하는지 실시간으로 보인다. 관찰 기간 동안 INSERT/UPDATE 이벤트가 0이면 쓰기 사용처가 없다는 증거다.
+
+이런 데이터가 "이 테이블 아직 쓰나?"라는 질문에 **감 대신 근거**를 준다. 그래도 정기 배치(월말·분기말)는 통계에 늦게 잡히니, 관찰 기간은 항상 가장 긴 주기 한 바퀴보다 길게 잡는 게 안전하다.
+
+## 정리
+
+`Drop Table`은 카탈로그에서 가장 단순해 보이는 리팩토링이다. DDL은 정말 한 줄이다. 그런데 그 한 줄이 비가역적이고, 조용하고, 한 달 뒤에 터진다.
+
+> **Drop Table의 기술은 "지우는 법"이 아니라 "안전하게 늦추는 법"이다.**
+
+순서를 다시 새기자. (1) 누가 매달려 있는지 전수조사하고, (2) FK 무결성부터 떼어내고, (3) 곧바로 DROP하는 대신 데이터를 아카이브하고 `...Removed`로 이름을 바꿔 사용처를 즉시 노출시키고, (4) 정기 배치 한 바퀴가 돌 만큼 관찰한 뒤, (5) 그때서야 진짜로 떨어뜨린다. CASCADE의 유혹은 참고, 대안 없는 데이터는 지우지 않는다.
+
+`DROP TABLE`을 칠 때 손이 떨리지 않는다면, 그건 용감한 게 아니라 의존성 조사를 안 한 거다. 떨리는 게 정상이고, 그 떨림을 RENAME과 관찰 기간으로 흡수하는 게 이 리팩토링의 전부다.

@@ -1,0 +1,233 @@
+---
+title: "Replace Surrogate Key With Natural Key: 대리 키를 자연 키로"
+subtitle: "불필요하게 붙인 대리 키를 떼고 자연 키로 — 안정적인 룩업이라면"
+description: "의미 없는 대리 키(POID)를 안정적인 자연 키로 되돌려 인덱스·조인·할당 코드를 덜어내는 구조 리팩토링. 자연 키 변경 가능성이라는 함정과, 룩업 테이블에서 자연 키가 합리적인 경계를 함께 정리한다."
+order: 41
+tags: ["database", "structural-refactoring", "natural-key", "primary-key"]
+---
+
+import { Callout, Steps, Step } from '@/components/writing-ui';
+
+## 이게 뭔데
+
+대리 키를 자연 키로 대체. **테이블에 굳이 붙여놨던 의미 없는 숫자 ID를, 원래부터 그 행을 유일하게 식별하던 진짜 값으로 되돌리는 것**이다.
+
+비유를 하나 들어보자. 우리 회사 비품 창고에 펜이 있다. 누가 봐도 "검정 모나미 153"이면 끝나는 물건이다. 근데 어느 날 비품 담당이 "관리 일원화"를 한다며 모든 비품에 사내 자산번호 스티커를 붙였다. 펜한테도 `ASSET-000231`이 붙었다. 이제 펜을 찾으려면 자산 대장을 펴서 "검정 모나미가... 어디 보자, 000231이네" 하고 번호를 한 번 변환한 다음 그 번호로 찾는다. 펜은 평생 검정 모나미 153인데, 그 사실을 두고 굳이 번호표를 한 겹 덧씌운 거다.
+
+`StatePOID` 같은 게 딱 그 자산번호 스티커다. 주(state) 코드 테이블에 `'CA'`, `'NY'` 같은 두 글자짜리 변할 일 없는 자연 키가 멀쩡히 있는데, 거기에 `1, 2, 3...` 대리 키를 새로 박아놓은 상황. Replace Surrogate Key With Natural Key는 그 스티커를 떼고 `'CA'`를 다시 PK로 쓰는 리팩토링이다. 기존 자연 키에 굳이 대리 키를 새로 도입하는 Introduce Surrogate Key의 정확한 반대 방향이다.
+
+<Callout type="info" title="한 줄 요약">
+모든 테이블에 대리 키를 붙이는 게 기본기처럼 굳어 있지만, 자연 키가 진짜로 안정적인 테이블이라면 대리 키는 인덱스 하나, 조인 한 겹, 할당 코드 한 뭉치를 공짜로 더 끌고 다니는 비용일 뿐이다. 그럴 땐 떼는 게 맞다.
+</Callout>
+
+## 언제 쓰나
+
+핵심 동기는 **떼어내서 얻는 단순함**이다. 책이 드는 이유는 세 가지인데, 결국 한 방향을 가리킨다.
+
+- **유지 오버헤드 감소.** 대리 키를 쓰면 INSERT마다 새 값을 발급해야 한다. 시퀀스든 IDENTITY든 HIGH-LOW 알고리즘이든, 어딘가에서 "다음 번호"를 뽑아주는 장치가 돌고 있다는 뜻이다. 그 행을 식별하는 데 아무 의미도 보태지 않는 번호를 위해서.
+- **미사용 인덱스 제거로 성능 개선.** 대리 키엔 보통 PK 인덱스가 붙는다. 그런데 정작 사람도 코드도 그 행을 찾을 땐 `WHERE StateCode = 'CA'`로 찾지, `WHERE StatePOID = 7`로 찾지 않는다. 그러면 자연 키 쪽에도 유니크 인덱스를 또 만들게 되고, 결국 **인덱스가 두 벌**이 된다. 한쪽은 실질적으로 아무도 안 타는데 INSERT/UPDATE마다 갱신 비용만 낸다.
+- **Consolidate Key Strategy 지원.** 키 전략을 정리하는 큰 작업의 한 단계로, 이 테이블만큼은 자연 키로 가는 게 일관성 있다고 판단했을 때.
+
+여기서 중요한 건, 이게 **아무 테이블에나 휘두르는 망치가 아니라는 점**이다. 자연 키로 되돌리기 좋은 후보는 따로 있다. 바로 **룩업/코드 테이블**이다. 주 코드, 국가 코드, 통화 코드, 계좌 상태 코드(`'OPEN'`, `'CLOSED'`, `'FROZEN'`)처럼 값 자체가 식별자이고, 한 번 정해지면 사람이 죽기 살기로 안 바꾸는 것들. 이런 테이블의 자연 키는 사실상 상수에 가깝다.
+
+### 현실 시나리오
+
+은행 시스템을 인수인계받았다. `Account` 테이블에 계좌 상태를 가리키는 `AccountStatusPOID` FK가 있다. 따라가 보면 별도 `AccountStatus` 테이블이 있고, 거기엔 이런 게 들어 있다.
+
+```text
+AccountStatusPOID | StatusCode | Description
+1                 | OPEN       | 정상 거래 가능
+2                 | CLOSED     | 해지된 계좌
+3                 | FROZEN     | 출금 정지
+```
+
+세 줄. 평생 세 줄. 추가될 일이 거의 없는, 비즈니스 사전 같은 테이블이다. 그런데 코드 곳곳이 이 모양이다.
+
+```sql
+SELECT a.account_id, a.balance, s.status_code
+FROM Account a
+JOIN AccountStatus s ON s.AccountStatusPOID = a.AccountStatusPOID
+WHERE s.StatusCode = 'FROZEN';
+```
+
+가만 보면 웃긴 상황이다. **우리는 결국 `'FROZEN'`이라는 문자열로 필터하면서**, 그걸 위해 `AccountStatus` 테이블을 매번 조인하고 있다. `'FROZEN'`이라는 답을 이미 손에 쥐고 있는데, 굳이 숫자 `3`으로 한 번 번역했다가 다시 `'FROZEN'`으로 되돌리는 환승을 끼워 넣은 거다. 만약 `Account.account_status`에 그냥 `'FROZEN'`이 직접 들어 있었다면, 저 조인은 통째로 사라진다.
+
+대리 키가 사고를 친 게 아니다. **대리 키가 한 일이 하나도 없다는 게** 문제다. 일 안 하면서 인덱스·조인·할당 코드만 챙겨 받고 있었던 거다.
+
+## 주의할 점
+
+신나서 모든 대리 키를 떼버리기 전에, 이 리팩토링이 왜 "되돌리기"이지 "디폴트"가 아닌지 분명히 하고 가자. 대리 키를 처음 도입한 데엔 보통 그럴 만한 이유가 있었다.
+
+<Callout type="warning" title="자연 키의 진짜 함정: 변할 수 있다">
+대리 키가 존재하는 이유 1번은 "자연 키가 변할 수 있어서"다. 안정적이라 믿었던 자연 키가 바뀌는 순간, 그 값을 FK로 참조하던 **모든 테이블의 모든 행**을 같이 고쳐야 한다.
+
+- 미국 우편 약자라 영원할 것 같던 주 코드도, 합병·재편으로 코드 체계가 바뀐 사례가 있다.
+- "주민번호/사번처럼 안 바뀜"이라던 식별자가 정책 변경으로 재발급된 경험, 다들 한 번씩 있을 거다.
+- ISO 국가 코드조차 가끔 바뀐다(예전 `YU`가 사라졌듯이).
+
+대리 키였다면 `AccountStatus`의 표시 코드를 `'FROZEN'`에서 `'SUSPENDED'`로 바꿔도 PK인 `3`은 그대로라, FK 참조가 안 흔들린다. 자연 키로 가면 이 안전망을 **포기**하는 거다. 그러니 "이 값이 정말 안 바뀌나?"에 자신 있게 yes를 못 하면, 떼지 마라.
+</Callout>
+
+두 번째 비용은 **코드 복잡도 증가**다. 대리 키 전략의 가장 큰 미덕은 단조로움이다. 모든 테이블의 PK가 `XxxPOID`라는 단일 숫자 컬럼이면, 조인도 키 발급도 ORM 매핑도 한 가지 모양으로 통일된다. 자연 키로 가면 이 통일성이 깨진다. 어떤 테이블은 두 글자 문자(`StateCode`), 어떤 테이블은 숫자, 어떤 테이블은 복합 키. 제너릭하게 짜놨던 데이터 접근 코드가 테이블마다 분기를 타기 시작한다.
+
+세 번째는 **FK 전파 비용**이다. 떼려는 대리 키를 다른 테이블들이 FK로 물고 있다면, 그 테이블들 전부에서 `StatePOID`를 빼고 `StateCode`를 채워 넣는 컬럼 교체 작업이 줄줄이 딸려온다. 참조하는 테이블이 50개면, 이건 더 이상 "작은 리팩토링"이 아니다. 책이 "FK로 많이 쓰이면 노력 대비 효과를 재고하라"고 못 박는 이유다.
+
+<Callout type="note" title="그래서 경계는 이렇게">
+이 리팩토링이 거의 항상 이득인 곳: 값이 식별자 그 자체이고 변할 일 없는 **소형 룩업/코드 테이블** + FK 참조가 적은 경우. 반대로 손대면 안 되는 곳: 자연 키가 바뀔 가능성이 조금이라도 있거나, 그 키를 수많은 테이블이 FK로 물고 있는 핵심 엔티티(`Customer`, `Account` 같은). 후자는 대리 키로 둔 게 옳다.
+</Callout>
+
+## 이렇게 한다
+
+흐름은 구조 리팩토링 공통 패턴 그대로다. **새 키 자리 잡기 → 전환 기간 동안 둘 다 유지 → 옛 대리 키 드롭.** 다만 한 가지 행운이 있는데, 자연 키는 **이미 테이블에 존재하는 컬럼**이라는 점이다. 그래서 "데이터 마이그레이션"이라 부를 게 거의 없다. 옮길 값이 없다. 값은 처음부터 거기 있었고, 우리는 그저 PK 자리를 바꿔 끼우는 것뿐이다.
+
+`AccountStatus`의 `AccountStatusPOID`를 떼고 `StatusCode`를 PK로 올리는 시나리오로 가보자.
+
+### 스키마 변경 (DDL)
+
+먼저 자연 키가 PK 자격이 있는지부터 확인한다. 유니크하고, NOT NULL이어야 한다. 룩업 테이블이면 십중팔구 이미 만족하지만, 확인은 코드가 아니라 데이터로 한다.
+
+```sql
+-- 자연 키가 진짜 유니크한지 먼저 검증 (한 행도 나오면 안 됨)
+SELECT StatusCode, COUNT(*)
+FROM AccountStatus
+GROUP BY StatusCode
+HAVING COUNT(*) > 1;
+```
+
+깨끗하면, 자연 키에 유니크 인덱스부터 건다. PG라면 운영 중 잠금을 피하려고 `CONCURRENTLY`를 쓴다.
+
+```sql
+-- 1) 자연 키에 유니크 인덱스 (온라인으로)
+CREATE UNIQUE INDEX CONCURRENTLY ux_account_status_code
+  ON AccountStatus (StatusCode);
+```
+
+다음으로 이 대리 키를 FK로 물고 있는 `Account`에 자연 키용 컬럼을 추가하고, 채운다. 여기가 진짜 일이 일어나는 곳이다.
+
+```sql
+-- 2) 참조 테이블에 자연 키 FK 컬럼 추가 (NULL 허용 상태로 시작 — expand)
+ALTER TABLE Account ADD COLUMN account_status VARCHAR(10);
+
+-- 3) 기존 대리 키 FK를 따라가 자연 키 값을 채운다
+UPDATE Account a
+SET account_status = s.StatusCode
+FROM AccountStatus s
+WHERE s.AccountStatusPOID = a.AccountStatusPOID;
+```
+
+이 시점이 전환 기간이다. `Account`엔 `AccountStatusPOID`(옛것)와 `account_status`(새것)가 **둘 다** 살아 있고, 두 값은 같은 사실을 가리킨다. 책이 말하는 "전환 기간 동안 트리거로 양쪽을 동기화"가 바로 이 둘을 어긋나지 않게 유지하는 장치다. 새 코드가 한쪽만 써도 트리거가 반대쪽을 맞춰준다.
+
+```sql
+-- 4) 전환 기간 동기화: 어느 컬럼이 갱신돼도 짝을 맞춰준다 (순환 회피 주의)
+CREATE OR REPLACE FUNCTION sync_account_status() RETURNS trigger AS $$
+BEGIN
+  IF NEW.account_status IS DISTINCT FROM
+       (SELECT StatusCode FROM AccountStatus WHERE AccountStatusPOID = NEW.AccountStatusPOID) THEN
+    -- 새 컬럼이 바뀌었으면 옛 FK를 맞춰준다
+    SELECT AccountStatusPOID INTO NEW.AccountStatusPOID
+    FROM AccountStatus WHERE StatusCode = NEW.account_status;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+<Callout type="warning" title="트리거 순환 조심">
+동기화 트리거의 단골 사고가 무한 순환이다. 새 컬럼을 바꾸면 옛 FK를 갱신하고, 그 갱신이 다시 트리거를 깨워 새 컬럼을 또 건드리고... 책이 공통 이슈로 가장 먼저 꼽는 함정이다. 방어는 단순하다. **값이 실제로 달라졌을 때만(`IS DISTINCT FROM`) 반대편을 건드린다.** 이미 일치하면 아무 일도 안 한다.
+</Callout>
+
+전환 기간이 끝나면(=모든 접근 프로그램이 자연 키만 쓰도록 바뀌면) 마무리한다. 새 컬럼을 NOT NULL로 조이고, FK 제약을 자연 키 기준으로 바꿔 단 뒤, 옛 대리 키를 떼낸다. PG에서 NOT NULL/FK를 큰 테이블에 즉시 거는 건 풀스캔 잠금이라, `NOT VALID`로 먼저 달고 나중에 `VALIDATE`하는 두 박자가 안전하다.
+
+```sql
+-- 5) 새 FK를 자연 키 기준으로, 잠금 최소화 (NOT VALID → VALIDATE)
+ALTER TABLE Account
+  ADD CONSTRAINT fk_account_status
+  FOREIGN KEY (account_status) REFERENCES AccountStatus (StatusCode) NOT VALID;
+
+ALTER TABLE Account VALIDATE CONSTRAINT fk_account_status;
+
+-- 6) 옛 대리 키 FK 제약·컬럼 제거, 그리고 룩업 PK 교체
+ALTER TABLE Account DROP CONSTRAINT fk_account_status_poid;
+ALTER TABLE Account DROP COLUMN AccountStatusPOID;
+
+ALTER TABLE AccountStatus DROP CONSTRAINT account_status_pkey;
+ALTER TABLE AccountStatus ADD PRIMARY KEY (StatusCode);
+ALTER TABLE AccountStatus DROP COLUMN AccountStatusPOID;
+
+-- 7) 더 이상 아무도 안 타는 대리 키 인덱스도 같이 사라진다 (목표 달성)
+DROP FUNCTION IF EXISTS sync_account_status();
+```
+
+### 데이터 마이그레이션 (DML)
+
+여기서 김이 좀 샐 수도 있는데, **옮길 데이터가 없다.** 자연 키 값(`'OPEN'`, `'CLOSED'`, `'FROZEN'`)은 처음부터 `AccountStatus`에 있었다. 참조 쪽인 `Account`도 위 3번 `UPDATE` 한 방으로 옛 FK를 따라가 자연 키를 채우는 게 전부고, 그건 엄밀히는 "마이그레이션"이라기보다 "전파"다. 새로 생성하거나 변환할 값이 없다는 게 이 리팩토링의 특징이자, 비교적 안전한 이유다.
+
+### 접근 프로그램 수정 (코드)
+
+스키마보다 손이 많이 가는 쪽이 여기다. 떼어낼 게 세 종류다.
+
+<Steps>
+<Step title="대리 키 할당 코드 제거">
+INSERT 때 `AccountStatusPOID`를 발급하던 코드가 통째로 사라진다. 자연 키는 발급할 게 없다. `'FROZEN'`이 곧 키다.
+</Step>
+<Step title="조인을 자연 키 기준으로 재작성 (대개는 조인 자체 소멸)">
+앞서 본 그 환승 조인이 없어진다. `Account.account_status`에 `'FROZEN'`이 직접 있으니, 룩업 테이블에 들를 이유가 없다.
+</Step>
+<Step title="조회를 자연 키 기준으로">
+`WHERE AccountStatusPOID = 3` 같은 숫자 매직 넘버가 코드에서 빠지고, 사람이 읽을 수 있는 `WHERE account_status = 'FROZEN'`이 들어온다.
+</Step>
+</Steps>
+
+조인이 어떻게 증발하는지가 가장 보람차다.
+
+```sql
+-- Before: 정작 결과는 'FROZEN'으로 필터하면서 룩업 테이블을 거쳐 감
+SELECT a.account_id, a.balance, s.status_code
+FROM Account a
+JOIN AccountStatus s ON s.AccountStatusPOID = a.AccountStatusPOID
+WHERE s.StatusCode = 'FROZEN';
+
+-- After: 자연 키가 그 자리에 있으니 조인이 통째로 사라진다
+SELECT a.account_id, a.balance, a.account_status
+FROM Account a
+WHERE a.account_status = 'FROZEN';
+```
+
+ORM 매핑도 같이 다이어트한다. 책의 Hibernate 예시는 "POID `<id>`와 generator를 제거하고 FK를 STATECODE로 바꾸라"는 건데, 현대 ORM도 똑같다. 자동 생성 식별자 설정을 떼고, 자연 키를 PK로 선언하면 된다.
+
+```typescript
+// Before: 대리 키 + 자동 생성
+@Entity()
+class AccountStatus {
+  @PrimaryGeneratedColumn()       // POID + generator
+  accountStatusPoid: number;
+
+  @Column({ unique: true })
+  statusCode: string;
+}
+
+// After: 자연 키가 곧 PK, generator 제거
+@Entity()
+class AccountStatus {
+  @PrimaryColumn()                // 자연 키를 직접 PK로
+  statusCode: string;
+}
+```
+
+<Callout type="error" title="라이브 시스템이면 한 번에 끊지 마라 (expand-contract)">
+위 DDL을 운영 DB에서 `DROP COLUMN`까지 한 트랜잭션으로 몰아치면, 옛 코드가 아직 `AccountStatusPOID`를 읽는 순간 깨진다. 그래서 단계를 벌린다(expand-contract / parallel change):
+
+1. **Expand** — 자연 키 컬럼/인덱스 추가, 동기화 트리거 가동. 둘 다 살아 있음.
+2. **Migrate** — 애플리케이션을 자연 키만 쓰도록 배포. 옛 컬럼은 아직 안 지움.
+3. **Contract** — 아무도 옛 키를 안 쓰는 걸 모니터링으로 확인한 뒤, 트리거·대리 키·미사용 인덱스를 드롭.
+
+Flyway/Liquibase/Alembic 같은 마이그레이션 툴로 각 단계를 **별도 버전**으로 끊어 두면, 사고 시 정확히 어느 단계에서 멈출지 통제된다. gh-ost·pt-osc(MySQL)나 PG의 `CONCURRENTLY`/`NOT VALID` 조합은 이 와중에 테이블이 잠겨 서비스가 멎는 걸 막아준다.
+</Callout>
+
+## 정리
+
+대리 키는 강력한 기본기지만, 기본기가 모든 자리에서 정답인 건 아니다.
+
+> **자연 키가 진짜로 안정적이고 그 자체로 식별자인 룩업 테이블이라면, 대리 키는 일 안 하면서 인덱스·조인·할당 코드만 챙겨 받는 잉여다. 그럴 땐 떼라.**
+
+판단의 무게중심은 딱 하나, **"이 자연 키가 변할 수 있는가"**다. 변할 수 있으면 대리 키의 절연(insulation)이 값을 하니 그대로 두고, 변할 일이 없으면 대리 키는 비용만 남는다. 그리고 이 결정은 코드가 아니라 도메인이 내린다 — `'CA'`나 `'FROZEN'`이 앞으로도 그 의미를 유지할지는, DBA가 아니라 그 데이터를 소유한 사람만 안다. 마이크로서비스로 데이터 소유권이 쪼개진 환경이라면, 그 코드값의 안정성을 보증할 수 있는 서비스 안에서만 이 리팩토링을 결정하는 게 맞다.
