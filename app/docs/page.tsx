@@ -1,14 +1,9 @@
-import Link from 'next/link';
-import { ArrowUpRight, BookOpen, ChevronRight } from 'lucide-react';
+import { BookOpen } from 'lucide-react';
 import { getRecentArticles } from '@/lib/recent-articles';
-import { formatTitle } from '@/lib/utils';
-
-function formatDate(date: string): string {
-  return date ? date.replace(/-/g, '.') : '';
-}
+import { RecentArticlesList } from '@/components/recent-articles-list';
 
 export default async function DocsIndexPage() {
-  const articles = await getRecentArticles(30);
+  const articles = await getRecentArticles();
 
   return (
     <div className="mx-auto max-w-3xl space-y-8">
@@ -28,51 +23,7 @@ export default async function DocsIndexPage() {
           </p>
         </div>
       ) : (
-        <ul className="divide-y divide-border">
-          {articles.map((article) => (
-            <li key={article.href}>
-              <Link
-                href={article.href}
-                className="group flex flex-col gap-1 py-4 transition-colors"
-              >
-                <div className="flex items-start justify-between gap-3 text-xs text-muted-foreground">
-                  <div className="flex flex-wrap items-center gap-1">
-                    {article.crumbs.map((crumb, i) => {
-                      const isLast = i === article.crumbs.length - 1;
-                      return (
-                        <span key={i} className="flex items-center gap-1">
-                          {i > 0 && <ChevronRight className="h-3 w-3 opacity-40" />}
-                          <span className={isLast ? 'font-medium text-foreground/70' : undefined}>
-                            {formatTitle(crumb)}
-                          </span>
-                        </span>
-                      );
-                    })}
-                  </div>
-                  {article.updated && (
-                    <time
-                      dateTime={article.updated}
-                      className="shrink-0 tabular-nums"
-                    >
-                      {formatDate(article.updated)}
-                    </time>
-                  )}
-                </div>
-
-                <h2 className="flex items-center gap-1 text-lg font-semibold leading-snug group-hover:text-blue-600 dark:group-hover:text-blue-400">
-                  {article.title}
-                  <ArrowUpRight className="h-4 w-4 shrink-0 opacity-0 -translate-y-0.5 transition group-hover:opacity-60" />
-                </h2>
-
-                {article.description && (
-                  <p className="line-clamp-2 text-sm text-muted-foreground">
-                    {article.description}
-                  </p>
-                )}
-              </Link>
-            </li>
-          ))}
-        </ul>
+        <RecentArticlesList articles={articles} />
       )}
     </div>
   );

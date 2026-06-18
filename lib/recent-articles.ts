@@ -46,8 +46,8 @@ function collectLastModifiedDates(): Map<string, string> {
   return dates;
 }
 
-/** 모든 MDX 파일을 최신 수정일 기준 내림차순으로 정렬해 상위 limit개를 반환한다. */
-export async function getRecentArticles(limit = 30): Promise<RecentArticle[]> {
+/** 모든 MDX 파일을 최신 수정일 기준 내림차순으로 정렬해 반환한다 (limit 생략 시 전체). */
+export async function getRecentArticles(limit?: number): Promise<RecentArticle[]> {
   const sections = await getAllMDXNestedSections();
   const dates = collectLastModifiedDates();
 
@@ -73,5 +73,5 @@ export async function getRecentArticles(limit = 30): Promise<RecentArticle[]> {
     (a, b) => b.updated.localeCompare(a.updated) || a.title.localeCompare(b.title)
   );
 
-  return articles.slice(0, limit);
+  return limit ? articles.slice(0, limit) : articles;
 }
