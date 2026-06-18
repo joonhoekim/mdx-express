@@ -148,7 +148,7 @@ model Customer {
 }
 ```
 
-주의할 게 있다. ORM의 default에는 두 종류가 있다. **앱 메모리에서 채우는 기본값**과 **DB DEFAULT 제약으로 내려가는 기본값**은 다르다. 앞엣것은 그 ORM을 거치는 insert만 보호하고, 직접 SQL이나 다른 언어 배치는 못 막는다. Introduce Default Value의 의도는 "DB에 들어오는 모든 경로를 막는 것"이므로, **반드시 DB DEFAULT로 내려가는 쪽**을 써야 한다. Prisma `@default`는 마이그레이션 시 `DEFAULT` 절을 생성하니 OK.
+주의할 게 있다. ORM의 default에는 두 종류가 있다. **앱 메모리에서 채우는 기본값**과 **DB DEFAULT 제약으로 내려가는 기본값**은 다르다. 앞엣것은 그 ORM을 거치는 insert만 보호하고, 직접 SQL이나 다른 언어 배치는 못 막는다. Introduce Default Value의 의도는 "DB에 들어오는 모든 경로를 막는 것"이므로, **반드시 DB DEFAULT로 내려가는 쪽**을 써야 한다. Prisma `@default`는 마이그레이션 시 `DEFAULT` 절을 생성하니 OK. drizzle도 마찬가지로 `.default('NEW')`는 DDL에 `DEFAULT`를 찍지만, `.$defaultFn(() => ...)`은 drizzle을 거치는 insert에서만 도는 앱 기본값이라 옆문 배치를 못 막는다 — 여기선 `.default()`를 써야 한다.
 
 </TabsContent>
 

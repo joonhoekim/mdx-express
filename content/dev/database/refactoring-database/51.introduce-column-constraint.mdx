@@ -72,6 +72,26 @@ DB 제약은 그 컬럼에 손대는 **모든** 애플리케이션에 예외 없
 - **진짜 공통 + 단순** → DB 제약 ❍. "잔액은 음수 불가", "한도는 5만 미만", "상태는 A/I/C 셋 중 하나" 같은 건 모두에게 똑같고 표현도 단순하다. 게이트로 딱이다.
 - **앱마다 다름 또는 복잡** → 애플리케이션 로직. "VIP 등급이면 한도 예외", "특정 지점은 다른 규칙" 같은 분기는 CHECK 한 줄로 안 끝난다. 억지로 박으면 제약이 누더기가 되거나, 정작 필요한 예외를 못 받는다.
 
+<Callout type="note" title="drizzle 단일 소유라면 — 중복을 걱정 말고 한 스키마에서 파생시켜라">
+이 판단은 [외래 키](/docs/dev/database/refactoring-database/57.add-foreign-key)와 같은 결이다. **단순 불변식**("잔액 >= 0", "상태는 A/I/C 중 하나")은 소비자가 하나여도 DB CHECK으로 두는 게 맞다 — 동시성 틈 없이 모든 경로를 막는 최후 방어선이니까. 문제는 "그럼 빠른 사용자 피드백용 앱 검증과 코드가 두 벌 아니냐"인데, drizzle 환경에선 이게 중복이 아니게 만들 수 있다.
+
+`drizzle-zod`로 **테이블 스키마에서 Zod 검증기를 파생**시키면, DDL(`check()`)과 앱 검증(Zod)이 같은 한 곳에서 나온다.
+
+```typescript
+// 스키마 한 곳 — DDL의 CHECK도, 앱 검증 Zod도 여기서 나온다
+export const customer = pgTable('customer', {
+  creditLimit: numeric('credit_limit'),
+}, (t) => [check('check_credit_limit', sql`${t.creditLimit} < 50000`)]);
+
+// 앱 경계의 빠른 피드백용 검증 — 위 스키마에서 파생, 손으로 복붙 안 함
+export const insertCustomerSchema = createInsertSchema(customer, {
+  creditLimit: (s) => s.lt(50000), // 복잡·조건부 규칙은 여기서 확장
+});
+```
+
+역할 분담은 [96번](/docs/dev/database/refactoring-database/96.introduce-view)과 동일하다. **단순·보편 불변식은 DB CHECK**(코드 밖 클라이언트까지 강제), **복잡·조건부·UX 피드백은 코드(Zod)**. 둘이 한 스키마에서 파생되니 "N벌 복붙"이라는 원래 동기 자체가 옅어진다.
+</Callout>
+
 그리고 거의 항상 따라오는 현실이 하나 더 있다. **기존 데이터엔 이미 규칙을 어긴 값이 있다.** 위 시나리오의 8만짜리 고객처럼. 그동안 게이트가 없었으니 더러운 값이 쌓여 있는 게 당연하다. 제약을 거는 순간 DB는 "기존 데이터부터 검사"하므로, 위반 행이 하나라도 있으면 제약 추가 자체가 실패한다. 그래서 **위반 데이터를 먼저 찾아 정제하는 것**이 사실상 이 리팩토링의 본체다.
 
 ## 이렇게 한다

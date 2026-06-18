@@ -67,7 +67,7 @@ CustomerID  <<PK>> <<AK>> { key = PK & order = 1, key = AK-1 & order = 2 }
 근데 이거 다 적으면 그림이 금방 빡빡해진다. 그래서 **순서가 정말 중요할 때만** 표기하는 게 관례다. 안 적혀 있으면 "순서 신경 안 써도 되거나, 적기 귀찮았거나" 둘 중 하나다.
 
 <Callout type="info" title="요즘 ORM에선 이게 데코레이터다">
-이 키 스테레오타입들, 사실 지금 우리가 매일 쓰는 거다. TypeORM의 `@PrimaryGeneratedColumn()`이 `<<PK>> <<Surrogate>>`고, `@Column({ unique: true })`가 `<<AK>>`고, `@ManyToOne()`이 거는 조인 컬럼이 `<<FK>>`다. 2006년엔 다이어그램에 손으로 꼬리표를 달았고, 지금은 코드에 데코레이터로 단다. 문법만 바뀌었지 말하려는 건 똑같다.
+이 키 스테레오타입들, 사실 지금 우리가 매일 쓰는 거다. TypeORM의 `@PrimaryGeneratedColumn()`이 `<<PK>> <<Surrogate>>`고, `@Column({ unique: true })`가 `<<AK>>`고, `@ManyToOne()`이 거는 조인 컬럼이 `<<FK>>`다. drizzle은 데코레이터 대신 빌더로 같은 걸 말한다 — `serial().primaryKey()`가 `<<PK>> <<Surrogate>>`, `.unique()`가 `<<AK>>`, `.references(() => ...)`가 `<<FK>>`다. 2006년엔 다이어그램에 손으로 꼬리표를 달았고, 지금은 코드에 데코레이터나 빌더 메서드로 단다. 문법만 바뀌었지 말하려는 건 똑같다.
 </Callout>
 
 ## 관계와 카디널리티 — 선 하나에 담긴 정보
@@ -236,7 +236,7 @@ DB엔 테이블만 있는 게 아니다. 저장 프로시저, 인덱스, 뷰도 
 
 - **dbdiagram.io / DBML** — 텍스트로 스키마를 적으면 ERD를 그려준다. `Ref: account.customer_id > customer.id` 한 줄이 위에서 본 관계선 하나다. 다이어그램이 코드라서 git에 올라가고 diff가 보인다.
 - **Mermaid erDiagram** — 이 글에서 계속 쓴 그거다. 마크다운 안에 `erDiagram` 펜스를 박으면 GitHub README나 위키에서 바로 렌더된다. UML 다중성 대신 까마귀발을 쓰지만 정보량은 같다.
-- **ORM 스키마 정의** — Prisma의 `schema.prisma`, TypeORM 엔티티 클래스, Django 모델. 이건 **그림이 아니라 진실의 원천**이다. 코드가 곧 모델이고, 거기서 ERD를 역으로 뽑아낸다(`prisma-erd-generator` 같은 도구). 다이어그램이 코드를 따라가는 게 아니라 코드가 다이어그램을 낳는다.
+- **ORM 스키마 정의** — Prisma의 `schema.prisma`, TypeORM 엔티티 클래스, Django 모델, drizzle의 `schema.ts`. 이건 **그림이 아니라 진실의 원천**이다. 코드가 곧 모델이고, 거기서 ERD를 역으로 뽑아낸다(`prisma-erd-generator`, drizzle은 `drizzle-kit`/Drizzle Studio로 스키마를 시각화). 다이어그램이 코드를 따라가는 게 아니라 코드가 다이어그램을 낳는다.
 
 <Callout type="info" title="그래서 표기법은 아직도 알아야 하나">
 알아야 한다. 도구가 바뀌었어도 **개념은 그대로**다. PK/FK/AK가 뭔지, 1:N과 N:M을 어떻게 푸는지, 카디널리티의 0과 1이 NULL 제약을 가른다는 것 — 이건 Mermaid를 쓰든 Prisma를 쓰든 똑같이 굴러간다. 표기법은 결국 "데이터 모델을 어떻게 사고하느냐"의 문법이지, 특정 툴의 단축키가 아니다. 그림 도구는 5년마다 바뀌어도 이 문법은 안 바뀐다.

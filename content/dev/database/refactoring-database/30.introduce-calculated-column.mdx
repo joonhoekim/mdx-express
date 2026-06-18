@@ -34,6 +34,20 @@ Introduce Calculated Column은 "읽을 때마다 계산"을 "미리 계산해서
 
 반대로, 계좌가 바뀔 때마다 총잔고도 거의 매번 다시 읽힌다면(쓰기와 읽기 빈도가 비슷하면) 이득이 별로 없다. 갱신 비용만 늘고 읽기 절감은 미미하다. 그땐 그냥 쿼리로 계산하는 게 낫다.
 
+<Callout type="info" title="단일 소유 서비스라면 컬럼부터 만들지 마라">
+세 번째 냄새("여러 앱이 같은 계산을 제각각 한다")는 사실 "이 DB에 쓰는 주체가 여럿"이라는 상황이다. 거꾸로 **drizzle 서비스 하나가 이 DB를 소유**한다면, 흩어진 계산을 통일하는 더 싼 방법은 컬럼 도입(비정규화)이 아니라 **계산을 함수 하나로 빼는 것**이다.
+
+```typescript
+// 계산의 정의를 코드 한 곳에 — 컬럼도 동기화도 없다
+export const totalBalanceExpr = sql<number>`coalesce(sum(${account.balance}), 0)`;
+
+db.select({ customerId: account.customerId, total: totalBalanceExpr })
+  .from(account).groupBy(account.customerId);
+```
+
+[뷰 도입](/docs/dev/database/refactoring-database/96.introduce-view)에서 "활성 고객" 정의를 `activeCustomer()`로 뺀 것과 같은 패턴이다. 계산 컬럼(비정규화)은 **이렇게 읽었을 때 측정상 너무 느릴 때만** 꺼내는 다음 카드다 — 성능 문제가 확인되기 전에 동기화 부채부터 떠안지 마라.
+</Callout>
+
 ### 시나리오: 이런 적 있을 거임
 
 마이페이지 상단에 "내 총자산"을 띄운다. 처음엔 별생각 없이 이렇게 짰을 거다.

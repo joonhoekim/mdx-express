@@ -161,7 +161,7 @@ def downgrade():
 </Tabs>
 
 <Callout type="info" title="잠깐, 앱 기본값과 DB 기본값을 헷갈리지 마라">
-ORM에는 비슷해 보이는 두 개념이 있다. SQLAlchemy로 보면 `default=`는 **앱(파이썬)에서 INSERT 직전에 값을 채우는** 것이고, `server_default=`는 **DB의 `DEFAULT` 절**이다. 이번 리팩토링이 떼는 건 후자(`server_default`)다. 오히려 `default=`(앱 기본값)는 남겨두거나 새로 둬서, "값을 채우는 책임이 앱으로 넘어왔다"를 코드로 표현하는 게 자연스럽다. DB의 안전망은 끄되, 앱이 명시적으로 값을 정하게 하는 것 — 그게 이 리팩토링의 본질이다.
+ORM에는 비슷해 보이는 두 개념이 있다. SQLAlchemy로 보면 `default=`는 **앱(파이썬)에서 INSERT 직전에 값을 채우는** 것이고, `server_default=`는 **DB의 `DEFAULT` 절**이다. drizzle도 똑같이 갈린다 — `.default(v)`는 DDL에 `DEFAULT`를 찍는 DB 기본값이고, `.$defaultFn(fn)`(구 `$default`)은 drizzle을 거치는 insert에서만 채우는 앱 기본값이다. 이번 리팩토링이 떼는 건 전자(`.default()` / `server_default`)다. 오히려 `default=`(앱 기본값)는 남겨두거나 새로 둬서, "값을 채우는 책임이 앱으로 넘어왔다"를 코드로 표현하는 게 자연스럽다. DB의 안전망은 끄되, 앱이 명시적으로 값을 정하게 하는 것 — 그게 이 리팩토링의 본질이다.
 </Callout>
 
 ### 접근 프로그램(코드) 수정

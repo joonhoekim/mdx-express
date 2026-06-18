@@ -214,6 +214,15 @@ async function deletePolicy(policy: Policy) {
 }
 ```
 
+<Callout type="warning" title="drizzle엔 ORM 레벨 cascade가 없다 — 선택지는 둘뿐">
+위 `orphanRemoval`/`cascade=remove`는 JPA·TypeORM처럼 **상태를 추적하는** ORM 얘기다. drizzle은 의도적으로 그런 런타임 cascade를 제공하지 않는다(`references()`의 `onDelete: 'cascade'`는 ORM 기능이 아니라 **DB의 `ON DELETE CASCADE` DDL을 생성**하는 것일 뿐이다). 그래서 drizzle 서비스가 DB를 소유할 때 현실적 선택지는 둘로 좁혀진다.
+
+1. **DB `ON DELETE CASCADE`** — drizzle 스키마의 `onDelete: 'cascade'`로 선언하면 마이그레이션이 DDL을 찍어준다. 어느 경로로 지우든 DB가 보장(방법 A).
+2. **트랜잭션 안 명시적 삭제** — 자식부터 순서대로 `db.delete(...)`를 한 트랜잭션에 묶는다. 삭제 규칙이 코드에 그대로 드러나 읽기·테스트가 쉽다.
+
+즉 "ORM이 알아서 cascade" 환상은 drizzle엔 없다. 그래서 단일 소유 서비스라면 보통 **DB CASCADE(선언적)** 아니면 **트랜잭션 명시 삭제(코드)** 중 하나를 의식적으로 고르게 되고, 이게 오히려 DB cascade와 ORM cascade를 동시에 켜는 그 흔한 함정을 구조적으로 막아준다.
+</Callout>
+
 <Callout type="warning" title="DB cascade와 ORM cascade를 동시에 켜지 마라">
 가장 흔한 함정이다. `ON DELETE CASCADE`(DB)와 `cascade=remove`(ORM)를 둘 다 켜면, ORM이 자식을 먼저 일일이 `DELETE` 날리고, 그다음 부모를 지울 때 DB가 또 연쇄하려다 "이미 없는데?"로 꼬이거나, 반대로 ORM이 자식을 메모리에 안 올려서 DB만 조용히 지우고 ORM 캐시는 옛 상태로 남는 식의 불일치가 난다. 책이 말한 "기능 중복"의 현대판이다. **삭제 책임은 DB냐 ORM이냐 한 곳으로 정하고**, 한 군데서만 cascade를 켜라. 마이크로서비스로 테이블 소유권이 갈려 있다면(서비스마다 자기 테이블만 본다면) ORM/앱 레벨 명시적 삭제 + 도메인 이벤트가 더 깔끔할 때가 많다.
 </Callout>

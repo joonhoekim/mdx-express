@@ -194,12 +194,32 @@ SELECT * FROM Account_active WHERE customer_id = ?;
 
 ORM을 쓴다면 프레임워크가 이 캡슐화를 대신 해 준다. 모델에 글로벌 스코프를 한 번 걸면 모든 조회에 조건이 자동으로 붙는다.
 
-<Tabs defaultValue="prisma">
+<Tabs defaultValue="drizzle">
 <TabsList>
+<TabsTrigger value="drizzle">Drizzle</TabsTrigger>
 <TabsTrigger value="prisma">Prisma</TabsTrigger>
 <TabsTrigger value="hibernate">Hibernate</TabsTrigger>
 <TabsTrigger value="rails">Rails</TabsTrigger>
 </TabsList>
+
+<TabsContent value="drizzle">
+
+drizzle은 Hibernate `@Where`나 Rails `default_scope` 같은 **모델 레벨 글로벌 필터가 없다**(쿼리 빌더 철학상 "숨은 조건"을 의도적으로 안 만든다). 그래서 캡슐화를 프레임워크에 맡길 수 없고, 직접 해야 한다 — 그런데 그 방법이 정확히 [뷰 도입](/docs/dev/database/refactoring-database/96.introduce-view)의 패턴이다. 조건을 **재사용 가능한 predicate 함수 하나**로 못 박는 것.
+
+```typescript
+// "살아 있는 행" 조건을 코드 한 곳에 (96번의 activeCustomer()와 같은 패턴)
+export const alive = () => isNull(account.deletedAt);
+
+export const softDeleteAccount = (id: number) =>
+  db.update(account).set({ deletedAt: new Date() }).where(eq(account.accountId, id));
+
+// 모든 조회는 alive()를 끼운다 — 빠뜨릴 곳이 한 군데로 모인다
+db.select().from(account).where(and(alive(), eq(account.customerId, customerId)));
+```
+
+`alive()`를 안 끼우면 죽은 행이 보인다는 점에서, drizzle은 "조건을 깜빡할 위험"을 자동으로 막아주지 않는다. 이건 단점이 아니라 [96번의 결정 규칙](/docs/dev/database/refactoring-database/96.introduce-view) 그대로다 — predicate 함수는 **코드 경계 안쪽**만 지킨다. psql·BI 툴·타 서비스 등 코드 밖 클라이언트까지 강제하려면, 그 경계엔 함수가 아니라 아래의 **뷰(`Account_active`)나 RLS**가 필요하다.
+
+</TabsContent>
 
 <TabsContent value="prisma">
 
