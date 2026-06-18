@@ -1,85 +1,78 @@
-import { getAllMDXNestedSections } from '@/lib/mdx-utils';
-import { formatTitle } from '@/lib/utils';
-import { buildDocsPath } from '@/lib/build-docs-path';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import Link from 'next/link';
-import { BookOpen, ArrowRight, Folder, FileText } from 'lucide-react';
+import { ArrowUpRight, BookOpen, ChevronRight } from 'lucide-react';
+import { getRecentArticles } from '@/lib/recent-articles';
+import { formatTitle } from '@/lib/utils';
+
+function formatDate(date: string): string {
+  return date ? date.replace(/-/g, '.') : '';
+}
 
 export default async function DocsIndexPage() {
-  const sections = await getAllMDXNestedSections();
+  const articles = await getRecentArticles(30);
 
   return (
-    <div className="space-y-8">
+    <div className="mx-auto max-w-3xl space-y-8">
       <div className="space-y-2">
-        <h1 className="text-4xl font-bold">블로그</h1>
-        <p className="text-xl text-muted-foreground">
-          프로젝트 문서를 탐색하고 필요한 정보를 찾아보세요.
+        <h1 className="text-3xl font-bold">최신 글</h1>
+        <p className="text-muted-foreground">
+          최근에 쓰거나 고친 글부터 모아봤어요. 카테고리 탐색은 왼쪽 사이드바를 이용하세요.
         </p>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-        {sections.map((section) => {
-          const items = section.tree;
-          const fileCount = items.filter(n => n.type === 'file').length;
-          const dirCount = items.filter(n => n.type === 'directory').length;
-          const countParts = [];
-          if (dirCount > 0) countParts.push(`${dirCount}개의 카테고리`);
-          if (fileCount > 0) countParts.push(`${fileCount}개의 문서`);
-          const countText = countParts.length > 0 ? countParts.join('와 ') + '가 있습니다' : '아직 항목이 없습니다';
-
-          return (
-            <Card key={section.section} className="hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200 hover:border-slate-300 dark:hover:border-slate-600">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <BookOpen className="h-5 w-5" />
-                  {formatTitle(section.section)}
-                </CardTitle>
-                <CardDescription>
-                  {countText}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-2">
-                  {items.slice(0, 3).map((node) => {
-                    const Icon = node.type === 'directory' ? Folder : FileText;
-                    return (
-                      <Link
-                        key={node.slug}
-                        href={buildDocsPath(section.section, node.slug)}
-                        className="flex items-center justify-between p-2 rounded-md hover:bg-muted/50 transition-colors"
-                      >
-                        <span className="text-sm flex items-center gap-2">
-                          <Icon className="h-3.5 w-3.5 text-muted-foreground" />
-                          {node.title}
-                        </span>
-                        <ArrowRight className="h-4 w-4 opacity-50" />
-                      </Link>
-                    );
-                  })}
-                  {items.length > 3 && (
-                    <Link
-                      href={buildDocsPath(section.section)}
-                      className="flex items-center justify-between p-2 rounded-md hover:bg-muted/50 transition-colors text-sm text-muted-foreground"
-                    >
-                      <span>더 보기 ({items.length - 3}개)</span>
-                      <ArrowRight className="h-4 w-4 opacity-50" />
-                    </Link>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          );
-        })}
-      </div>
-
-      {sections.length === 0 && (
-        <div className="text-center py-12">
-          <BookOpen className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-          <h3 className="text-lg font-semibold mb-2">문서가 없습니다</h3>
+      {articles.length === 0 ? (
+        <div className="py-12 text-center">
+          <BookOpen className="mx-auto mb-4 h-12 w-12 text-muted-foreground" />
+          <h3 className="mb-2 text-lg font-semibold">글이 없습니다</h3>
           <p className="text-muted-foreground">
-            아직 생성된 문서가 없습니다. content 폴더에 MDX 파일을 추가해주세요.
+            content 폴더에 MDX 파일을 추가하면 여기에 표시됩니다.
           </p>
         </div>
+      ) : (
+        <ul className="divide-y divide-border">
+          {articles.map((article) => (
+            <li key={article.href}>
+              <Link
+                href={article.href}
+                className="group flex flex-col gap-1 py-4 transition-colors"
+              >
+                <div className="flex items-start justify-between gap-3 text-xs text-muted-foreground">
+                  <div className="flex flex-wrap items-center gap-1">
+                    {article.crumbs.map((crumb, i) => {
+                      const isLast = i === article.crumbs.length - 1;
+                      return (
+                        <span key={i} className="flex items-center gap-1">
+                          {i > 0 && <ChevronRight className="h-3 w-3 opacity-40" />}
+                          <span className={isLast ? 'font-medium text-foreground/70' : undefined}>
+                            {formatTitle(crumb)}
+                          </span>
+                        </span>
+                      );
+                    })}
+                  </div>
+                  {article.updated && (
+                    <time
+                      dateTime={article.updated}
+                      className="shrink-0 tabular-nums"
+                    >
+                      {formatDate(article.updated)}
+                    </time>
+                  )}
+                </div>
+
+                <h2 className="flex items-center gap-1 text-lg font-semibold leading-snug group-hover:text-blue-600 dark:group-hover:text-blue-400">
+                  {article.title}
+                  <ArrowUpRight className="h-4 w-4 shrink-0 opacity-0 -translate-y-0.5 transition group-hover:opacity-60" />
+                </h2>
+
+                {article.description && (
+                  <p className="line-clamp-2 text-sm text-muted-foreground">
+                    {article.description}
+                  </p>
+                )}
+              </Link>
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   );
