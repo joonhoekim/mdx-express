@@ -6,6 +6,7 @@ import { DocumentHeader } from '@/components/document-header';
 import { compileDocument } from '@/components/mdx-renderer';
 import { TableOfContents } from '@/components/table-of-contents';
 import { ArticleNavigation } from '@/components/article-navigation';
+import { ArticleKeyboardNav } from '@/components/article-keyboard-nav';
 
 interface DocumentPageProps {
     mdxContent: MDXFile;
@@ -33,6 +34,8 @@ export async function DocumentPage({ mdxContent, slug }: DocumentPageProps) {
 
                 <ArticleNavigation adjacent={adjacent} />
             </div>
+
+            <ArticleKeyboardNav prev={adjacent.prev} next={adjacent.next} />
 
             {/* 우측 여백(gutter)에 목차를 띄운다. 본문 폭은 유지되고,
                 여백이 충분히 넓을 때(min-[1700px])만 표시된다. */}
