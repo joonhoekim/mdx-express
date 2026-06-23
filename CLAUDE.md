@@ -241,14 +241,16 @@ interface NavigationItem { title, href, icon?, children?, isActive? }
 - `mdx-mermaid.test.ts` — 모든 ` ```mermaid ` 블록 구문 검증 (`mermaid.parse`, **jsdom 환경** — 파일 상단 `// @vitest-environment jsdom`)
 - `mdx-links.test.ts` — 내부 `/docs/…` 링크가 실제 content 파일/디렉터리로 해석되는지 (앵커는 미검증)
 - `mdx-math.test.ts` — `$` 포함 파일을 SSR 렌더해 `.katex-error` 부재 검증
+- `mdx-korean-emphasis.test.ts` — 한글 본문에서 깨진 언더스코어 이탤릭(`_텍스트_`) 탐지 (mdast text 노드에 리터럴로 살아남은 `_..._` 검출)
 
 ### 컴파일 통과 ≠ 정상 렌더 (중요)
 
-`compileMDX`가 성공해도 **클라이언트/렌더 단계에서만 드러나는 오류**는 못 잡는다. 이 공백을 메우는 전용 테스트가 위 3종(mermaid/links/math):
+`compileMDX`가 성공해도 **클라이언트/렌더 단계에서만 드러나는 오류**는 못 잡는다. 이 공백을 메우는 전용 테스트가 위 4종(mermaid/links/math/korean-emphasis):
 
 - **Mermaid** — 다이어그램은 브라우저에서 `mermaid.render`로 그려지므로 구문 오류가 compileMDX를 통과한다. 엣지 라벨에 중첩 따옴표(`|'"type": "x"'|`)를 쓰면 파서가 깨지므로, 라벨 안 큰따옴표는 `&quot;`로 이스케이프할 것.
 - **KaTeX** — `rehype-katex`는 오류 시 throw가 아니라 빨간 `.katex-error` 노드를 렌더하므로 compileMDX를 통과한다. 수식 안 `<`는 `&lt;`가 아니라 **그대로 `<`**(remark-math가 JSX 파싱에서 보호함). 통화 표기 `$50~$200`는 remark-math가 수식으로 오인하므로 `$`를 `\$`로 이스케이프(`\$50~\$200`).
 - **내부 링크** — 끊긴 `/docs/…` 링크는 빌드/컴파일에서 안 잡히고 런타임 404가 된다.
+- **한글 이탤릭** — `_텍스트_`는 CommonMark intraword-underscore 규칙상 한글(=유니코드 letter)에 붙으면 강조로 인식 안 되고 `_`가 리터럴로 새어 나온다(`_배경_으로`). `remark-cjk-friendly`는 `*`/`**`만 보정하므로 compileMDX는 통과한다. **한글 강조는 `_`가 아니라 `*별표*`를 쓸 것.** 테스트는 바깥쪽에 공백/문장부호 경계가 있는 경우만 잡고(강조 의도), 양쪽이 글자에 낀 `진짜_마지막_fix`류 의도적 리터럴은 통과시킨다.
 
 ## 주요 의존성
 
