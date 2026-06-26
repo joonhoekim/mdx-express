@@ -1,0 +1,277 @@
+---
+title: "같은 PDF인데 누구는 보이고 누구는 안 보인다"
+subtitle: "내 화면엔 멀쩡한데 협력사에선 □□□만 뜨는 이유"
+description: "SAP가 뽑아준 발주서 PDF 한 장을 poppler·PyMuPDF로 해부해, 폰트 임베딩(글리프)과 유니코드 매핑(ToUnicode)이라는 두 축이 어떻게 독립적으로 실패하는지 정리한다. '안 보임'과 '복사하면 깨짐'이 왜 정반대 증상인지, Base-14와 비표준 CID 폰트의 비임베딩 위험도가 왜 전혀 다른지 도구로 확인하며 다룬다."
+tags: ["PDF", "폰트", "트러블슈팅", "poppler", "PyMuPDF", "CJK"]
+---
+
+import { Callout, Steps, Step } from '@/components/writing-ui';
+
+> "이 발주서, 우리 쪽에선 멀쩡한데 협력사에서 글자가 안 보인대요."
+
+이 한 줄로 시작되는 제보, 한 번이라도 받아본 사람은 안다. 등골이 서늘하다. 왜냐면 **내 모니터에선 100% 잘 보이거든.** 재현이 안 되는 버그만큼 환장하는 게 없는데, 이건 한술 더 떠서 "환경에 따라 보였다 안 보였다" 한다.
+
+범인은 거의 항상 **폰트**다. 그리고 이게 진짜 악질인 게, 정반대 방향으로 **두 번** 어긋날 수 있다. 한 번은 "안 보임", 또 한 번은 "보이는데 복사하면 깨짐". 같은 PDF 한 장이 이 두 함정을 동시에 밟고 있는 실물을 잡아왔으니, 같이 해부해보자.
+
+이 글은 실제 SAP가 뽑아준 발주서 PDF를 `poppler`와 `PyMuPDF`로 까보면서, **"PDF는 자급자족(self-contained) 문서다"라는 말이 사실은 절반만 진실인 이유**, 그리고 **렌더링되는 것과 텍스트가 복사되는 게 왜 완전히 별개의 문제인지**를 정리한다.
+
+<Callout type="info" title="TL;DR — 3줄 요약">
+
+- PDF에 글자를 넣는 건 **글리프(폰트 프로그램) 임베딩**과 **유니코드 매핑(ToUnicode/CMap)**, 이 두 축으로 갈린다. 그리고 둘은 **서로 독립적**이다.
+- 그래서 조합이 네 가지 나오는데, 이 중 두 개가 실무에서 사고를 친다 — **임베딩 없음 → 화면에 안 보임**(근데 복사는 됨), **유니코드 매핑 없음 → 화면엔 보이는데 복사·검색하면 깨짐**.
+- "임베딩 안 해도 되는 폰트"에도 등급이 있다. **Base-14는 스펙이 보장**해서 진짜 안전하고, **비표준 CID 폰트는 그냥 운빨**이다. 똑같이 `emb: no`라고 같은 놈 아님.
+
+</Callout>
+
+## 문제의 문서부터 신원조회
+
+SAP NetWeaver 750의 SmartForm이 토해낸 4페이지짜리 발주서 + 하도급대금 연동계약서. 일단 누구신지부터 까보자.
+
+```bash
+pdfinfo "SHI PO.PDF"
+```
+
+```
+Creator:  Form ZSP2MMM_ZRP2MMM2020_KR KO
+Producer: SAP NetWeaver 750
+Pages:    4
+PDF version: 1.3
+```
+
+겉보기 정보는 평범하다. 근데 진짜 알맹이는 여기 안 나온다. **폰트 테이블**에 다 있다.
+
+```bash
+pdffonts "SHI PO.PDF"
+```
+
+```
+Syntax Error: Unknown character collection 'SAP-Identity0'
+name                     type           encoding          emb sub uni
+------------------------ -------------- ----------------- --- --- ---
+HYGoThic-Medium          CID Type 0     UniKS-UTF16-H     no  no  no
+NanumGothic              CID TrueType   Identity-H        yes no  no
+KozMinPro-Regular-Acro   CID Type 0     UniJIS-UCS2-HW-H  no  no  no
+Courier                  Type 1         WinAnsi           no  no  no
+CourierNewPSMT           TrueType       Custom            yes no  no
+```
+
+여기서 봐야 할 컬럼은 딱 셋이다.
+
+- `emb` — 폰트 프로그램(글자 모양)이 PDF 안에 **임베딩**됐냐
+- `uni` — **ToUnicode** 매핑(복사·검색용)이 있냐
+- `encoding` — CID를 글리프로 잇는 인코딩/CMap
+
+이 표만 봐도 벌써 냄새가 진동한다. 한글 본문 폰트인 **HYGoThic-Medium이 `emb: no`**다. 본문 글씨를 PDF가 안 들고 있다는 뜻이다. 불안하지 않나?
+
+## "진짜 임베딩 안 됐냐"를 확신하려면 — FontDescriptor를 직접 까라
+
+`pdffonts`의 `emb` 컬럼을 믿어도 되긴 하는데, **도구마다 말이 다를 때가 있다.** 실제로 PyMuPDF의 `get_fonts()`는 이 HYGoThic을 embedded인 것처럼 보고했다. 누구 말을 믿어야 하나?
+
+정답은 "아무도 안 믿고 원본을 본다"다. 판정의 **단일 진실은 `FontDescriptor` 딕셔너리에 `FontFile` / `FontFile2` / `FontFile3` 키가 있느냐**, 이거 하나다. 이 키가 폰트 프로그램의 실제 바이트를 가리킨다. 없으면 임베딩 아님. 끝.
+
+```python
+import fitz  # PyMuPDF
+
+doc = fitz.open("SHI PO.PDF")
+for xref in range(1, doc.xref_length()):
+    obj = doc.xref_object(xref, compressed=True) or ""
+    if "/FontDescriptor" in obj and "/FontName" in obj:
+        name = obj.split("/FontName/")[1].split("/")[0].split(">")[0]
+        keys = [k for k in ("FontFile3", "FontFile2", "FontFile") if "/" + k in obj]
+        print(f"{name:28s} -> {keys[0] if keys else '*** NOT EMBEDDED ***'}")
+```
+
+```
+HYGoThic-Medium              -> *** NOT EMBEDDED ***   (메트릭만 있음)
+NanumGothic                  -> FontFile2              (임베딩됨)
+KozMinPro-Regular-Acro       -> *** NOT EMBEDDED ***
+Courier                      -> *** NOT EMBEDDED ***
+CourierNewPSMT               -> FontFile2
+```
+
+빼박이다. 비임베딩 폰트의 객체를 까보면 글자 모양은 1도 없고 **치수(메트릭)만** 들어있다.
+
+```
+% FontDescriptor — FontFile* 키가 없다
+<</Type/FontDescriptor /FontName/HYGoThic-Medium
+  /Ascent 752 /CapHeight 737 /Descent -271 /FontBBox[-6 -145 1003 880]
+  /Flags 4 /ItalicAngle 0 /StemV 58>>
+
+% CIDFont — "나는 Adobe-Korea1 글자 모음을 쓴다"고 선언만 함
+<</Subtype/CIDFontType0 /BaseFont/HYGoThic-Medium
+  /CIDSystemInfo<</Registry(Adobe)/Ordering(Korea1)/Supplement 2>> ...>>
+```
+
+정리하면 이 PDF는 글자 모양을 안 품고 있다. **"이름표(HYGoThic-Medium) + 치수표 + Adobe-Korea1이라는 글자 모음 번호"** 만 적어두고, 실제 획은 **여는 쪽 컴퓨터가 알아서 그려주길 기대**하는 거다. 남의 집 냉장고 믿고 빈손으로 캠핑 온 격.
+
+## 첫 번째 함정: 임베딩 없음 → "안 보임"
+
+비임베딩 CID 폰트는 뷰어한테 둘 중 하나를 요구한다.
+
+1. 시스템에 **HYGoThic-Medium 폰트**가 깔려 있거나,
+2. **Adobe-Korea1 CMap 팩 + 한글 대체 폰트**가 있어서 같은 자리에 다른 한글 폰트를 끼워 넣을 수 있거나.
+
+둘 다 없으면? 그냥 못 그린다. 그래서 **여는 환경에 따라 운명이 갈린다.**
+
+| 뷰어 / 환경 | HYGoThic 렌더링 | 이유 |
+|---|---|---|
+| Adobe Acrobat | ✅ | 한국어 CMap·대체 폰트 번들 |
+| 한국어 Windows | ✅ | 시스템 한글 폰트 |
+| MuPDF / PyMuPDF | ✅ | CJK 폴백 폰트 내장 |
+| 경량 브라우저 내장 뷰어 · 해외 환경 · CJK팩 없는 Ghostscript | ❌ **□□□ 또는 공백** | 폰트도 CMap도 없음 |
+
+여기서 가장 악랄한 포인트. **MuPDF로 렌더링해보면 멀쩡하게 잘 나온다.** 그래서 "어? 잘 보이는데?" 하고 그냥 넘겨버린다. 근데 그건 PDF가 자급자족이라서가 **아니다.** MuPDF가 자기 내장 폴백 폰트로 몰래 메워준 것뿐이다. "내 도구에선 잘 보임"이 "받는 사람도 잘 보임"을 0.1g도 보장 못 하는 이유가 이거다.
+
+<Callout type="warning" title="교훈 1 — 렌더링 테스트는 '멍청한' 뷰어로도 해라">
+
+폴백이 강력한 뷰어(Acrobat, MuPDF)는 결함을 친절하게 가려버린다. 진짜 자급자족인지 알고 싶으면, **일부러 폰트 없는 빈약한 뷰어**로도 열어봐야 한다. 잘 보여주는 뷰어는 네 편이 아니다.
+
+</Callout>
+
+## 두 번째 함정: 유니코드 매핑 없음 → "보이는데 복사하면 깨짐"
+
+자, 이번엔 정반대 증상이다. 같은 문서의 Note 섹션을 `pdftotext`로 긁으면 이런 게 튀어나온다.
+
+```
+1)    : (2025.10.22) ! "# $%&(" '$%') RFQ NO.  '().
+```
+
+암호문이다. 근데 **화면에는 멀쩡하게 "1) 계약 물품 명세 : (2025.10.22)일자 …"로 잘 보인다.** 아까랑 정확히 반대다. 아까는 "보여야 하는데 안 보임", 이번엔 "보이는데 긁으면 깨짐". 같은 PDF에서 둘 다 나온다는 게 이 문서의 백미다.
+
+이 부분은 **NanumGothic**이 그린다. 위 표에서 봤듯 NanumGothic은 `emb: yes` — 글리프는 임베딩됐다. 그래서 **어디서든 화면엔 보인다.** 문제는 인코딩이 `Identity-H`인데 **ToUnicode 맵이 없다**(`uni: no`)는 것.
+
+- `Identity-H`는 "코드값 = 폰트 내부 글리프 번호(GID)"라는 뜻이다. 화면에 그리는 데는 이걸로 충분하다.
+- 근데 GID는 **그 폰트 파일 안에서만 의미 있는 임의의 번호**다. ToUnicode가 없으면 추출기는 GID를 유니코드로 되돌릴 방법이 없어서, GID 숫자를 그냥 글자로 토해버린다 → 저 위의 암호문.
+
+`pdffonts`가 맨 처음 뱉었던 `Unknown character collection 'SAP-Identity0'` 경고도 여기서 나온 거다. 이 폰트의 `CIDSystemInfo`가 표준이 아닌 `Registry(SAP)/Ordering(Identity0)`이라 poppler가 대응 CMap 찾다가 실패한 것. 근데 이건 **렌더링엔 무해한 노이즈**다 (Identity 매핑이라 CMap이 애초에 필요 없음). 빨간 줄 뜬다고 다 문제는 아니라는 얘기.
+
+<Callout type="warning" title="교훈 2 — '보인다'와 '복사·검색된다'는 완전히 다른 경로다">
+
+- **화면 표시** = (임베딩 글리프 또는 시스템 폰트) + CID→GID
+- **복사·검색** = ToUnicode 또는 표준 named CMap → 유니코드
+
+이 둘은 서로 다른 배선이다. 하나 멀쩡하다고 나머지가 멀쩡할 거란 보장이 없다.
+
+</Callout>
+
+## 두 축으로 보는 전체 그림
+
+PDF에 글자를 싣는 두 결정 — **글리프를 임베딩하나** / **유니코드로 되돌릴 수 있나** — 은 서로 직교한다(independent). 그래서 2×2 매트릭스가 나온다.
+
+```
+                      유니코드 매핑 있음              유니코드 매핑 없음
+                  ┌────────────────────────┬────────────────────────┐
+  글리프 임베딩 O │  ✅ 이상적              │  ⚠ 보이지만 복사 깨짐   │
+                  │  (CourierNewPSMT 등)    │  (NanumGothic — Note)   │
+                  ├────────────────────────┼────────────────────────┤
+  글리프 임베딩 X │  ⚠ 복사는 되나 안 보임  │  ✗ 최악                 │
+                  │  (HYGoThic, KozMinPro)  │                         │
+                  └────────────────────────┴────────────────────────┘
+```
+
+이 PDF 한 장이 **서로 다른 칸을 동시에 밟고 있다**는 게 진짜 압권이다.
+
+- **HYGoThic-Medium** (제목·라벨·계약서 본문 거의 전부): 임베딩 X, 유니코드 O
+  → 복사는 되는데, 폰트 없는 뷰어에선 **본문이 통째로 증발**한다.
+- **NanumGothic** (Note 등): 임베딩 O, 유니코드 X
+  → 어디서나 보이는데, **복사·검색하면 깨진다.**
+
+한 문서 안에서 두 가지 정반대 결함이 사이좋게 공존하는 중이다.
+
+## "임베딩 안 해도 되는 폰트"의 두 종류 — 여기서 다들 헷갈린다
+
+비임베딩 폰트라고 다 같은 위험도 아니다. 위 표의 `Courier`랑 `KozMinPro`가 딱 그 함정이다. 둘 다 `emb: no`인데, 한 놈은 안전하고 한 놈은 시한폭탄이다.
+
+### Courier — 진짜 안전 (Base-14)
+
+Courier는 **PDF 명세가 모든 뷰어한테 탑재를 의무화한 "Standard 14" 폰트**다 (Helvetica, Times, Symbol 등과 한 묶음). "흔한 폰트라서 어디나 있겠지~"가 아니라 **스펙 차원에서 보장**되기 때문에 임베딩이 필요 없다. 사실상 지구상 어떤 PDF 뷰어에서도 렌더링된다. 얘는 빈손으로 와도 되는 게 맞다.
+
+### KozMinPro-Regular-Acro — 사실 HYGoThic랑 같은 위험 등급
+
+이게 진짜 함정이다. KozMinPro는 Base-14가 **아니고**, 임베딩도 없고, HYGoThic가 Adobe-**Korea1**에 기대듯 얘는 Adobe-**Japan1** CMap + 시스템 일본어 폰트에 의존한다. **메커니즘이 똑같으니 위험도도 똑같다.** 이름 끝의 `Acro` 접미사가 바로 "Acrobat이 일본어 폰트로 메워줄 거임 ㅇㅇ"을 전제한다는 뜻이다 — Acrobat·일본어 환경 밖으로 나가면 HYGoThic처럼 그냥 □ 된다.
+
+그럼 KozMinPro가 "그나마 멀쩡해 보이는" 진짜 이유가 뭐냐? 폰트가 안전해서가 **아니다.** 단지 **실리는 내용이 사소해서**다 — 전각 낫표 `『 』`랑 가운뎃점 `‧` 몇 개가 전부. 결함 등급은 HYGoThic랑 동일하고, **터졌을 때 피해 범위만 작은 것뿐**이다. 폭탄인데 화약이 적게 들었을 뿐.
+
+<Callout type="success" title="교훈 3 — '임베딩 없이도 잘 보이던데?'를 만나면 이유를 구분하라">
+
+같은 `emb: no`라도 둘은 하늘과 땅 차이다.
+
+- **스펙이 보장하는 Base-14**인가 → 안전. 마음 놓아라.
+- **시스템 폰트 운빨에 기댄 CID 폰트**인가 → 시한폭탄. 환경 바뀌면 터진다.
+
+전자만 안전하다. 겉보기 "잘 보임"에 속지 마라.
+
+</Callout>
+
+## 분석 도구 정리 (그대로 따라 하면 재현됨)
+
+남의 PDF가 자급자족인지 판정하는 루틴. 순서대로 한 번씩 돌려보면 된다.
+
+<Steps>
+
+<Step title="신원 확인 — pdfinfo">
+
+생성기·페이지·PDF 버전부터 본다. 누가 만들었는지가 첫 단서다.
+
+```bash
+pdfinfo file.pdf
+```
+
+</Step>
+
+<Step title="폰트 테이블 — pdffonts">
+
+`emb` / `uni` / `encoding`을 한눈에. 여기서 `emb: no`나 `uni: no`가 보이면 일단 의심하고 들어간다.
+
+```bash
+pdffonts file.pdf
+```
+
+</Step>
+
+<Step title="텍스트 추출 — pdftotext">
+
+긁어서 깨지면 ToUnicode 결손을 의심한다. 화면이 멀쩡해도 여기서 깨질 수 있다.
+
+```bash
+pdftotext file.pdf -      # - 는 stdout으로
+```
+
+</Step>
+
+<Step title="임베딩 확정 + 렌더링 — PyMuPDF">
+
+`emb` 컬럼이 못 미더울 때 `FontFile*` 키로 확정 짓고, span별로 어떤 텍스트가 어떤 폰트를 쓰는지(= 어디가 위험한지) 찍어본다.
+
+```python
+import fitz
+doc = fitz.open("file.pdf")
+
+# 페이지를 이미지로 — 단, MuPDF 폴백이 결함을 가릴 수 있음에 유의
+doc[0].get_pixmap(dpi=150).save("p1.png")
+
+# 어떤 텍스트가 어떤 폰트를 쓰는지 (위험 텍스트 식별)
+for b in doc[0].get_text("dict")["blocks"]:
+    for l in b.get("lines", []):
+        for s in l["spans"]:
+            if s["text"].strip():
+                print(s["font"], "|", s["text"][:50])
+```
+
+</Step>
+
+</Steps>
+
+## 포워딩하는 입장의 결론
+
+우리처럼 문서를 **만들지 않고 전달만** 하는 사람이 할 수 있는 건, "이 PDF가 자급자족이냐"를 판정하고 받는 쪽에 리스크를 미리 까주는 것이다. 이 문서로 치면:
+
+- **자급자족으로 안전한 건 임베딩+표준뿐** — NanumGothic(임베딩), Courier(Base-14).
+- **HYGoThic-Medium(본문 거의 전부)·KozMinPro(인용 괄호)는 뷰어의 한/일 폰트 지원에 의존** — 표준 뷰어(Acrobat)나 한글 OS면 OK, 경량·해외·임베디드 뷰어면 본문이 통째로 비어 보일 수 있음.
+- 근본 해결은 **생성기(SAP SmartForm) 쪽에서 모든 CJK 폰트를 임베딩(subset)** 하는 것. 받은 파일을 응급 복구하려면 Ghostscript `-dEmbedAllFonts=true`로 재생성하는 손이 있긴 한데, 비임베딩 폰트를 무엇으로 대체하느냐에 따라 자형이 바뀔 수 있어서 결과는 꼭 눈으로 검증해야 한다.
+
+<Callout type="note" title="한 문장으로 요약하면">
+
+**PDF가 "보인다"는 건 절반의 진실이다. 누가, 어떤 뷰어로 여느냐가 나머지 절반을 결정한다.**
+
+</Callout>
