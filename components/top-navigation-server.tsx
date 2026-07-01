@@ -3,6 +3,7 @@ import { NavigationItem } from "@/lib/navigation";
 import { getIconComponent } from "@/lib/navigation-utils";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { ColorThemeSelect } from "@/components/color-theme-select";
 import { TopNavigationClient } from "./top-navigation-client";
 import { headers } from 'next/headers';
 
@@ -52,7 +53,8 @@ export async function TopNavigationServer({ topLevelItems }: TopNavigationServer
                     <TopNavigationClient topLevelItems={topLevelItems} />
                 </div>
 
-                <div className="ml-auto shrink-0 pl-2">
+                <div className="ml-auto shrink-0 pl-2 flex items-center gap-1">
+                    <ColorThemeSelect />
                     <ThemeToggle />
                 </div>
             </div>

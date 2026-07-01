@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Analytics } from "@vercel/analytics/next";
 import { ThemeProvider } from "@/components/theme-provider";
+import { ColorThemeProvider } from "@/components/color-theme-provider";
+import { ColorThemeScript } from "@/components/color-theme-script";
 import "./globals.css";
 
 /**
@@ -32,11 +34,14 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ko" suppressHydrationWarning>
+      <head>
+        <ColorThemeScript />
+      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-          {children}
+          <ColorThemeProvider>{children}</ColorThemeProvider>
         </ThemeProvider>
         <Analytics />
       </body>
