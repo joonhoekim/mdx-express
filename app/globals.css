@@ -148,6 +148,38 @@
   .scrollbar-hide::-webkit-scrollbar {
     display: none;
   }
+
+  /* 모노크롬 압출(3D) 텍스트 — 명암 대비만으로 입체감을 준다.
+     라이트: 어두운 글자가 밝은 면 위로 솟아 보이고,
+     다크: 밝은 글자가 어두운 면 위로 솟아 보인다. */
+  .text-extrude-3d {
+    color: oklch(0.22 0 0);
+    text-shadow:
+      0 1px 0 #c4c4c4,
+      0 2px 0 #b8b8b8,
+      0 3px 0 #aeaeae,
+      0 4px 0 #a4a4a4,
+      0 5px 0 #9a9a9a,
+      0 6px 1px rgba(0, 0, 0, 0.1),
+      0 0 5px rgba(0, 0, 0, 0.1),
+      0 1px 3px rgba(0, 0, 0, 0.3),
+      0 3px 5px rgba(0, 0, 0, 0.2),
+      0 5px 10px rgba(0, 0, 0, 0.25);
+  }
+  .dark .text-extrude-3d {
+    color: oklch(0.97 0 0);
+    text-shadow:
+      0 1px 0 #4a4a4a,
+      0 2px 0 #444444,
+      0 3px 0 #3e3e3e,
+      0 4px 0 #383838,
+      0 5px 0 #323232,
+      0 6px 1px rgba(0, 0, 0, 0.5),
+      0 0 5px rgba(0, 0, 0, 0.3),
+      0 1px 3px rgba(0, 0, 0, 0.6),
+      0 3px 5px rgba(0, 0, 0, 0.5),
+      0 5px 10px rgba(0, 0, 0, 0.6);
+  }
 }
 
 /* Mermaid 다이어그램 스타일 */
